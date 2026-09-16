@@ -1,0 +1,52 @@
+{
+  "must_answer": [
+    {
+      "question": "Is the model trained on customer records or only used on them?",
+      "header": "Train vs use",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Training only",
+          "description": "Records feed model training but not inference."
+        },
+        {
+          "label": "Inference only",
+          "description": "Records are scored by a pre-trained model."
+        },
+        {
+          "label": "Both",
+          "description": "Records are used for training and for inference."
+        }
+      ],
+      "impact": "high",
+      "default": "Both training and inference on customer records.",
+      "default_if_wrong": "If training is out of scope, the Article 6 analysis collapses to inference only.",
+      "confidence": "medium",
+      "rationale_md": "Article 6(4) compatibility test applies only to further processing."
+    }
+  ],
+  "optional": [
+    {
+      "question": "How long are the records retained after scoring?",
+      "header": "Retention",
+      "options": [
+        {
+          "label": "Under 6 months",
+          "description": "Short operational retention."
+        },
+        {
+          "label": "6-24 months",
+          "description": "Typical audit-driven retention."
+        }
+      ],
+      "impact": "low",
+      "default": "Retention of 12 months.",
+      "default_if_wrong": "A longer retention adds a storage-limitation issue the memo would have to answer.",
+      "confidence": "low"
+    }
+  ],
+  "default_assumptions_if_skipped": [
+    "Processing covers both training and inference.",
+    "Records are retained for 12 months."
+  ]
+}

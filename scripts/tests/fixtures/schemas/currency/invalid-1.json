@@ -1,0 +1,13 @@
+{
+  "_why": "status 'stale' is outside current|outdated_but_usable|do_not_use|manual_check|unchecked; _why is also rejected by additionalProperties:false.",
+  "checked_at": "2026-09-08",
+  "sources": [
+    {
+      "source_id": "gdpr-art-6",
+      "status": "stale",
+      "note": "n/a"
+    }
+  ],
+  "blocking": [],
+  "warnings": []
+}

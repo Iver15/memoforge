@@ -1,0 +1,30 @@
+{
+  "_why": "provenance 'guessed' is outside agent_saved|confirmed and raw_sha256 is not 64 hex chars; _why is also rejected by additionalProperties:false.",
+  "schema_version": 2,
+  "sources": {
+    "gdpr-art-6": {
+      "layer": "statutes",
+      "title": "GDPR Article 6",
+      "citation_form": "GDPR, Art. 6",
+      "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_at": "2026-09-08T09:40:00Z",
+      "retrieval_tool": "WebFetch",
+      "provenance": "guessed",
+      "tier": "critical",
+      "raw_path": "research/raw/statutes/gdpr-art-6.md",
+      "raw_sha256": "deadbeef",
+      "raw_chars": 10,
+      "liveness": {
+        "status": "ok",
+        "code": 200,
+        "checked_at": "2026-09-08T09:41:03Z"
+      },
+      "verification": {
+        "us": "n/a",
+        "us_by": null,
+        "eu_syntax_ok": true,
+        "checked_at": null
+      }
+    }
+  }
+}

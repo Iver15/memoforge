@@ -1,0 +1,89 @@
+{
+  "reasoning": "The same defect the citations reviewer raised also reads as a clarity defect of the section.",
+  "reviewer": "form",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 1,
+  "checklist": [
+    {
+      "id": "FRM-01",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-02",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-03",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-04",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-05",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-06",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-07",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-08",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-09",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-10",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-11",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-12",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-13",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    },
+    {
+      "id": "FRM-14",
+      "pass": true,
+      "evidence": "Heading levels run H1 -> H2 -> H3 without a gap."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "source_drift",
+      "section_id": "s-4-2",
+      "issue": "The cited paragraph no longer supports the proposition that it is attached to.",
+      "suggestion": "Repoint the citation or drop the proposition.",
+      "lens": "clarity"
+    }
+  ],
+  "verdict": "needs_revision"
+}

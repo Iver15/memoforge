@@ -1,0 +1,31 @@
+{
+  "iteration": 1,
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "instructions": [
+    {
+      "section_id": "s-4-1",
+      "source_reviewer": "logic",
+      "category": "missing_application",
+      "severity": "blocker",
+      "instruction": "Apply each limb of the legitimate-interests test to the training pipeline described in the Facts section."
+    },
+    {
+      "section_id": "s-4-2",
+      "source_reviewer": "deterministic",
+      "category": "C-02",
+      "severity": "blocker",
+      "instruction": "Restore the blockquote to the exact registered fragment or record a quote skip for this section.",
+      "resolution": "Citation audit outranks the form reviewer request to shorten the quote."
+    }
+  ],
+  "dropped": [
+    {
+      "section_id": "s-3-2",
+      "source_reviewer": "form",
+      "category": "ordering",
+      "severity": "minor",
+      "issue": "The exception is introduced before the rule it qualifies.",
+      "reason": "Form-only and minor; substance blockers take priority this iteration."
+    }
+  ]
+}

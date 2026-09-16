@@ -1,0 +1,763 @@
+"""Tests for scripts/memoforge/routing.py — the static routing table and the MCP estimate (ТЗ §4.3)."""
+
+from __future__ import annotations
+
+import json
+import shlex
+import sys
+import unittest
+from pathlib import Path
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+if str(PLUGIN_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+
+from memoforge import cli, limits, routing, schema, sources  # noqa: E402
+
+
+class JurisdictionTest(unittest.TestCase):
+    def test_gb_normalises_to_uk(self):
+        # analysis/05 §5: discover_sources("GB") answers with an empty list, the code is UK.
+        self.assertEqual("UK", routing.normalize_jurisdiction("GB"))
+        self.assertEqual("UK", routing.normalize_jurisdiction("gb"))
+        self.assertEqual("UK", routing.normalize_jurisdiction("United Kingdom"))
+
+    def test_known_codes_pass_through_upper_cased(self):
+        self.assertEqual("EU", routing.normalize_jurisdiction("eu"))
+        self.assertEqual("US", routing.normalize_jurisdiction("USA"))
+        self.assertEqual("CY", routing.normalize_jurisdiction(" cy "))
+
+    def test_empty_jurisdiction_is_empty(self):
+        self.assertEqual("", routing.normalize_jurisdiction(None))
+        self.assertEqual("", routing.normalize_jurisdiction(""))
+
+    def test_a_collective_spelling_of_the_member_states_resolves_to_eu(self):
+        # D34-02: the plan of the 20260910 run said "EEA member states" and got the empty default.
+        for spelling in ("EEA member states", "EEA_member_states", "eea states", "Member States"):
+            with self.subTest(spelling=spelling):
+                self.assertEqual("EU", routing.normalize_jurisdiction(spelling))
+
+
+class MemberStateTest(unittest.TestCase):
+    """D34-02: the national statute book behind the EU row, and the group spellings above it."""
+
+    def test_a_collective_spelling_is_flagged_as_generic_and_still_routed(self):
+        row = routing.route("statutes", "EEA member states")
+        self.assertEqual("EU", row["jurisdiction"])
+        self.assertTrue(row["known"])
+        self.assertTrue(row["member_state_generic"])
+        self.assertEqual(["publications.europa.eu", "eur-lex.europa.eu"], row["domains"])
+
+    def test_a_concrete_code_is_not_generic(self):
+        for code in ("EU", "DE", "ZZ"):
+            with self.subTest(jurisdiction=code):
+                self.assertFalse(routing.route("statutes", code)["member_state_generic"])
+
+    def test_every_member_state_has_a_statute_portal_and_a_supervisory_authority(self):
+        for code in routing.MEMBER_STATES:
+            with self.subTest(jurisdiction=code):
+                statutes = routing.route("statutes", code)
+                self.assertTrue(statutes["known"])
+                self.assertTrue(statutes["domains"])
+                doctrine = routing.route("doctrine", code)
+                self.assertTrue(doctrine["known"])
+                self.assertTrue(doctrine["domains"])
+
+    def test_the_portals_are_the_official_statute_books(self):
+        expected = {
+            "DE": "gesetze-im-internet.de",
+            # D-148: legifrance.gouv.fr is Cloudflare-blocked, so the fetchable French portal is
+            # code.travail.gouv.fr; Légifrance stays behind it as the registered address.
+            "FR": "code.travail.gouv.fr",
+            "IE": "irishstatutebook.ie",
+            "NL": "wetten.overheid.nl",
+            "ES": "boe.es",
+            "IT": "normattiva.it",
+            "AT": "data.bka.gv.at",
+        }
+        self.assertEqual(sorted(expected), sorted(routing.MEMBER_STATES))
+        for code, domain in expected.items():
+            with self.subTest(jurisdiction=code):
+                self.assertEqual(domain, routing.route("statutes", code)["domains"][0])
+
+    def test_german_statutes_name_the_english_translations_and_the_mirrors(self):
+        row = routing.route("statutes", "DE")
+        self.assertIn("/englisch_", row["note"])
+        self.assertEqual(["gesetze-im-internet.de", "dejure.org", "buzer.de"], row["domains"])
+
+    def test_german_statutes_say_the_english_page_has_no_pinpoint_and_ldh_no_bdsg(self):
+        # analysis/38 §4.1: /englisch_bdsg is one 194 KB page with `name="p0000"` anchors only,
+        # and `ldh_search` returned five hits for the BDSG with the act itself among none of them.
+        note = routing.route("statutes", "DE")["note"]
+        self.assertIn("no per-section anchors", note)
+        self.assertIn("/bdsg_2018/__<N>.html", note)
+        self.assertIn("ldh_search does not index the BDSG", note)
+
+    def test_austrian_statutes_route_through_the_open_data_api_not_the_blocked_portal(self):
+        # analysis/38 §4.3: www.ris.bka.gv.at answers 503 to a bot check on every path.
+        row = routing.route("statutes", "AT")
+        self.assertEqual(["data.bka.gv.at", "ris.bka.gv.at"], row["domains"])
+        self.assertIn("data.bka.gv.at/ris/api/v2.6/Bundesrecht", row["note"])
+        self.assertIn("ogd.ris.bka.gv.at/Dokumente/Bundesnormen/<NOR>/<NOR>.html", row["note"])
+        self.assertIn("503", row["note"])
+
+    def test_french_statutes_route_through_justicelibre_not_the_blocked_portal(self):
+        # analysis/39 §2.1: get_law_article(code="CT", num="L1121-1") answers with the article text.
+        row = routing.route("statutes", "FR")
+        self.assertEqual(
+            [
+                "justicelibre_get_law_article",
+                "justicelibre_resolve_law_number",
+                "ldh_resolve_reference",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["code.travail.gouv.fr", "legifrance.gouv.fr"], row["domains"])
+        note = row["note"]
+        self.assertIn('get_law_article(code="CT", num="L1121-1")', note)
+        self.assertIn("79 abbreviations", note)
+        self.assertIn("source_url", note)
+        self.assertIn("Cloudflare", note)
+        self.assertIn("code.travail.gouv.fr/code-du-travail/<article>", note)
+
+    def test_french_statutes_name_the_code_base_not_the_case_law_base_as_the_reserve(self):
+        # analysis/39 §9.2: FR/legifrance is 882 decisions; FR/LegifranceCodes is 229 364 articles.
+        note = routing.route("statutes", "FR")["note"]
+        self.assertIn("FR/LegifranceCodes", note)
+        self.assertIn("229 364", note)
+        self.assertNotIn("considered_excluded", note)
+        self.assertIn("ldh_search is not a search engine", note)
+
+    def test_french_case_law_is_the_one_member_state_court_row(self):
+        # analysis/39 §2.1: justicelibre covers the judicial, administrative and constitutional orders.
+        row = routing.route("case_law", "FR")
+        self.assertTrue(row["known"])
+        self.assertEqual(
+            [
+                "justicelibre_search_judiciaire",
+                "justicelibre_get_decision_judiciaire",
+                "justicelibre_search_conseil_etat",
+                "justicelibre_get_ce_decision",
+                "justicelibre_search_cc",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["courdecassation.fr"], row["domains"])
+        self.assertIn("255-byte JavaScript redirect shell", row["note"])
+        self.assertIn("is not a --url", row["note"])
+
+    def test_french_doctrine_reads_the_cnil_through_justicelibre(self):
+        row = routing.route("doctrine", "FR")
+        self.assertEqual(
+            ["justicelibre_search_cnil", "justicelibre_search_doctrine", "WebSearch", "WebFetch"],
+            row["tools"],
+        )
+        self.assertEqual(["cnil.fr"], row["domains"])
+
+    def test_italian_statutes_reach_the_article_through_the_open_data_api(self):
+        # analysis/39 §8.5: Normattiva has published an OpenAPI without authorisation since 2025.
+        note = routing.route("statutes", "IT")["note"]
+        self.assertIn("uri-res/N2Ls?urn:nir:", note)
+        self.assertIn("500", note)
+        self.assertIn("api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1", note)
+        self.assertIn("POST /atto/dettaglio-atto-urn", note)
+        self.assertIn("~artN!vig=YYYY-MM-DD", note)
+        self.assertIn("CC BY 4.0", note)
+        self.assertNotIn("not reachable statelessly", note)
+        self.assertIn("mf sources fetch (D-149)", note)
+
+    def test_the_italian_note_shows_the_command_that_executes_the_post(self):
+        """D-151: the note prescribed a POST that `mf sources fetch` could not make (GET only).
+
+        The command is not read for its words: it is split and handed to the real CLI parser, so a
+        note that names a flag the command does not have fails here.
+        """
+        note = routing.route("statutes", "IT")["note"]
+        printed = note[note.index("mf sources fetch --workdir") :].split(", where")[0]
+        self.assertIn("/atto/dettaglio-atto-urn", printed)
+        tokens = shlex.split(printed)
+        self.assertEqual(["mf", "sources", "fetch"], tokens[:3])
+        args = cli.build_parser().parse_args(tokens[1:])
+        self.assertIs(sources.run_fetch, args.func)
+        self.assertEqual("POST", args.method)
+        self.assertEqual("statutes", args.layer)
+        self.assertTrue(args.url.startswith("https://api.normattiva.it/"), args.url)
+        self.assertEqual(
+            {"urn": "urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01"},
+            json.loads(args.json_body),
+        )
+
+    def test_the_official_api_notes_send_a_header_bearing_call_through_sources_fetch(self):
+        # D-148: WebFetch takes no headers, so every Accept-bound channel names the command.
+        for code in ("IT", "ES", "NL"):
+            with self.subTest(jurisdiction=code):
+                self.assertIn("mf sources fetch (D-149)", routing.route("statutes", code)["note"])
+
+    def test_spanish_statutes_name_the_boe_block_endpoint_and_its_accept_header(self):
+        note = routing.route("statutes", "ES")["note"]
+        self.assertIn(
+            "boe.es/datosabiertos/api/legislacion-consolidada/id/{id}/texto/bloque/{aN}", note
+        )
+        self.assertIn("Accept: application/xml", note)
+
+    def test_dutch_statutes_drop_the_dead_xml_php_for_the_repository_manifest(self):
+        note = routing.route("statutes", "NL")["note"]
+        self.assertIn("wetten.overheid.nl/xml.php no longer exists", note)
+        self.assertIn("repository.officiele-overheidspublicaties.nl/bwb/{BWBID}/_manifest.xml", note)
+        self.assertIn("_latestItem", note)
+
+    def test_german_statutes_name_the_bulk_index_and_the_neuris_caveat(self):
+        note = routing.route("statutes", "DE")["note"]
+        self.assertIn("gesetze-im-internet.de/gii-toc.xml", note)
+        self.assertIn("<act>/xml.zip", note)
+        self.assertIn("<norm>", note)
+        self.assertIn("NeuRIS", note)
+        self.assertIn("not consolidated law", note)
+
+    def test_irish_statutes_say_the_per_section_xml_is_404_and_the_html_is_not(self):
+        note = routing.route("statutes", "IE")["note"]
+        self.assertIn("404", note)
+        self.assertIn("/enacted/en/html", note)
+        self.assertIn("CC BY 4.0", note)
+
+    def test_austrian_statutes_carry_the_ogd_usage_conditions(self):
+        # analysis/39 §8.5: breaching them gets the IP blocked, and the note has to say so.
+        note = routing.route("statutes", "AT")["note"]
+        self.assertIn("0.5 requests per second", note)
+        self.assertIn("no parallel connections", note)
+        self.assertIn("20:00 and 05:00", note)
+        self.assertIn("ris.it@bka.gv.at", note)
+
+    def test_a_member_state_starts_at_its_portal_because_legalviz_is_eu_only(self):
+        for code in routing.MEMBER_STATES:
+            if code == "FR":
+                continue  # D-148: France has a bundled server of its own.
+            with self.subTest(jurisdiction=code):
+                self.assertEqual(["WebFetch", "ldh_search"], routing.route("statutes", code)["tools"])
+
+    def test_member_state_doctrine_points_at_the_national_authority(self):
+        self.assertEqual(["cnil.fr"], routing.route("doctrine", "FR")["domains"])
+        self.assertEqual(["dpc.ie"], routing.route("doctrine", "IE")["domains"])
+        self.assertIn("Article 35(4)", routing.route("doctrine", "AT")["note"])
+
+    def test_member_state_case_law_stays_off_table(self):
+        # No national court row: `known: False` is what tells the researcher to find the portal.
+        # France is the exception D-148 makes, because a bundled server covers its three orders.
+        row = routing.route("case_law", "DE")
+        self.assertFalse(row["known"])
+        self.assertEqual([], row["domains"])
+        self.assertEqual(["FR"], sorted(routing.MEMBER_STATE_ROWS["case_law"]))
+
+    def test_an_unknown_jurisdiction_is_the_only_row_without_a_preferred_domain(self):
+        # The researcher prompt reads "no preferred domain" as "off-table"; keep the two in step.
+        for layer in routing.LAYERS:
+            for code in ("EU", "UK", "US", "CH") + routing.MEMBER_STATES + ("ZZ", "PL"):
+                with self.subTest(layer=layer, jurisdiction=code):
+                    row = routing.route(layer, code)
+                    self.assertEqual(row["known"], bool(row["domains"]))
+
+    @staticmethod
+    def allowlisted_hosts() -> set:
+        allowed = set()
+        raw = (PLUGIN_ROOT / "hooks" / "allowlist.txt").read_text(encoding="utf-8-sig")
+        for line in raw.split("\n"):
+            host = line.split("#", 1)[0].strip().lower()
+            if host:
+                allowed.add(host)
+        return allowed
+
+    def test_every_routed_domain_is_auto_allowed_by_the_fetch_gate(self):
+        allowed = self.allowlisted_hosts()
+        for layer in routing.LAYERS:
+            for code in ("EU", "UK", "US") + routing.MEMBER_STATES:
+                for domain in routing.route(layer, code)["domains"]:
+                    with self.subTest(layer=layer, jurisdiction=code, domain=domain):
+                        suffixes = [host for host in allowed if domain == host or domain.endswith("." + host)]
+                        self.assertTrue(suffixes, f"{domain} is not in hooks/allowlist.txt")
+
+    def test_the_two_hosts_the_sweep_added_to_the_table_are_covered_by_the_allowlist(self):
+        # D-145: `data.bka.gv.at` is a line of its own, Cellar rides the `europa.eu` suffix rule.
+        allowed = self.allowlisted_hosts()
+        self.assertIn("data.bka.gv.at", allowed)
+        self.assertNotIn("publications.europa.eu", allowed)
+        self.assertIn("europa.eu", allowed)
+
+    def test_the_hosts_the_catalogue_added_to_the_table_are_covered_by_the_allowlist(self):
+        # D-148: the French keyless reader, the Cour de cassation and the two Swiss hosts.
+        allowed = self.allowlisted_hosts()
+        for host in ("code.travail.gouv.fr", "courdecassation.fr", "fedlex.admin.ch", "bger.ch"):
+            with self.subTest(host=host):
+                self.assertIn(host, allowed)
+
+
+class ExtraJurisdictionTest(unittest.TestCase):
+    """D-148: Switzerland is not an EU member state, so it sits beside `MEMBER_STATE_ROWS`."""
+
+    def test_switzerland_is_not_smuggled_into_the_member_states(self):
+        self.assertNotIn("CH", routing.MEMBER_STATES)
+        self.assertEqual(["CH"], sorted(routing.EXTRA_JURISDICTION_ROWS["statutes"]))
+
+    def test_every_layer_of_the_extra_table_is_a_known_row(self):
+        for layer in routing.LAYERS:
+            with self.subTest(layer=layer):
+                row = routing.route(layer, "CH")
+                self.assertTrue(row["known"])
+                self.assertTrue(row["domains"])
+                self.assertTrue(row["note"])
+
+    def test_swiss_statutes_call_get_law_by_sr_number_and_article(self):
+        # analysis/39 §2.2: get_law{"sr_number":"220","article":"328b"} returned Art. 328b OR.
+        row = routing.route("statutes", "CH")
+        self.assertEqual(
+            [
+                "opencaselaw_get_law",
+                "opencaselaw_search_laws",
+                "opencaselaw_get_article_history",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["fedlex.admin.ch"], row["domains"])
+        self.assertIn('get_law(sr_number="220", article="328b")', row["note"])
+
+    def test_the_swiss_statute_note_makes_the_pending_consolidations_the_currency_check(self):
+        note = routing.route("statutes", "CH")["note"]
+        self.assertIn("consolidation date", note)
+        self.assertIn("enters into force", note)
+        self.assertIn("currency check", note)
+
+    def test_swiss_case_law_names_the_four_tools_and_leaves_entscheidsuche_out(self):
+        row = routing.route("case_law", "CH")
+        self.assertEqual(
+            [
+                "opencaselaw_search_decisions",
+                "opencaselaw_get_decision",
+                "opencaselaw_get_regeste",
+                "opencaselaw_find_leading_cases",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["bger.ch"], row["domains"])
+        self.assertIn("entscheidsuche.ch", row["note"])
+        self.assertIn("not bundled", row["note"])
+
+    def test_swiss_doctrine_reads_the_commentaries(self):
+        row = routing.route("doctrine", "CH")
+        self.assertEqual(
+            [
+                "opencaselaw_get_doctrine",
+                "opencaselaw_search_commentaries",
+                "WebSearch",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["edoeb.admin.ch"], row["domains"])
+
+    def test_the_swiss_rows_never_reach_the_intake_digest(self):
+        # D-110: the digest is EU/UK/US only, whatever `route()` merges in behind it.
+        self.assertNotIn("CH ", routing.routing_digest({"opencaselaw": "x"}))
+        self.assertNotIn("opencaselaw", routing.routing_digest({"opencaselaw": "x"}))
+
+    def test_every_routed_domain_of_the_extra_table_is_auto_allowed(self):
+        allowed = MemberStateTest.allowlisted_hosts()
+        for layer in routing.LAYERS:
+            for domain in routing.route(layer, "CH")["domains"]:
+                with self.subTest(layer=layer, domain=domain):
+                    suffixes = [
+                        host for host in allowed if domain == host or domain.endswith("." + host)
+                    ]
+                    self.assertTrue(suffixes, f"{domain} is not in hooks/allowlist.txt")
+
+
+class RouteTest(unittest.TestCase):
+    def test_eu_statutes_resolve_reference_first_then_eur_lex(self):
+        # D-105: LegalViz resolves the CELEX id and slices the act; LDH and EUR-Lex stay behind it.
+        row = routing.route("statutes", "EU")
+        self.assertEqual(["legalviz_resolve", "legalviz_get_law_part"], row["tools"][:2])
+        self.assertEqual(
+            ["ldh_resolve_reference", "ldh_search", "WebFetch"], row["tools"][2:]
+        )
+        self.assertEqual(["publications.europa.eu", "eur-lex.europa.eu"], row["domains"])
+        self.assertIn("EU/ConsolidatedLegislation", row["ldh_sources"])
+
+    def test_eu_statutes_take_a_slice_never_the_whole_act(self):
+        note = routing.route("statutes", "EU")["note"]
+        self.assertIn("part=structure", note)
+        self.assertIn("version=", note)
+        self.assertIn("never pull a whole act", note)
+
+    def test_eu_statutes_carry_the_cellar_call_contract_and_the_waf_escape(self):
+        # D-145 / analysis/38 §1.5: Cellar is the one EU host that never went into a WAF window,
+        # and it only answers with the document for exactly `Accept: application/xhtml+xml`.
+        row = routing.route("statutes", "EU")
+        self.assertEqual("publications.europa.eu", row["domains"][0])
+        note = row["note"]
+        self.assertIn("https://publications.europa.eu/resource/celex/<CELEX>", note)
+        self.assertIn("Accept: application/xhtml+xml", note)
+        self.assertIn("Accept-Language: eng", note)
+        self.assertIn("60 MB", note)
+        self.assertIn("404", note)
+        self.assertIn("x-amzn-waf-action: challenge", note)
+        self.assertIn("retrying is useless", note)
+
+    def test_eu_statutes_name_the_consolidated_celex_as_the_pinpoint_form(self):
+        # analysis/38 §1.5: `id="art_N"` exists only on `0YYYYRNNNN-YYYYMMDD`, not on the OJ form.
+        note = routing.route("statutes", "EU")["note"]
+        self.assertIn('id="art_N"', note)
+        self.assertIn("0YYYYRNNNN-YYYYMMDD", note)
+        self.assertIn("versionCelex", note)
+        self.assertIn("02024R1689-20260727", note)
+        self.assertIn("32026R1744", note)
+
+    def test_eu_case_law_finds_the_cjeu_judgments_through_legalviz(self):
+        # D-105: the two LegalViz tools name the interpreting judgments; the text comes from CURIA.
+        row = routing.route("case_law", "EU")
+        self.assertEqual(
+            ["legalviz_get_case_law", "legalviz_get_citing_provisions"], row["tools"][:2]
+        )
+        # D-148: justicelibre is the alternative text source, behind LegalViz and before LDH.
+        self.assertEqual(
+            ["justicelibre_search_cjue", "justicelibre_get_decision_cjue"], row["tools"][2:4]
+        )
+        self.assertEqual(["ldh_resolve_reference", "ldh_search", "WebFetch"], row["tools"][4:])
+        self.assertIn("EU/CURIA", row["ldh_sources"])
+        self.assertEqual(["publications.europa.eu", "eur-lex.europa.eu"], row["domains"])
+
+    def test_eu_case_law_note_says_legalviz_answers_with_metadata_not_judgment_text(self):
+        note = routing.route("case_law", "EU")["note"]
+        self.assertIn("not with the judgment text", note)
+
+    def test_eu_case_law_registers_a_judgment_at_its_celex_address_on_either_host(self):
+        # D34-14: all eight CJEU sources of the 20260910 run were registered on juris/liste.jsf.
+        row = routing.route("case_law", "EU")
+        self.assertEqual("publications.europa.eu", row["domains"][0])
+        self.assertIn("6<year>CJ<number>", row["note"])
+        self.assertIn("https://publications.europa.eu/resource/celex/62021CJ0252", row["note"])
+        self.assertIn("uri=CELEX:62021CJ0252", row["note"])
+
+    def test_curia_is_gone_from_the_eu_case_law_row_and_from_every_other_row(self):
+        # D-145 / analysis/38 §2: every curia path answers with one byte-identical 130 KB shell.
+        row = routing.route("case_law", "EU")
+        self.assertNotIn("curia.europa.eu", row["domains"])
+        self.assertIn("off the table", row["note"])
+        self.assertIn("JavaScript shell", row["note"])
+        for layer in routing.LAYERS:
+            for code in ("EU", "UK", "US") + routing.MEMBER_STATES:
+                with self.subTest(layer=layer, jurisdiction=code):
+                    self.assertNotIn("curia.europa.eu", routing.route(layer, code)["domains"])
+
+    def test_the_eu_case_law_note_no_longer_claims_older_judgments_need_curia(self):
+        note = routing.route("case_law", "EU")["note"]
+        self.assertNotIn("covers 2015 onwards", note)
+        self.assertIn("older judgments", note)
+
+    def test_eu_doctrine_is_unchanged_by_legalviz(self):
+        row = routing.route("doctrine", "EU")
+        self.assertEqual(["WebSearch", "ldh_search", "WebFetch"], row["tools"])
+
+    def test_no_non_eu_row_routes_through_legalviz(self):
+        for layer in routing.LAYERS:
+            for code in ("UK", "US"):
+                with self.subTest(layer=layer, jurisdiction=code):
+                    tools = " ".join(routing.route(layer, code)["tools"])
+                    self.assertNotIn("legalviz", tools)
+
+    def test_no_non_uk_row_routes_through_uk_legal(self):
+        for layer in routing.LAYERS:
+            for code in ("EU", "US", "ZZ"):
+                with self.subTest(layer=layer, jurisdiction=code):
+                    tools = " ".join(routing.route(layer, code)["tools"])
+                    self.assertNotIn("uklegal", tools)
+
+    def test_uk_doctrine_is_unchanged_by_the_uk_legal_server(self):
+        row = routing.route("doctrine", "UK")
+        self.assertEqual(["WebSearch", "ldh_search", "WebFetch"], row["tools"])
+        self.assertIn("UK/ICO", row["ldh_sources"])
+
+    def test_uk_statutes_go_to_legislation_gov_uk(self):
+        # D-105: the UK Legal server slices the act; legislation.gov.uk is the fail-soft portal.
+        row = routing.route("statutes", "gb")
+        self.assertEqual("UK", row["jurisdiction"])
+        self.assertEqual(
+            [
+                "uklegal_legislation_search",
+                "uklegal_legislation_get_toc",
+                "uklegal_legislation_get_section",
+                "WebFetch",
+                "ldh_search",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["legislation.gov.uk"], row["domains"])
+
+    def test_uk_statutes_note_carries_the_in_force_metadata_and_the_citation_tools(self):
+        note = routing.route("statutes", "UK")["note"]
+        self.assertIn("extent and in-force metadata", note)
+        self.assertIn("uklegal_citations_resolve", note)
+        self.assertIn("uklegal_citations_format_oscola", note)
+
+    def test_uk_case_law_uses_find_case_law_and_never_bailii(self):
+        row = routing.route("case_law", "UK")
+        self.assertEqual(
+            [
+                "uklegal_case_law_search",
+                "uklegal_judgment_get_header",
+                "uklegal_judgment_get_index",
+                "uklegal_judgment_get_paragraph",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertIn("caselaw.nationalarchives.gov.uk", row["domains"])
+        self.assertNotIn("bailii.org", " ".join(row["domains"]))
+        self.assertIn("BAILII is excluded", row["note"])
+
+    def test_us_case_law_uses_courtlistener(self):
+        row = routing.route("case_law", "US")
+        self.assertEqual("courtlistener_search", row["tools"][0])
+        self.assertIn("courtlistener_analyze_citations", row["tools"])
+
+    def test_us_case_law_note_separates_the_blocked_html_from_the_anonymous_rest_search(self):
+        # analysis/38 §5: courtlistener.com/opinion/** is a stable AWS WAF 202; the MCP wants OAuth.
+        note = routing.route("case_law", "US")["note"]
+        self.assertIn("OAuth", note)
+        self.assertIn("202", note)
+        self.assertIn("courtlistener.com/api/rest/v4/search/", note)
+
+    def test_us_regulation_never_routes_to_ecfr_or_federal_register(self):
+        row = routing.route("statutes", "US")
+        self.assertIn("govinfo.gov", row["domains"])
+        joined = " ".join(row["domains"])
+        self.assertNotIn("ecfr", joined)
+        self.assertNotIn("federalregister", joined)
+
+    def test_us_statutes_prefer_the_year_free_govinfo_link_form(self):
+        # analysis/38 §5: /link/uscode/15/45?link-type=html redirected to the USCODE-2024 edition.
+        note = routing.route("statutes", "US")["note"]
+        self.assertIn("govinfo.gov/link/uscode/<title>/<section>?link-type=html", note)
+
+    def test_us_statutes_call_the_ecfr_stub_a_200_and_send_the_reader_to_the_apis(self):
+        # analysis/38 §5.1: the stub answers 200, so liveness alone cannot tell it from a document.
+        note = routing.route("statutes", "US")["note"]
+        self.assertIn("HTTP 200", note)
+        self.assertIn("Request Access", note)
+        self.assertIn("federalregister.gov/api/v1/documents.json", note)
+
+    def test_doctrine_falls_back_to_edpb_domain_for_the_eu(self):
+        row = routing.route("doctrine", "EU")
+        self.assertIn("edpb.europa.eu", row["domains"])
+        self.assertIn("EU/EDPB", row["ldh_sources"])
+
+    def test_unknown_jurisdiction_falls_back_to_the_layer_default(self):
+        row = routing.route("doctrine", "ZZ")
+        self.assertFalse(row["known"])
+        self.assertEqual("WebSearch", row["tools"][0])
+
+    def test_unknown_layer_raises(self):
+        with self.assertRaises(ValueError):
+            routing.route("secondary", "EU")
+
+    def test_routing_for_is_the_cartesian_product(self):
+        rows = routing.routing_for(["statutes", "case_law"], ["EU", "GB"])
+        self.assertEqual(4, len(rows))
+        self.assertEqual({"EU", "UK"}, {row["jurisdiction"] for row in rows})
+
+
+class McpServerAliasTest(unittest.TestCase):
+    """D-105: a routing tool is `<alias>_<suffix>` of a bundled server, not a host namespace."""
+
+    def test_every_bundled_server_of_the_manifest_has_an_alias(self):
+        manifest = json.loads(
+            (PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8-sig")
+        )["mcpServers"]
+        self.assertEqual(sorted(manifest), sorted(routing.MCP_SERVERS.values()))
+        self.assertEqual("legalviz", routing.MCP_SERVERS["legalviz"])
+        self.assertEqual("uk-legal", routing.MCP_SERVERS["uklegal"])
+        self.assertEqual("https://api.legalviz.eu/mcp", manifest["legalviz"]["url"])
+        self.assertEqual("https://uk-legal-mcp.fly.dev/mcp", manifest["uk-legal"]["url"])
+        # D-148: two more hosted keyless servers, France and Switzerland.
+        self.assertEqual("justicelibre", routing.MCP_SERVERS["justicelibre"])
+        self.assertEqual("opencaselaw", routing.MCP_SERVERS["opencaselaw"])
+        self.assertEqual("https://justicelibre.org/mcp", manifest["justicelibre"]["url"])
+        self.assertEqual("https://mcp.opencaselaw.ch/mcp", manifest["opencaselaw"]["url"])
+
+    def test_every_server_is_named_for_the_sources_question_of_the_plan_gate(self):
+        self.assertEqual(sorted(routing.MCP_SERVERS), sorted(routing.MCP_SERVER_LABELS))
+        self.assertEqual("JusticeLibre (FR)", routing.MCP_SERVER_LABELS["justicelibre"])
+        self.assertEqual("OpenCaseLaw (CH)", routing.MCP_SERVER_LABELS["opencaselaw"])
+
+    def test_every_mcp_tool_of_the_table_starts_with_a_known_alias(self):
+        for layer in routing.LAYERS:
+            for code in ("EU", "UK", "US", "ZZ", "CH") + routing.MEMBER_STATES:
+                for tool in routing.route(layer, code)["tools"]:
+                    if tool in ("WebFetch", "WebSearch"):
+                        continue
+                    with self.subTest(layer=layer, jurisdiction=code, tool=tool):
+                        alias = tool.split("_", 1)[0]
+                        self.assertIn(alias, routing.MCP_SERVERS)
+
+
+class LayerRulesTest(unittest.TestCase):
+    def test_only_doctrine_uses_websearch_as_a_primary_tool(self):
+        self.assertFalse(routing.layer_rules("statutes")["websearch_primary"])
+        self.assertFalse(routing.layer_rules("case_law")["websearch_primary"])
+        self.assertTrue(routing.layer_rules("doctrine")["websearch_primary"])
+
+    def test_layer_rules_are_copies(self):
+        row = routing.layer_rules("statutes")
+        row["websearch_primary"] = True
+        self.assertFalse(routing.layer_rules("statutes")["websearch_primary"])
+
+    def test_unknown_layer_raises(self):
+        with self.assertRaises(ValueError):
+            routing.layer_rules("nope")
+
+
+class EstimateTest(unittest.TestCase):
+    def test_research_share_is_layers_times_issues_times_two(self):
+        estimate = routing.estimate_calls(["statutes", "case_law", "doctrine"], 4)
+        self.assertEqual(24, estimate["research"])
+
+    def test_total_adds_the_intake_and_currency_share(self):
+        estimate = routing.estimate_calls(["statutes"], 2)
+        self.assertEqual(
+            4 + limits.MCP_CURRENCY_CALLS_PER_LAYER + limits.MCP_INTAKE_CALLS, estimate["total"]
+        )
+
+    def test_zero_issues_still_costs_the_fixed_share(self):
+        estimate = routing.estimate_calls(["statutes"], 0)
+        self.assertEqual(0, estimate["research"])
+        self.assertGreater(estimate["total"], 0)
+
+    def test_budget_verdict_flags_a_full_run_over_the_brief_budget(self):
+        verdict = routing.budget_verdict(["statutes", "case_law", "doctrine"], 6, {"ldh": 8, "courtlistener": 10})
+        self.assertTrue(verdict["exceeds_run_budget"])
+        self.assertTrue(verdict["exceeds"])
+
+    def test_budget_verdict_is_quiet_for_a_small_brief_run(self):
+        verdict = routing.budget_verdict(["statutes"], 1, {"ldh": 8, "courtlistener": 10})
+        self.assertFalse(verdict["exceeds"])
+
+    def test_daily_upper_bound_comes_from_limits(self):
+        verdict = routing.budget_verdict(["statutes"], 1, {"ldh": 8})
+        self.assertEqual(limits.MCP_PROVIDER_DAILY_LIMITS["ldh"], verdict["daily_upper_bound"])
+
+    def test_the_estimate_carries_the_new_server_daily_ceilings(self):
+        # D-105: every bundled server the routing table names has a modelled daily upper bound.
+        estimate = routing.estimate_calls(["statutes"], 1)
+        self.assertEqual(
+            sorted(routing.MCP_SERVERS), sorted(estimate["provider_daily_limits"])
+        )
+        # D-107: 60 is a safety ceiling — neither free server publishes a quota.
+        self.assertEqual(60, estimate["provider_daily_limits"]["legalviz"])
+        self.assertEqual(60, estimate["provider_daily_limits"]["uklegal"])
+
+    def test_a_new_server_run_budget_is_bounded_by_its_daily_ceiling(self):
+        for name in ("legalviz", "uklegal"):
+            with self.subTest(server=name):
+                verdict = routing.budget_verdict(["statutes"], 1, {name: 8})
+                self.assertEqual(
+                    limits.MCP_PROVIDER_DAILY_LIMITS[name], verdict["daily_upper_bound"]
+                )
+
+
+class DiscoverCacheTest(unittest.TestCase):
+    def test_cache_file_exists_and_validates_against_the_internal_schema(self):
+        path = routing.discover_cache_path()
+        self.assertTrue(path.is_file(), f"missing {path}")
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        self.assertEqual([], schema.validate(data, "internal"))
+        self.assertEqual("routing", data["kind"])
+
+    def test_cache_carries_the_ldh_source_names_of_analysis_05(self):
+        self.assertEqual(
+            ["EU/EUR-Lex", "EU/ConsolidatedLegislation", "EU/CURIA", "EU/EDPB", "EU/GDPRhub"],
+            routing.ldh_sources("EU"),
+        )
+        self.assertIn("UK/Legislation", routing.ldh_sources("UK"))
+        self.assertIn("UK/ICO", routing.ldh_sources("UK"))
+        self.assertTrue(routing.ldh_sources("US"))
+
+    def test_cache_is_read_through_the_normalised_country_code(self):
+        self.assertEqual(routing.ldh_sources("UK"), routing.ldh_sources("gb"))
+
+    def test_unknown_country_has_no_cached_sources(self):
+        self.assertEqual([], routing.ldh_sources("ZZ"))
+
+
+class RoutingDigestTest(unittest.TestCase):
+    """D-110: the intake analyst is told what to call first, per jurisdiction."""
+
+    ALL = {"ldh": "a", "courtlistener": "b", "legalviz": "c", "uklegal": "d", "other": []}
+
+    def lines(self, connected: dict) -> dict:
+        rows = {}
+        for line in routing.routing_digest(connected).splitlines():
+            head, _, tail = line.partition(": ")
+            rows[head] = [tool.strip() for tool in tail.split("→")]
+        return rows
+
+    def test_it_is_two_layers_by_three_jurisdictions_and_stays_short(self):
+        digest = routing.routing_digest(self.ALL).splitlines()
+        self.assertEqual(len(digest), 6)
+        self.assertLessEqual(len(digest), 8)
+        self.assertEqual(
+            [line.split(":")[0] for line in digest],
+            ["EU statutes", "UK statutes", "US statutes", "EU case_law", "UK case_law", "US case_law"],
+        )
+        self.assertNotIn("doctrine", routing.routing_digest(self.ALL))
+
+    def test_every_connected_server_keeps_its_place_in_the_tool_order(self):
+        rows = self.lines(self.ALL)
+        self.assertEqual(
+            rows["EU statutes"],
+            [
+                "legalviz_resolve",
+                "legalviz_get_law_part",
+                "ldh_resolve_reference",
+                "ldh_search",
+                "WebFetch publications.europa.eu",
+            ],
+        )
+        self.assertEqual(rows["US case_law"][0], "courtlistener_search")
+
+    def test_a_server_that_is_not_connected_drops_out_of_its_line(self):
+        rows = self.lines({"ldh": "a", "other": []})
+        self.assertEqual(
+            rows["EU statutes"],
+            ["ldh_resolve_reference", "ldh_search", "WebFetch publications.europa.eu"],
+        )
+        self.assertEqual(rows["UK case_law"], ["WebFetch caselaw.nationalarchives.gov.uk"])
+        for line in routing.routing_digest({"ldh": "a"}).splitlines():
+            self.assertNotIn("legalviz", line)
+            self.assertNotIn("uklegal", line)
+
+    def test_with_nothing_connected_every_line_still_names_a_reachable_tool(self):
+        rows = self.lines({})
+        self.assertEqual(len(rows), 6)
+        for label, tools in rows.items():
+            with self.subTest(row=label):
+                for tool in tools:
+                    self.assertTrue(tool.startswith("Web"), tools)
+
+    def test_the_web_fallback_carries_the_preferred_domain(self):
+        rows = self.lines({})
+        self.assertEqual(rows["US statutes"], ["WebFetch govinfo.gov"])
+        self.assertEqual(rows["EU case_law"], ["WebFetch publications.europa.eu"])
+
+    def test_the_member_state_rows_stay_out_of_the_digest(self):
+        # D-110 keeps the intake digest at six lines; the national rows are `route()`-only.
+        digest = routing.routing_digest(self.ALL)
+        self.assertEqual(6, len(digest.splitlines()))
+        for code in routing.MEMBER_STATES:
+            self.assertNotIn(f"{code} statutes", digest)
+
+    def test_a_probe_that_could_not_be_read_is_the_same_as_nothing_connected(self):
+        self.assertEqual(routing.routing_digest({}), routing.routing_digest(None))
+
+
+if __name__ == "__main__":
+    unittest.main()

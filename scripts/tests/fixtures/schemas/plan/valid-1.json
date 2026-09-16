@@ -1,0 +1,29 @@
+{
+  "classification": "regulatory_analysis",
+  "jurisdictions": [
+    "EU",
+    "CY"
+  ],
+  "doctrine_required": true,
+  "estimated_complexity": "high",
+  "issues": [
+    {
+      "issue_id": "i1",
+      "title": "Lawful basis for AI training on customer records",
+      "question": "Can legitimate interests support model training on customer records?",
+      "jurisdictions": [
+        "EU"
+      ]
+    },
+    {
+      "issue_id": "i2",
+      "title": "Human oversight duties for the deployed system",
+      "question": "What human oversight does the AI Act require for this deployment?",
+      "jurisdictions": [
+        "EU",
+        "CY"
+      ]
+    }
+  ],
+  "notes": "Doctrine layer requested because EDPB guidance is contested."
+}

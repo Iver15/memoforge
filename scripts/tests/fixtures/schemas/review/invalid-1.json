@@ -1,0 +1,24 @@
+{
+  "_why": "a logic review carries a form-only 'lens' field on its issue, so the object matches none of the oneOf branches (logic forbids lens; form requires reviewer='form'); _why is also rejected by every branch.",
+  "reasoning": "Rule stated but not applied.",
+  "reviewer": "logic",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "checklist": [
+    {
+      "id": "LOG-01",
+      "pass": true,
+      "evidence": "ok"
+    }
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "missing_application",
+      "section_id": "s-4-1",
+      "issue": "Rule not applied.",
+      "suggestion": "Apply it.",
+      "lens": "clarity"
+    }
+  ],
+  "verdict": "needs_revision"
+}

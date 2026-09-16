@@ -1,0 +1,41 @@
+{
+  "reasoning": "The rule statements are sound, but section 4 jumps from rule to conclusion without applying the balancing test to the facts.",
+  "reviewer": "logic",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 1,
+  "checklist": [
+    {
+      "id": "LOG-01",
+      "pass": true,
+      "evidence": "Section 3 states the rule before applying it."
+    },
+    {
+      "id": "LOG-02",
+      "pass": false,
+      "evidence": "Section 4 concludes without applying the balancing test."
+    },
+    {
+      "id": "LOG-03",
+      "pass": "unknown",
+      "evidence": "Facts section is silent on retention, so the step cannot be graded."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "missing_application",
+      "section_id": "s-4-1",
+      "issue": "The legitimate-interests balancing test is stated but never applied to the described facts.",
+      "suggestion": "Apply each limb of the test to the training pipeline described in the Facts section.",
+      "checklist_id": "LOG-02"
+    },
+    {
+      "severity": "minor",
+      "category": "ordering",
+      "section_id": "s-3-2",
+      "issue": "The exception is introduced before the rule it qualifies.",
+      "suggestion": "Move the exception after the rule statement."
+    }
+  ],
+  "verdict": "needs_revision"
+}

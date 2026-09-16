@@ -1,0 +1,19 @@
+{
+  "_why": "estimated_complexity 'extreme' is outside the enum low|medium|high; the _why key itself is also rejected because the plan object is a self-contained branch with additionalProperties:false.",
+  "classification": "regulatory_analysis",
+  "jurisdictions": [
+    "EU"
+  ],
+  "doctrine_required": false,
+  "estimated_complexity": "extreme",
+  "issues": [
+    {
+      "issue_id": "i1",
+      "title": "T",
+      "question": "Q?",
+      "jurisdictions": [
+        "EU"
+      ]
+    }
+  ]
+}

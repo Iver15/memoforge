@@ -1,0 +1,37 @@
+{
+  "reasoning": "Two pinpoints drift from the registered source; the freeze check could not be graded because the snapshot was unreadable.",
+  "reviewer": "citations",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 2,
+  "checklist": [
+    {
+      "id": "CIT-01",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-05",
+      "pass": "unknown",
+      "evidence": "The snapshot could not be opened, so the freeze check is ungraded."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "major",
+      "category": "pinpoint_drift",
+      "section_id": "s-4-1",
+      "issue": "The pinpoint cites Art. 6(1)(b) while the proposition restates Art. 6(1)(f).",
+      "suggestion": "Repoint the citation at Art. 6(1)(f) or restate the proposition.",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "blocker",
+      "category": "unverified_hard_fail",
+      "section_id": "document",
+      "issue": "Hard-fail checklist item CIT-05 was graded `unknown`, so it could not be verified.",
+      "suggestion": "Re-run the reviewer with a readable draft and grade CIT-05 as pass or fail.",
+      "checklist_id": "CIT-05"
+    }
+  ],
+  "verdict": "needs_revision"
+}

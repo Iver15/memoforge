@@ -1,0 +1,7 @@
+{
+  "reviewer": "form",
+  "status": "failed",
+  "reason": "Reviewer returned prose instead of JSON after reviewer_json_retry was exhausted.",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 1
+}

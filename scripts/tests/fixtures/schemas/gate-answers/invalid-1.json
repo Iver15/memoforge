@@ -1,0 +1,10 @@
+{
+  "_why": "action 'yes' is not one of proceed|continue|approve|edit|cancel; _why is also rejected by additionalProperties:false.",
+  "gate": "intake",
+  "action": "yes",
+  "answers": {
+    "1": "A"
+  },
+  "defaults_applied": [],
+  "errors": []
+}

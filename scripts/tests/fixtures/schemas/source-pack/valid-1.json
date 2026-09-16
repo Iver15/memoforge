@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "frozen_at": "2026-09-08T12:00:00Z",
+  "snapshot": [
+    {
+      "source_id": "gdpr-art-6",
+      "raw_sha256": "5e760bb9aa29fb9a15a6632934535216109e3e41a35bbb79c182c8752bbde949"
+    },
+    {
+      "source_id": "ai-act-art-14",
+      "raw_sha256": "ae936ca43f6a19d8891d22f287450139eb603c9d9977006a04abf1843a826f69"
+    },
+    {
+      "source_id": "smith-v-acme",
+      "raw_sha256": null
+    }
+  ],
+  "entries": [
+    {
+      "source_id": "gdpr-art-6",
+      "layer": "statutes",
+      "title": "Regulation (EU) 2016/679 (GDPR), Article 6",
+      "citation_form": "GDPR, Art. 6",
+      "identifiers": {
+        "celex": "32016R0679"
+      },
+      "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_at": "2026-09-08T09:40:00Z",
+      "tier": "critical",
+      "currency_status": "current",
+      "verification_us": "n/a",
+      "pack": {
+        "role_by_issue": {
+          "i1": "rule"
+        },
+        "weight": "binding",
+        "confidence": "high",
+        "use_in_memo": "rule"
+      }
+    },
+    {
+      "source_id": "smith-v-acme",
+      "layer": "case_law",
+      "title": "Smith v Acme Analytics LLC",
+      "citation_form": "Smith v Acme Analytics LLC, 991 F.3d 112 (9th Cir. 2021)",
+      "url": "https://www.courtlistener.com/opinion/1234567/smith-v-acme/",
+      "tier": "supporting",
+      "currency_status": "do_not_use",
+      "verification_us": "resolved",
+      "pack": {
+        "role_by_issue": {
+          "i2": "contrary"
+        },
+        "weight": "persuasive",
+        "confidence": "low",
+        "use_in_memo": "do_not_use"
+      }
+    }
+  ]
+}

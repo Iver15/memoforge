@@ -1,0 +1,7 @@
+{
+  "_why": "namespaces.other must be an array of namespace strings, not a bare string; _why is also rejected by additionalProperties:false.",
+  "namespaces": {
+    "ldh": "mcp__claude_ai_Legal_Data_Hunter",
+    "other": "mcp__claude_ai_Lawve_AI"
+  }
+}

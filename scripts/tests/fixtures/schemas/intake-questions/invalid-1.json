@@ -1,0 +1,25 @@
+{
+  "_why": "header 'Art. 27 + DPIA' is 14 chars (limit 12) and the option description exceeds 200 chars; the _why key is additionally rejected by additionalProperties:false.",
+  "must_answer": [
+    {
+      "question": "Does the deployment require a DPIA?",
+      "header": "Art. 27 + DPIA",
+      "options": [
+        {
+          "label": "Yes",
+          "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "label": "No",
+          "description": "No DPIA trigger identified."
+        }
+      ],
+      "impact": "high",
+      "default": "A DPIA is required.",
+      "default_if_wrong": "Without a DPIA trigger the Article 35 section drops out of the memo.",
+      "confidence": "medium"
+    }
+  ],
+  "optional": [],
+  "default_assumptions_if_skipped": []
+}

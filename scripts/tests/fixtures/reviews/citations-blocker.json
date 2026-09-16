@@ -1,0 +1,14 @@
+{
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "clean": false,
+  "findings": [
+    {
+      "rule": "C-04",
+      "severity": "blocker",
+      "line": 42,
+      "section_id": "s-2",
+      "excerpt": "Risk: high - see [[src:smith-v-acme]]",
+      "hint": "An unresolved US citation may not carry a Risk line; verify it or drop the claim."
+    }
+  ]
+}

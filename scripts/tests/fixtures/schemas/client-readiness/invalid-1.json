@@ -1,0 +1,8 @@
+{
+  "_why": "verdict 'ok' is outside client_ready|needs_final_polish|manual_review_required; _why is also rejected by additionalProperties:false.",
+  "reasoning": "Draft reads as deliverable.",
+  "reviewer": "client_readiness",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "verdict": "ok",
+  "issues": []
+}

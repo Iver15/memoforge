@@ -1,0 +1,12 @@
+{
+  "_why": "a skip with reason 'other' omits the mandatory note; _why is also rejected by additionalProperties:false.",
+  "quotes": {},
+  "skips": [
+    {
+      "section_id": "s-4-2",
+      "source_id": "gdpr-art-6",
+      "reason": "other",
+      "at": "2026-09-08T11:12:00Z"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+# Task parameters — counterargument-reviewer (iteration 1)
+
+Role, output contract and rules: your agent definition plus
+`{AGENT_CORE}/untrusted-content.md`, `{AGENT_CORE}/output-json.md`,
+`{AGENT_CORE}/logging.md`.
+
+First action (Bash, before any other tool call):
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot counterarguments --state start`
+
+## Parameters
+
+- task_id: `memo-20260908T120000Z-prompt-golden`
+- work_dir: `{WORK_DIR}`
+- draft under review: `drafts/v1.md` (v`1`)
+- `draft_sha` to put in your output: `0000000000000000000000000000000000000000000000000000000000000000`
+- checklist (grade every id, no additions, no omissions): `{CHECKLISTS}\counterarguments.json`
+- deterministic findings attached to this draft (empty: none attached): 
+- research findings, including `considered_excluded`: `research/statutes.json`, `research/case_law.json`, `research/doctrine.json`
+- previous attempt errors to fix: none
+
+`approved` is a normal outcome and means zero blockers. Grade `unknown` only when the draft
+does not let you decide; on a `hard_fail` item that costs the approval.
+
+Every issue carries `attack_vector`: `contrary_authority`, `overconfidence`, `missing_fact`,
+`weak_application` or `understated_risk`.
+
+## Write
+
+- `steps/s-042/a1/counterarguments/v1-counterarguments.json` (schema `review` — `{SCHEMAS}\review.schema.json`)
+
+Last action (Bash, after the file is written):
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot counterarguments --state done`

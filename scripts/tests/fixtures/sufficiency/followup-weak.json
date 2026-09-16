@@ -1,0 +1,16 @@
+{
+  "reviewer": "research_sufficiency",
+  "overall_verdict": "targeted_followup_needed",
+  "blocking_gaps": [
+    {
+      "gap": "Doctrine on the balancing test is thin and dated.",
+      "target": "doctrine",
+      "status": "weak",
+      "why_blocking": "The rule explanation relies on a single commentary.",
+      "followup_question": null
+    }
+  ],
+  "drafting_warnings": [
+    "Doctrine coverage is thin for the balancing test."
+  ]
+}

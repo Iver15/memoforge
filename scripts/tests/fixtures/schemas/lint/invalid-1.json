@@ -1,0 +1,15 @@
+{
+  "_why": "rule 'L-8' breaks the L-NN / C-NN pattern (two digits required); _why is also rejected by additionalProperties:false.",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "clean": true,
+  "findings": [
+    {
+      "rule": "L-8",
+      "severity": "minor",
+      "line": 3,
+      "section_id": "s-1",
+      "excerpt": "x",
+      "hint": "y"
+    }
+  ]
+}

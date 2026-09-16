@@ -1,0 +1,37 @@
+{
+  "reviewer": "research_sufficiency",
+  "overall_verdict": "targeted_followup_needed",
+  "blocking_gaps": [
+    {
+      "gap": "No source states whether the training set includes special-category data.",
+      "target": "user",
+      "status": "missing",
+      "why_blocking": "Article 9 changes the lawful-basis analysis entirely.",
+      "followup_question": {
+        "question": "Does the training set include special-category data?",
+        "header": "Spec. cat.",
+        "options": [
+          {
+            "label": "Yes",
+            "description": "Health, biometric or similar data is present."
+          },
+          {
+            "label": "No",
+            "description": "Only ordinary personal data is present."
+          }
+        ],
+        "default_assumption_if_skipped": "No special-category data is present."
+      }
+    },
+    {
+      "gap": "No CJEU authority located on oversight duties for training pipelines.",
+      "target": "case_law",
+      "status": "missing",
+      "why_blocking": "The application section would rest on national decisions only.",
+      "followup_question": null
+    }
+  ],
+  "drafting_warnings": [
+    "Doctrine coverage is thin for the balancing test."
+  ]
+}

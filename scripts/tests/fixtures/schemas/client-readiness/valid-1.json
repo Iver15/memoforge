@@ -1,0 +1,38 @@
+{
+  "reasoning": "Delivery-ready apart from an unlabelled risk line and a missing recommendation owner.",
+  "reviewer": "client_readiness",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "version_reviewed": 2,
+  "checklist": [
+    {
+      "id": "CRD-01",
+      "pass": true,
+      "evidence": "Every section of the template is present and populated."
+    },
+    {
+      "id": "CRD-02",
+      "pass": false,
+      "evidence": "The second executive-summary bullet carries no Risk: label."
+    },
+    {
+      "id": "CRD-03",
+      "pass": "unknown",
+      "evidence": "Owner of the recommendation cannot be checked without the engagement letter."
+    }
+  ],
+  "verdict": "needs_final_polish",
+  "issues": [
+    {
+      "section_id": "s-2",
+      "severity": "blocker",
+      "issue": "The executive summary bullet has no Risk: label.",
+      "suggestion": "Add 'Risk: medium' to the second bullet."
+    },
+    {
+      "section_id": "s-6",
+      "severity": "minor",
+      "issue": "The recommendation does not name an owner.",
+      "suggestion": "Name the accountable function in the first clause."
+    }
+  ]
+}

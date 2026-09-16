@@ -1,0 +1,14 @@
+{
+  "reviewer": "research_sufficiency",
+  "overall_verdict": "targeted_followup_needed",
+  "blocking_gaps": [
+    {
+      "gap": "No CJEU authority located on oversight duties for training pipelines.",
+      "target": "case_law",
+      "status": "missing",
+      "why_blocking": "The application section would rest on national decisions only.",
+      "followup_question": null
+    }
+  ],
+  "drafting_warnings": []
+}

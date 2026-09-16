@@ -1,0 +1,22 @@
+{
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "clean": false,
+  "findings": [
+    {
+      "rule": "L-08",
+      "severity": "major",
+      "line": 214,
+      "section_id": "s-4-2",
+      "excerpt": "> Article 6(1)(f) permits processing where ...",
+      "hint": "Blockquote has no q marker; run mf quote extract or record mf quote skip for this section."
+    },
+    {
+      "rule": "C-07",
+      "severity": "major",
+      "line": null,
+      "section_id": null,
+      "excerpt": "",
+      "hint": "Source ai-act-art-14 is packed as a rule source but never cited in the draft."
+    }
+  ]
+}

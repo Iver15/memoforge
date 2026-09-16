@@ -1,0 +1,55 @@
+{
+  "layer": "statutes",
+  "issues": [
+    {
+      "issue_id": "i1",
+      "findings": [
+        {
+          "source_id": "gdpr-art-6",
+          "proposition": "Legitimate interests require a three-limb balancing test before processing may proceed.",
+          "pinpoint": "Art. 6(1)(f)",
+          "role": "rule",
+          "weight": "binding",
+          "confidence": "high",
+          "tier": "critical",
+          "quote_short": "processing is necessary for the purposes of the legitimate interests pursued"
+        },
+        {
+          "source_id": "ai-act-art-14",
+          "proposition": "High-risk systems must allow effective human oversight during use.",
+          "pinpoint": "Art. 14(1)",
+          "role": "contrary",
+          "weight": "binding",
+          "confidence": "medium",
+          "tier": "supporting",
+          "quote_short": "",
+          "contrary_point": "Oversight duties may narrow the legitimate-interests case for fully automated training."
+        }
+      ]
+    }
+  ],
+  "considered_excluded": [
+    {
+      "title": "Opinion 06/2014 on legitimate interests",
+      "reason": "Superseded by EDPB guidance after 2018.",
+      "issue_id": "i1"
+    }
+  ],
+  "methodology": {
+    "queried_sources": [
+      "Legal Data Hunter search",
+      "WebFetch eur-lex.europa.eu"
+    ],
+    "jurisdictions": [
+      "EU"
+    ],
+    "date_of_search": "2026-09-08",
+    "notes": "LDH budget: 6 of 16 calls used."
+  },
+  "_meta": {
+    "task_id": "memo-ai-training",
+    "step_id": "s-017",
+    "attempt": 1,
+    "slot": "statutes"
+  }
+}

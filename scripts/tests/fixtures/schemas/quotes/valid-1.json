@@ -1,0 +1,34 @@
+{
+  "quotes": {
+    "q-gdpr-6-1f": {
+      "source_id": "gdpr-art-6",
+      "raw_sha256": "5e760bb9aa29fb9a15a6632934535216109e3e41a35bbb79c182c8752bbde949",
+      "text": "processing is necessary for the purposes of the legitimate interests pursued by the controller",
+      "char_start": 4120,
+      "char_end": 4213,
+      "lang": "en",
+      "words": 14
+    }
+  },
+  "skips": [
+    {
+      "section_id": "s-4-2",
+      "source_id": "ai-act-art-14",
+      "reason": "too_long",
+      "at": "2026-09-08T11:12:00Z"
+    },
+    {
+      "section_id": "s-4-3",
+      "source_id": "gdpr-art-6",
+      "reason": "already_used",
+      "at": "2026-09-08T11:13:20Z"
+    },
+    {
+      "section_id": "s-5-1",
+      "source_id": "smith-v-acme",
+      "reason": "other",
+      "note": "Opinion text is paywalled; paraphrase carries the rule instead.",
+      "at": "2026-09-08T11:15:00Z"
+    }
+  ]
+}

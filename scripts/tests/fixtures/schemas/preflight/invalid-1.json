@@ -1,0 +1,13 @@
+{
+  "_why": "`blocked` is not one of the six statuses of the enum, and _why is itself rejected by additionalProperties:false.",
+  "schema_version": 1,
+  "checked_at": "2026-09-13T06:05:00Z",
+  "hosts": [
+    {
+      "host": "ris.bka.gv.at",
+      "url": "https://www.ris.bka.gv.at/Bundesrecht/",
+      "status": "blocked",
+      "code": 503
+    }
+  ]
+}

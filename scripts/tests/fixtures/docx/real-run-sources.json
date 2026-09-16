@@ -1,0 +1,494 @@
+{
+ "note": "Citation-relevant fields of the registry of the real run memo-20260910T095310Z-we-re-a-us-based-saas-company-planning, plus its 24 mentions in document order (D-150).",
+ "sources": {
+  "gdpr-article-3-territorial-scope-2": {
+   "layer": "statutes",
+   "title": "GDPR Article 3 - Territorial scope",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 3",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art3",
+   "retrieved_at": "2026-09-10T10:10:23.577Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 3"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-6-lawfulness-of-processing": {
+   "layer": "statutes",
+   "title": "GDPR Article 6 - Lawfulness of processing",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 6",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art6",
+   "retrieved_at": "2026-09-10T10:10:23.779Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 6"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-22-automated-individual-decision-making-including-profiling": {
+   "layer": "statutes",
+   "title": "GDPR Article 22 - Automated individual decision-making, including profiling",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 22",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art22",
+   "retrieved_at": "2026-09-10T10:10:23.982Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 22"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-35-data-protection-impact-assessment": {
+   "layer": "statutes",
+   "title": "GDPR Article 35 - Data protection impact assessment",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 35",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art35",
+   "retrieved_at": "2026-09-10T10:10:24.191Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 35"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-88-processing-in-the-context-of-employment": {
+   "layer": "statutes",
+   "title": "GDPR Article 88 - Processing in the context of employment",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 88",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art88",
+   "retrieved_at": "2026-09-10T10:10:24.797Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 88"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-44-general-principle-for-transfers": {
+   "layer": "statutes",
+   "title": "GDPR Article 44 - General principle for transfers",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 44",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art44",
+   "retrieved_at": "2026-09-10T10:10:25.032Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 44"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-46-transfers-subject-to-appropriate-safeguards": {
+   "layer": "statutes",
+   "title": "GDPR Article 46 - Transfers subject to appropriate safeguards",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 46",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art46",
+   "retrieved_at": "2026-09-10T10:10:25.485Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 46"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-28-processor": {
+   "layer": "statutes",
+   "title": "GDPR Article 28 - Processor",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 28",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art28",
+   "retrieved_at": "2026-09-10T10:10:25.896Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 28"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-13-information-to-be-provided-where-personal-data-are-collected": {
+   "layer": "statutes",
+   "title": "GDPR Article 13 - Information to be provided where personal data are collected from the data subject",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 13",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art13",
+   "retrieved_at": "2026-09-10T10:10:26.094Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 13"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "gdpr-article-17-right-to-erasure": {
+   "layer": "statutes",
+   "title": "GDPR Article 17 - Right to erasure",
+   "citation_form": "Regulation (EU) 2016/679 (GDPR), Art 17",
+   "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art17",
+   "retrieved_at": "2026-09-10T10:10:26.500Z",
+   "identifiers": {
+    "celex": "32016R0679"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2016",
+    "short_name": "GDPR Art 17"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "ai-act-annex-iii-high-risk-ai-systems-point-4-employment": {
+   "layer": "statutes",
+   "title": "AI Act Annex III - High-risk AI systems (point 4 employment)",
+   "citation_form": "Regulation (EU) 2024/1689 (AI Act), Annex III(4)",
+   "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj#annex3",
+   "retrieved_at": "2026-09-10T10:10:27.345Z",
+   "identifiers": {
+    "celex": "32024R1689"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2024",
+    "short_name": "AI Act Annex III"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "ai-act-article-26-obligations-of-deployers-of-high-risk-ai-systems": {
+   "layer": "statutes",
+   "title": "AI Act Article 26 - Obligations of deployers of high-risk AI systems",
+   "citation_form": "Regulation (EU) 2024/1689 (AI Act), Art 26",
+   "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj#art26",
+   "retrieved_at": "2026-09-10T10:10:27.549Z",
+   "identifiers": {
+    "celex": "32024R1689"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2024",
+    "short_name": "AI Act Art 26"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "ai-act-article-113-entry-into-force-and-application": {
+   "layer": "statutes",
+   "title": "AI Act Article 113 - Entry into force and application",
+   "citation_form": "Regulation (EU) 2024/1689 (AI Act), Art 113",
+   "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj#art113",
+   "retrieved_at": "2026-09-10T10:10:27.973Z",
+   "identifiers": {
+    "celex": "32024R1689"
+   },
+   "meta": {
+    "issuing_body": "European Parliament and Council",
+    "year": "2024",
+    "short_name": "AI Act Art 113"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "commission-implementing-decision-eu-2023-1795-eu-us-data-privacy-framework": {
+   "layer": "statutes",
+   "title": "Commission Implementing Decision (EU) 2023/1795 - EU-US Data Privacy Framework adequacy",
+   "citation_form": "Commission Implementing Decision (EU) 2023/1795, Art 1",
+   "url": "https://eur-lex.europa.eu/eli/dec_impl/2023/1795/oj",
+   "retrieved_at": "2026-09-10T10:10:28.186Z",
+   "identifiers": {
+    "celex": "32023D1795"
+   },
+   "meta": {
+    "issuing_body": "European Commission",
+    "year": "2023",
+    "short_name": "EU-US DPF Adequacy Decision"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "data-protection-commissioner-v-facebook-ireland-ltd-and-schrems-schrems-ii": {
+   "layer": "case_law",
+   "title": "Data Protection Commissioner v Facebook Ireland Ltd and Schrems (Schrems II)",
+   "citation_form": "Case C-311/18, Data Protection Commissioner v Facebook Ireland Ltd and Maximillian Schrems, EU:C:2020:559",
+   "url": "https://curia.europa.eu/juris/liste.jsf?num=C-311/18",
+   "retrieved_at": "2026-09-10T10:32:04.452Z",
+   "identifiers": {
+    "celex": "62018CJ0311",
+    "ecli": "ECLI:EU:C:2020:559"
+   },
+   "meta": {
+    "court": "Court of Justice of the European Union (Grand Chamber)",
+    "year": 2020,
+    "date": "2020-07-16",
+    "short_name": "Schrems II"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "meta-platforms-inc-and-others-v-bundeskartellamt": {
+   "layer": "case_law",
+   "title": "Meta Platforms Inc. and Others v Bundeskartellamt",
+   "citation_form": "Case C-252/21, Meta Platforms Inc. and Others v Bundeskartellamt, EU:C:2023:537",
+   "url": "https://curia.europa.eu/juris/liste.jsf?num=C-252/21",
+   "retrieved_at": "2026-09-10T10:32:15.251Z",
+   "identifiers": {
+    "celex": "62021CJ0252",
+    "ecli": "ECLI:EU:C:2023:537"
+   },
+   "meta": {
+    "court": "Court of Justice of the European Union (Grand Chamber)",
+    "year": 2023,
+    "date": "2023-07-04",
+    "short_name": "Meta v Bundeskartellamt"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "oq-v-land-hessen-schufa": {
+   "layer": "case_law",
+   "title": "OQ v Land Hessen (SCHUFA)",
+   "citation_form": "Case C-634/21, OQ v Land Hessen, EU:C:2023:957",
+   "url": "https://curia.europa.eu/juris/liste.jsf?num=C-634/21",
+   "retrieved_at": "2026-09-10T10:32:15.678Z",
+   "identifiers": {
+    "celex": "62021CJ0634",
+    "ecli": "ECLI:EU:C:2023:957"
+   },
+   "meta": {
+    "court": "Court of Justice of the European Union",
+    "year": 2023,
+    "date": "2023-12-07",
+    "short_name": "SCHUFA"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "edpb-opinion-28-2024-on-data-protection-aspects-of-ai-models": {
+   "layer": "doctrine",
+   "title": "EDPB Opinion 28/2024 on data protection aspects of AI models",
+   "citation_form": "EDPB, Opinion 28/2024 on certain data protection aspects related to the processing of personal data in the context of AI models, 17 December 2024",
+   "url": "https://www.edpb.europa.eu/system/files/2024-12/edpb_opinion_202428_ai-models_en.pdf",
+   "retrieved_at": "2026-09-10T10:32:29.825Z",
+   "meta": {
+    "issuing_body": "European Data Protection Board",
+    "date": "2024-12-17",
+    "year": 2024,
+    "short_name": "EDPB Opinion 28/2024"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "wp29-guidelines-on-dpia-wp248-rev-01": {
+   "layer": "doctrine",
+   "title": "WP29 Guidelines on DPIA (WP248 rev.01)",
+   "citation_form": "Article 29 Working Party, Guidelines on Data Protection Impact Assessment (DPIA), WP248 rev.01, 4 October 2017 (endorsed by the EDPB)",
+   "url": "https://www.dataguidance.com/sites/default/files/20171013_wp248_rev_01_en_d7d5a266-fae9-3ca1-65b7371e82ee1891_47711.pdf",
+   "retrieved_at": "2026-09-10T10:32:30.045Z",
+   "meta": {
+    "issuing_body": "Article 29 Working Party (endorsed by EDPB)",
+    "date": "2017-10-04",
+    "year": 2017,
+    "short_name": "WP29 WP248 rev.01"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "eu-ai-act-reg-2024-1689-annex-iii-article-25-article-50-article-5-official": {
+   "layer": "doctrine",
+   "title": "EU AI Act (Reg 2024/1689) Annex III, Article 25, Article 50, Article 5 -- official service desk text (as amended by Digital Omnibus 2026/1744)",
+   "citation_form": "Regulation (EU) 2024/1689 laying down harmonised rules on artificial intelligence (AI Act), Annex III point 4(b), Articles 5(1)(f), 25 and 50, as amended by Regulation (EU) 2026/1744 (Digital Omnibus on AI)",
+   "url": "https://ai-act-service-desk.ec.europa.eu/en/ai-act/annex-3",
+   "retrieved_at": "2026-09-10T10:32:43.279Z",
+   "meta": {
+    "issuing_body": "European Commission (AI Act Service Desk)",
+    "date": "2024-06-13",
+    "year": 2024,
+    "short_name": "AI Act Annex III/Art.5/25/50"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "edpb-recommendations-01-2020-on-supplementary-transfer-measures": {
+   "layer": "doctrine",
+   "title": "EDPB Recommendations 01/2020 on supplementary transfer measures",
+   "citation_form": "EDPB, Recommendations 01/2020 on measures that supplement transfer tools to ensure compliance with the EU level of protection of personal data, Version 2.0, 18 June 2021",
+   "url": "https://www.edpb.europa.eu/sites/default/files/consultation/edpb_recommendations_202001_supplementarymeasurestransferstools_en.pdf",
+   "retrieved_at": "2026-09-10T10:32:43.503Z",
+   "meta": {
+    "issuing_body": "European Data Protection Board",
+    "date": "2021-06-18",
+    "year": 2021,
+    "short_name": "EDPB Recommendations 01/2020"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  },
+  "abraha-a-pragmatic-compromise-article-88-gdpr-in-the-workplace-idpl-2022": {
+   "layer": "doctrine",
+   "title": "Abraha, A pragmatic compromise? Article 88 GDPR in the workplace, IDPL 2022",
+   "citation_form": "Halefom H Abraha, 'A pragmatic compromise? The role of Article 88 GDPR in upholding privacy in the workplace' (2022) 12(4) International Data Privacy Law 276",
+   "url": "https://academic.oup.com/idpl/article/12/4/276/6668508",
+   "retrieved_at": "2026-09-10T10:32:53.514Z",
+   "meta": {
+    "issuing_body": "International Data Privacy Law (Oxford Academic, peer-reviewed)",
+    "year": 2022,
+    "short_name": "Abraha, IDPL 2022"
+   },
+   "currency": {
+    "status": "unchecked"
+   }
+  }
+ },
+ "mentions": [
+  {
+   "source_id": "gdpr-article-3-territorial-scope-2",
+   "pinpoint": "Art. 3(2)(a)"
+  },
+  {
+   "source_id": "gdpr-article-6-lawfulness-of-processing",
+   "pinpoint": ""
+  },
+  {
+   "source_id": "meta-platforms-inc-and-others-v-bundeskartellamt",
+   "pinpoint": "point 4 of the operative part"
+  },
+  {
+   "source_id": "gdpr-article-6-lawfulness-of-processing",
+   "pinpoint": "Art. 6(4)"
+  },
+  {
+   "source_id": "edpb-opinion-28-2024-on-data-protection-aspects-of-ai-models",
+   "pinpoint": "paras 72-73"
+  },
+  {
+   "source_id": "ai-act-annex-iii-high-risk-ai-systems-point-4-employment",
+   "pinpoint": "Annex III point 4(b)"
+  },
+  {
+   "source_id": "gdpr-article-22-automated-individual-decision-making-including-profiling",
+   "pinpoint": ""
+  },
+  {
+   "source_id": "oq-v-land-hessen-schufa",
+   "pinpoint": "point 1 of the operative part"
+  },
+  {
+   "source_id": "gdpr-article-35-data-protection-impact-assessment",
+   "pinpoint": "Art. 35(3)(a)"
+  },
+  {
+   "source_id": "wp29-guidelines-on-dpia-wp248-rev-01",
+   "pinpoint": "pp 9-11"
+  },
+  {
+   "source_id": "gdpr-article-88-processing-in-the-context-of-employment",
+   "pinpoint": "Art. 88(1)"
+  },
+  {
+   "source_id": "abraha-a-pragmatic-compromise-article-88-gdpr-in-the-workplace-idpl-2022",
+   "pinpoint": "pp 276-296"
+  },
+  {
+   "source_id": "ai-act-article-26-obligations-of-deployers-of-high-risk-ai-systems",
+   "pinpoint": "Art. 26(1), (5)-(7)"
+  },
+  {
+   "source_id": "ai-act-article-113-entry-into-force-and-application",
+   "pinpoint": "Art. 113"
+  },
+  {
+   "source_id": "eu-ai-act-reg-2024-1689-annex-iii-article-25-article-50-article-5-official",
+   "pinpoint": "Reg. 2026/1744"
+  },
+  {
+   "source_id": "gdpr-article-28-processor",
+   "pinpoint": "Art. 28(3)"
+  },
+  {
+   "source_id": "gdpr-article-44-general-principle-for-transfers",
+   "pinpoint": "Art. 44"
+  },
+  {
+   "source_id": "gdpr-article-44-general-principle-for-transfers",
+   "pinpoint": ""
+  },
+  {
+   "source_id": "commission-implementing-decision-eu-2023-1795-eu-us-data-privacy-framework",
+   "pinpoint": "Art. 1"
+  },
+  {
+   "source_id": "gdpr-article-46-transfers-subject-to-appropriate-safeguards",
+   "pinpoint": "Art. 46(2)(c)"
+  },
+  {
+   "source_id": "data-protection-commissioner-v-facebook-ireland-ltd-and-schrems-schrems-ii",
+   "pinpoint": "point 2 of the operative part"
+  },
+  {
+   "source_id": "edpb-recommendations-01-2020-on-supplementary-transfer-measures",
+   "pinpoint": "paras 44, 89"
+  },
+  {
+   "source_id": "gdpr-article-13-information-to-be-provided-where-personal-data-are-collected",
+   "pinpoint": "Art. 13(1)(e)-(f), (3)"
+  },
+  {
+   "source_id": "gdpr-article-17-right-to-erasure",
+   "pinpoint": "Art. 17(1)"
+  }
+ ]
+}

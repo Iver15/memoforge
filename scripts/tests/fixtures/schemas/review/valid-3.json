@@ -1,0 +1,30 @@
+{
+  "reasoning": "Every inline marker resolves to the frozen pack, but one proposition drifts from what the cited article actually says.",
+  "reviewer": "citations",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 2,
+  "checklist": [
+    {
+      "id": "CIT-01",
+      "pass": true,
+      "evidence": "All src markers resolve against the snapshot."
+    },
+    {
+      "id": "CIT-02",
+      "pass": false,
+      "evidence": "Section 4 attributes a proportionality duty to Article 6(1)(f)."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "citation_integrity",
+      "section_id": "s-4-2",
+      "issue": "Article 6(1)(f) is cited for a proportionality duty it does not impose.",
+      "suggestion": "Cite the EDPB guidance for the proportionality step or drop the claim.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift"
+    }
+  ],
+  "verdict": "needs_revision"
+}

@@ -1,0 +1,38 @@
+{
+  "reasoning": "Prose is mostly clean; two sentences run past the house limit and one heading is phrased as a question.",
+  "reviewer": "form",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 1,
+  "checklist": [
+    {
+      "id": "FRM-01",
+      "pass": true,
+      "evidence": "Headings follow H1 to H2 to H3."
+    },
+    {
+      "id": "FRM-02",
+      "pass": false,
+      "evidence": "Heading of section 5 ends with a question mark."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "major",
+      "category": "heading_form",
+      "section_id": "s-5",
+      "issue": "The heading is phrased as a question rather than a noun phrase.",
+      "suggestion": "Rewrite as a noun phrase, e.g. 'Retention exposure'.",
+      "checklist_id": "FRM-02",
+      "lens": "style"
+    },
+    {
+      "severity": "minor",
+      "category": "sentence_length",
+      "section_id": "s-4-1",
+      "issue": "A 46-word sentence forces the reader to re-read the conclusion.",
+      "suggestion": "Split after the second clause.",
+      "lens": "clarity"
+    }
+  ],
+  "verdict": "needs_revision"
+}

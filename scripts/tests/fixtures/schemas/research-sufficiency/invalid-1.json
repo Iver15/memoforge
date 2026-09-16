@@ -1,0 +1,13 @@
+{
+  "_why": "a gap targeted at the user must carry a followup_question (it feeds the phase-7 gate); here it is null. _why is also rejected by additionalProperties:false.",
+  "overall_verdict": "targeted_followup_needed",
+  "blocking_gaps": [
+    {
+      "gap": "Retention period unknown.",
+      "target": "user",
+      "status": "missing",
+      "followup_question": null
+    }
+  ],
+  "drafting_warnings": []
+}

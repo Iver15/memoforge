@@ -1,0 +1,27 @@
+{
+  "_why": "quote_short holds 16 words while the contract caps verbatim fragments at 15; _why is also rejected by additionalProperties:false.",
+  "layer": "statutes",
+  "issues": [
+    {
+      "issue_id": "i1",
+      "findings": [
+        {
+          "source_id": "gdpr-art-6",
+          "proposition": "P",
+          "pinpoint": "Art. 6",
+          "role": "rule",
+          "weight": "binding",
+          "confidence": "high",
+          "tier": "critical",
+          "quote_short": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16"
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "task_id": "memo-ai-training",
+    "step_id": "s-017",
+    "attempt": 1,
+    "slot": "statutes"
+  }
+}

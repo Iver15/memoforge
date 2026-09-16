@@ -1,0 +1,10 @@
+{
+  "namespaces": {
+    "ldh": "mcp__claude_ai_Legal_Data_Hunter",
+    "courtlistener": null,
+    "other": [
+      "mcp__claude_ai_Lawve_AI"
+    ]
+  },
+  "probed_at": "2026-09-08T09:14:00Z"
+}

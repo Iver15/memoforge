@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-09-13T06:05:00Z",
+  "offline": false,
+  "hosts": [
+    {
+      "host": "publications.europa.eu",
+      "url": "https://publications.europa.eu/resource/celex/32016R0679",
+      "status": "ok",
+      "code": 200,
+      "error": null,
+      "alternative": "legalviz_get_law_part, or eur-lex.europa.eu"
+    },
+    {
+      "host": "eur-lex.europa.eu",
+      "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "status": "waf_challenge",
+      "code": 202,
+      "error": "aws_waf_challenge",
+      "alternative": "Cellar (publications.europa.eu, Accept: application/xhtml+xml) or LegalViz"
+    },
+    {
+      "host": "legifrance.gouv.fr",
+      "url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006900785",
+      "status": "cloudflare",
+      "code": 403,
+      "error": "cloudflare_challenge",
+      "alternative": "ldh_search (FR/Legifrance, FR/Judilibre), considered_excluded"
+    }
+  ]
+}

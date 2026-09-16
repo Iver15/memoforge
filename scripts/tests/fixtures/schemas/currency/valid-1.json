@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-09-08",
+  "sources": [
+    {
+      "source_id": "gdpr-art-6",
+      "title": "GDPR Article 6",
+      "layer": "statutes",
+      "status": "current",
+      "note": "No amendments."
+    },
+    {
+      "source_id": "ai-act-art-14",
+      "layer": "statutes",
+      "status": "outdated_but_usable",
+      "note": "Corrigendum pending publication."
+    },
+    {
+      "source_id": "smith-v-acme",
+      "layer": "case_law",
+      "status": "do_not_use",
+      "note": "Overruled by the en banc panel in 2024."
+    },
+    {
+      "source_id": "edpb-guidance-01",
+      "status": "unchecked",
+      "note": "Currency checker failed after its retry."
+    }
+  ],
+  "blocking": [
+    "smith-v-acme"
+  ],
+  "warnings": [
+    "ai-act-art-14",
+    "edpb-guidance-01"
+  ]
+}

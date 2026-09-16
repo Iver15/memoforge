@@ -1,0 +1,12 @@
+{
+  "_why": "the instruction omits the required 'severity' field; _why is also rejected by additionalProperties:false.",
+  "instructions": [
+    {
+      "section_id": "s-4-1",
+      "source_reviewer": "logic",
+      "category": "missing_application",
+      "instruction": "Apply the test."
+    }
+  ],
+  "dropped": []
+}

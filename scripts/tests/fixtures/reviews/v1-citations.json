@@ -1,0 +1,60 @@
+{
+  "reasoning": "The citations checklist passes on every item for this version.",
+  "reviewer": "citations",
+  "draft_sha": "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e",
+  "iteration": 1,
+  "checklist": [
+    {
+      "id": "CIT-01",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-02",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-03",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-04",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-05",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-06",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-07",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-08",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-09",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    },
+    {
+      "id": "CIT-10",
+      "pass": true,
+      "evidence": "Every [[src:]] token resolves to a snapshot entry."
+    }
+  ],
+  "issues": [],
+  "verdict": "approved"
+}

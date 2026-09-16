@@ -1,0 +1,15 @@
+{
+  "gate": "plan",
+  "action": "approve",
+  "answers": {
+    "Plan": "Approve",
+    "Mode": "Full",
+    "Style": "my-firm",
+    "Sources": "Continue"
+  },
+  "defaults_applied": [],
+  "errors": [],
+  "generation": 0,
+  "raw_response": "approve full style:my-firm",
+  "answered_at": "2026-09-08T09:31:12Z"
+}

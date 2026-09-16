@@ -1,0 +1,12 @@
+{
+  "_why": "snapshot[0].raw_sha256 is not a 64-char lowercase hex digest, so the triple-sha equality of C-02 could never hold; _why is also rejected by additionalProperties:false.",
+  "schema_version": 2,
+  "frozen_at": "2026-09-08T12:00:00Z",
+  "snapshot": [
+    {
+      "source_id": "gdpr-art-6",
+      "raw_sha256": "NOTASHA"
+    }
+  ],
+  "entries": []
+}
