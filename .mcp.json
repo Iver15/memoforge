@@ -7,6 +7,22 @@
     "courtlistener": {
       "type": "http",
       "url": "https://mcp.courtlistener.com"
+    },
+    "legalviz": {
+      "type": "http",
+      "url": "https://api.legalviz.eu/mcp"
+    },
+    "uk-legal": {
+      "type": "http",
+      "url": "https://uk-legal-mcp.fly.dev/mcp"
+    },
+    "justicelibre": {
+      "type": "http",
+      "url": "https://justicelibre.org/mcp"
+    },
+    "opencaselaw": {
+      "type": "http",
+      "url": "https://mcp.opencaselaw.ch/mcp"
     }
   }
 }

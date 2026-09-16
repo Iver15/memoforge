@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/plan.schema.json",
+  "title": "memoforge plan.json",
+  "description": "Research plan produced by the orchestrator as an inline-llm step (TZ v1.5 §2.1 phase 3, §6).",
+  "type": "object",
+  "required": ["classification", "jurisdictions", "doctrine_required", "estimated_complexity", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "classification": {
+      "description": "Memo type; mirrors state.classification.type.",
+      "enum": ["regulatory_analysis", "transactional", "litigation_risk", "cross_border", "compliance_check", "mixed"]
+    },
+    "jurisdictions": { "$ref": "#/$defs/jurisdictions" },
+    "doctrine_required": {
+      "description": "Full mode dispatches the doctrine layer only when true (TZ §2.3).",
+      "type": "boolean"
+    },
+    "estimated_complexity": {
+      "description": "Drives the recommended mode on the plan gate (TZ §2.4).",
+      "enum": ["low", "medium", "high"]
+    },
+    "issues": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "notes": { "type": "string" }
+  },
+  "$defs": {
+    "issue_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "jurisdictions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["issue_id", "title", "question", "jurisdictions"],
+      "additionalProperties": false,
+      "properties": {
+        "issue_id": { "$ref": "#/$defs/issue_id" },
+        "title": { "type": "string", "minLength": 1 },
+        "question": { "type": "string", "minLength": 1 },
+        "jurisdictions": { "$ref": "#/$defs/jurisdictions" }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/memoforge/schemas/internal.schema.json",
+  "title": "memoforge internal cache file",
+  "description": "Minimal schema for <plugin_data_dir>/{deps,launcher}.json and lib/routing/discover-cache.json (ТЗ §6).",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "kind": {"type": "string", "enum": ["launcher", "deps", "routing"]},
+    "checked_at": {"type": "string"},
+    "source": {"type": "string"},
+    "python_cmd": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "python_version": {"type": "string"},
+    "deps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "installed": {"type": "boolean"},
+          "version": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "entries": {"type": "object"}
+  },
+  "additionalProperties": true
+}

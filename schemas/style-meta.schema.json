@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/style-meta.schema.json",
+  "title": "memoforge profiles/<name>/meta.json",
+  "description": "Style profile metadata under config.plugin_data_dir/profiles/. Extraction logic is unchanged from v1.1.1 (TZ v1.5 section 0.3, section 4.6); this schema pins the shape written by `mf style` and read by the plan gate.",
+  "type": "object",
+  "required": ["name", "created_at", "input_type", "mode_binding", "has_template"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "Profile directory name; same validation as `mf style validate-name`.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "input_type": { "enum": ["examples", "rules", "both"] },
+    "examples_count": { "type": "integer", "minimum": 0 },
+    "rules_provided": { "type": "boolean" },
+    "mode_binding": {
+      "description": "Applied on the plan gate before the mode is fixed, overriding the Mode answer (TZ section 2.4).",
+      "enum": ["brief", "full"]
+    },
+    "has_template": { "type": "boolean" },
+    "jurisdictions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "language": {
+      "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 2 }]
+    },
+    "confidence": {
+      "description": "The unchanged v1 style-extractor writes a number; `mf style` may write the enum (D-16).",
+      "anyOf": [
+        { "type": "number" },
+        { "enum": ["high", "medium", "low"] },
+        { "type": "null" }
+      ]
+    },
+    "summary": { "type": "string" }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    }
+  }
+}

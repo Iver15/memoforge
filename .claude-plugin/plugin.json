@@ -1,8 +1,69 @@
 {
   "name": "memoforge",
-  "description": "Multi-agent legal memo drafting with intake questions, legal research, source pack, counterargument review, client-readiness review, and docx export.",
-  "version": "1.1.1",
+  "displayName": "memoforge",
+  "version": "2.0.0-dev",
+  "description": "Multi-agent legal memo drafting: intake questions, planned legal research, a frozen source pack with verifiable quotes, a counterargument and citation review loop, and a footnoted docx deliverable.",
   "author": {
     "name": "Grigorii Moskalev"
+  },
+  "homepage": "https://github.com/gregmos/memoforge#readme",
+  "repository": "https://github.com/gregmos/memoforge",
+  "license": "MIT",
+  "keywords": [
+    "legal",
+    "memo",
+    "legal-research",
+    "gdpr",
+    "compliance",
+    "docx",
+    "multi-agent"
+  ],
+  "userConfig": {
+    "output_folder": {
+      "title": "Output folder",
+      "type": "directory",
+      "description": "Where task folders are created. Default: ~/Documents/memoforge, then ./outputs/memoforge-work."
+    },
+    "publish_folder": {
+      "title": "Publish folder",
+      "type": "directory",
+      "description": "Where the finished result is copied: deliverable, summary and the frozen source texts. Default: the host's outputs area when one exists (Cowork `/mnt/user-data/outputs`), else nothing is copied."
+    },
+    "writer_model": {
+      "title": "Writer model",
+      "type": "string",
+      "default": "opus",
+      "description": "Model for memo-writer: opus, fable or sonnet. An unknown value falls back to opus."
+    },
+    "source_review_gate": {
+      "title": "Source-pack review gate",
+      "type": "string",
+      "default": "auto",
+      "description": "Show the source-pack review gate: auto (mode decides), on (always) or off (never)."
+    },
+    "citation_style": {
+      "title": "Citation style",
+      "type": "string",
+      "default": "inline",
+      "description": "How citations appear in the memorandum: inline (short parenthetical citations linked to the source, full records in the Sources annex) or footnotes (a Word footnote per citation)."
+    },
+    "dashboard": {
+      "title": "Live dashboard",
+      "type": "boolean",
+      "default": true,
+      "description": "Publish a live Artifact dashboard for the run (one extra tool call per step). Turn off to save calls; if the host has no Artifact tool the run continues without it."
+    },
+    "stop_guard": {
+      "title": "Stop guard",
+      "type": "boolean",
+      "default": false,
+      "description": "Block the end of a turn while a task is mid-phase, at most twice per phase."
+    },
+    "websearch_autoallow": {
+      "title": "Auto-allow WebSearch",
+      "type": "boolean",
+      "default": true,
+      "description": "Auto-approve WebSearch while a memoforge task is active."
+    }
   }
 }

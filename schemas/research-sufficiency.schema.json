@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/research-sufficiency.schema.json",
+  "title": "memoforge research/research-sufficiency.json",
+  "description": "research-sufficiency-reviewer verdict; `mf sufficiency route` partitions blocking_gaps into subset_u (target=user) and subset_r (researcher layers) (TZ v1.5 §2.1 phase 6, §4.1).",
+  "type": "object",
+  "required": ["overall_verdict", "blocking_gaps", "drafting_warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "reviewer": { "const": "research_sufficiency" },
+    "overall_verdict": {
+      "enum": ["sufficient", "targeted_followup_needed", "insufficient"]
+    },
+    "blocking_gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    },
+    "drafting_warnings": {
+      "description": "Limitations the writer must carry into the memo when the gap stays unresolved.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "out_of_scope_gaps": {
+      "description": "Gaps in layers this mode does not research (D-112): `mf sufficiency route` carries each one as a drafting warning prefixed `Out of scope for <mode> mode:` and dispatches no researcher for it.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "option": {
+      "type": "object",
+      "required": ["label", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "followup_question": {
+      "description": "Rendered by the phase-7 text gate; same UI limits as intake questions.",
+      "type": "object",
+      "required": ["question", "header", "options", "default_assumption_if_skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "question": { "type": "string", "minLength": 1 },
+        "header": { "type": "string", "minLength": 1, "maxLength": 12 },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "default_assumption_if_skipped": { "type": "string", "minLength": 1 },
+        "rationale_md": { "type": "string" }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "required": ["gap", "target", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "gap": { "type": "string", "minLength": 1 },
+        "target": {
+          "description": "`user` gaps form subset_u and go to the phase-7 gate; layer targets form subset_r and re-dispatch research.",
+          "enum": ["user", "statutes", "case_law", "doctrine"]
+        },
+        "status": {
+          "description": "Only `missing` gaps re-run a researcher; `weak` gaps become drafting_warnings (TZ §2.1 phase 6).",
+          "enum": ["missing", "weak"]
+        },
+        "why_blocking": { "type": "string", "minLength": 1 },
+        "followup_question": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/followup_question" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "target": { "const": "user" } },
+            "required": ["target"]
+          },
+          "then": {
+            "required": ["followup_question"],
+            "properties": { "followup_question": { "$ref": "#/$defs/followup_question" } }
+          }
+        }
+      ]
+    }
+  }
+}

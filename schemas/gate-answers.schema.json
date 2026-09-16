@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/gate-answers.schema.json",
+  "title": "memoforge gate answers",
+  "description": "Result of gates.parse for any user gate; persisted as intake/followup-response.json and used for the AUQ plan gate (TZ v1.5 §2.4, §6).",
+  "type": "object",
+  "required": ["gate", "action", "answers", "defaults_applied", "errors"],
+  "additionalProperties": false,
+  "properties": {
+    "gate": {
+      "enum": ["intake", "plan", "sufficiency_followup", "insufficient", "source_review"]
+    },
+    "action": {
+      "description": "Normalised keyword recognised by the single parser (TZ §2.4 rule (a)).",
+      "enum": ["proceed", "continue", "approve", "edit", "cancel"]
+    },
+    "answers": {
+      "description": "Question key -> answer. Intake/follow-up keys are question ordinals ('1', '2'); the plan gate uses the AUQ question labels (Plan, Mode, Style, Sources).",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "defaults_applied": {
+      "description": "Keys answered by defaults rather than by the user.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "generation": {
+      "description": "Gate channel generation; 0 = AUQ, incremented on text-fallback (TZ §2.4).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "raw_response": { "type": "string" },
+    "answered_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    }
+  }
+}

@@ -1,0 +1,161 @@
+# memoforge — WebFetch/MCP-fetch auto-allow host list (ТЗ §8.1, §8.2)
+#
+# One host per line. Everything after `#` is a comment. A host matches when the URL host is
+# equal to it or ends with `"." + host` (suffix match with a dot), so `europa.eu` covers
+# `eur-lex.europa.eu` but never `evil-europa.eu`. Readers:
+#   * `hooks/permission_gate.py --mode fetch` — the PreToolUse auto-allow decision;
+#   * `hooks/build_hooks.py --inline-fallback` — the generated one-line fallback hook;
+#   * `mf docs render permissions` — the README block for `~/.claude/settings.json` (§8.2).
+#
+# Scope: regulators, courts, legislatures, standards bodies and the two privacy NGOs whose
+# trackers the research layers actually cite. Law-firm blogs and commentary publishers are
+# deliberately absent — a user grants those in `~/.claude/settings.json`.
+#
+# 99 hosts active + 5 in the `optional` group (off by default) = 104: the v1 `hooks.json` list, the
+# LegalViz reader of D-105 and the `legislature` group (plus the Austrian DPA) of D34-02, as
+# corrected by the reachability sweep of D-145 and extended by the `legislature-api` group of D-148.
+
+# group: eu — EU institutions and EU-level trackers
+# `europa.eu` covers eur-lex, publications (Cellar), ec, edpb, edps, consilium, europarl, enisa,
+# esma, eba, eiopa, ecb, ema, echa and digital-strategy through the suffix match.
+europa.eu
+coe.int
+artificialintelligenceact.eu
+# LegalViz EU — the public reader for EU legislation. The bundled `legalviz` MCP server is called
+# at `api.legalviz.eu/mcp`, which is not a WebFetch target, so that host is not listed (D-145).
+legalviz.eu
+
+# group: legislature — the official statute books and judgment archives the routing table sends a
+# researcher to: the EU/EEA states of `routing.MEMBER_STATES`, the two German mirrors a sufficiency
+# reviewer names when gesetze-im-internet.de refuses a section, and the two UK portals of D-105
+# (routed since then, but never allow-listed). EU law itself is covered by `europa.eu` above.
+boe.es
+buzer.de
+caselaw.nationalarchives.gov.uk
+# the official RIS open-data API; `www.ris.bka.gv.at` itself answers 503 to a bot check, and
+# `ogd.ris.bka.gv.at`, which serves the documents, is covered by the `ris.bka.gv.at` line (D-145).
+data.bka.gv.at
+dejure.org
+gesetze-im-internet.de
+irishstatutebook.ie
+legifrance.gouv.fr
+legislation.gov.uk
+normattiva.it
+ris.bka.gv.at
+wetten.overheid.nl
+
+# group: legislature-api — the official machine channels of the same legislatures (D-148,
+# analysis/39 §8.5). Most of them need request headers (`Accept: application/xml`, a URN body),
+# so the pipeline reads them through `mf sources fetch` (D-149) rather than WebFetch; they are
+# listed here because the gate decides by host, not by client. `api.normattiva.it` and
+# `dati.normattiva.it` already ride the `normattiva.it` suffix rule — they are spelled out so the
+# group reads as the list of channels, not as the list of additions.
+api.normattiva.it
+dati.normattiva.it
+repository.officiele-overheidspublicaties.nl
+zoekservice.overheid.nl
+# the keyless Code du travail reader; `legifrance.gouv.fr` above is Cloudflare-blocked and stays
+# the registered address rather than a fetch target (D-148).
+code.travail.gouv.fr
+# NeuRIS, the German trial service; consolidated law is still on gesetze-im-internet.de.
+rechtsinformationen.bund.de
+# Cour de cassation: the decision page is a JS redirect shell, so it is a citation, not a document.
+courdecassation.fr
+# Switzerland — the Fedlex source_url of `opencaselaw_get_law` and the Federal Supreme Court.
+fedlex.admin.ch
+bger.ch
+
+# group: dpa — national data-protection authorities (EU/EEA/UK/CH) and the German Länder
+aepd.es
+aki.ee
+autoriteprotectiondonnees.be
+autoriteitpersoonsgegevens.nl
+azop.hr
+baylda.de
+bfdi.bund.de
+cnil.fr
+cnpd.public.lu
+cnpd.pt
+cpdp.bg
+dataprotection.gov.cy
+dataprotection.gov.sk
+dataprotection.ro
+datatilsynet.dk
+datatilsynet.no
+datenschutz-berlin.de
+datenschutz.hessen.de
+datenschutzkonferenz-online.de
+dpa.gr
+dpc.ie
+dsb.gv.at
+dvi.gov.lv
+edoeb.admin.ch
+garanteprivacy.it
+ico.org.uk
+idpc.org.mt
+imy.se
+ip-rs.si
+lda.bayern.de
+ldi.nrw.de
+naih.hu
+personuvernd.is
+tietosuoja.fi
+uodo.gov.pl
+uoou.cz
+vdai.lrv.lt
+
+# group: us — federal portals, state privacy regulators and open case-law databases
+ada.gov
+cisa.gov
+congress.gov
+courtlistener.com
+cppa.ca.gov
+dol.gov
+eeoc.gov
+ftc.gov
+govinfo.gov
+hhs.gov
+irs.gov
+justice.gov
+law.cornell.edu
+nist.gov
+nlrb.gov
+oag.ca.gov
+sec.gov
+supremecourt.gov
+uscourts.gov
+whitehouse.gov
+
+# group: intl — international organisations and standards bodies
+bis.org
+cen.eu
+cenelec.eu
+etsi.org
+fatf-gafi.org
+iec.ch
+ietf.org
+iso.org
+oecd.org
+ohchr.org
+un.org
+w3.org
+wipo.int
+wto.org
+
+# group: ngo — privacy NGOs and community enforcement trackers
+edri.org
+gdprhub.eu
+noyb.eu
+
+# group: optional — OFF by default (ТЗ §8.1: «justia.com, findlaw.com, iapp.org — группа
+# optional, по умолчанию выключена»). These are commercial aggregators and a membership body,
+# not regulators or courts; `analysis/03-scripts-audit.md` S-26. Uncomment a line to enable it
+# for auto-allow, then re-run `mf docs render permissions` and `python hooks/build_hooks.py`.
+# justia.com
+# findlaw.com
+# iapp.org
+# ecfr.gov and federalregister.gov joined the group in D-145: to a non-browser client both answer
+# HTTP 200 with a 10 KB «Request Access» stub instead of the document, so an auto-allowed fetch of
+# them returns nothing citable. Their open APIs are the way in, and those are not auto-allowed.
+# ecfr.gov
+# federalregister.gov

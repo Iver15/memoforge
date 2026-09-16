@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/sources.schema.json",
+  "title": "memoforge research/sources.json",
+  "description": "Source registry; sole writer is sources.py under sources.lock (TZ v1.5 §5.3, M5/M6).",
+  "type": "object",
+  "required": ["schema_version", "sources"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 2 },
+    "sources": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/source_id" },
+      "additionalProperties": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "issue_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "layer": { "enum": ["statutes", "case_law", "doctrine"] },
+    "tier": { "enum": ["critical", "supporting", "background"] },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sha256_or_null": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+    },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "timestamp_or_null": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }]
+    },
+    "currency_status": {
+      "enum": ["current", "outdated_but_usable", "do_not_use", "manual_check", "unchecked"]
+    },
+    "identifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "celex": { "type": "string", "minLength": 1 },
+        "ecli": { "type": "string", "minLength": 1 },
+        "eli": { "type": "string", "minLength": 1 },
+        "reporter_cite": { "type": "string", "minLength": 1 },
+        "neutral": { "type": "string", "minLength": 1 }
+      }
+    },
+    "meta": {
+      "description": "Metadata as returned by the retrieval tool and passed through by the agent (`sources register --meta`). Open by design: providers add fields.",
+      "type": "object",
+      "properties": {
+        "in_force": { "type": ["boolean", "null"] },
+        "effective_date": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/date" }]
+        },
+        "status": { "type": ["string", "null"] }
+      }
+    },
+    "liveness": {
+      "type": "object",
+      "required": ["status", "code", "checked_at"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["ok", "redirect", "dead", "changed", "unchecked"] },
+        "code": {
+          "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 100, "maximum": 599 }]
+        },
+        "checked_at": { "$ref": "#/$defs/timestamp_or_null" }
+      }
+    },
+    "verification": {
+      "description": "Single enum for the C-04 predicates, the gate-11 digest and the banners (TZ §5.3).",
+      "type": "object",
+      "required": ["us", "us_by", "eu_syntax_ok", "checked_at"],
+      "additionalProperties": false,
+      "properties": {
+        "us": { "enum": ["resolved", "unresolved", "ambiguous", "n/a"] },
+        "us_by": {
+          "description": "Provenance of the `us` verdict only.",
+          "enum": ["agent", "cli", null]
+        },
+        "eu_syntax_ok": {
+          "description": "Tri-state (D34-08): true = every EU identifier present is well formed, false = one is malformed, null = the source carries no EU identifier, so the check does not apply.",
+          "type": ["boolean", "null"]
+        },
+        "checked_at": { "$ref": "#/$defs/timestamp_or_null" }
+      }
+    },
+    "currency": {
+      "type": "object",
+      "required": ["status", "checked_at", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "$ref": "#/$defs/currency_status" },
+        "checked_at": { "$ref": "#/$defs/timestamp_or_null" },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "pack": {
+      "description": "Filled by `sources pack`; roles come from findings per issue, weight is never derived from tier (TZ §5.3).",
+      "type": "object",
+      "required": ["role_by_issue", "weight", "confidence", "use_in_memo"],
+      "additionalProperties": false,
+      "properties": {
+        "role_by_issue": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/issue_id" },
+          "additionalProperties": {
+            "enum": ["rule", "application", "risk", "background", "contrary"]
+          }
+        },
+        "weight": { "enum": ["binding", "persuasive", "non_binding"] },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "use_in_memo": { "enum": ["rule", "application", "risk", "background", "do_not_use"] }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "layer",
+        "title",
+        "citation_form",
+        "url",
+        "retrieved_at",
+        "retrieval_tool",
+        "provenance",
+        "tier",
+        "raw_path",
+        "raw_sha256",
+        "raw_chars",
+        "liveness",
+        "verification"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "layer": { "$ref": "#/$defs/layer" },
+        "title": { "type": "string", "minLength": 1 },
+        "citation_form": { "type": "string", "minLength": 1 },
+        "identifiers": { "$ref": "#/$defs/identifiers" },
+        "url": {
+          "description": "Empty only for a citation-only source registered without a retrievable url (`sources register` keys on the citation_form then).",
+          "type": "string"
+        },
+        "retrieved_at": { "$ref": "#/$defs/timestamp" },
+        "retrieval_tool": { "type": "string", "minLength": 1 },
+        "provenance": {
+          "description": "`confirmed` = liveness fetched the URL and its sha matched raw_sha256; otherwise `agent_saved` (TZ M5).",
+          "enum": ["agent_saved", "confirmed"]
+        },
+        "tier": { "$ref": "#/$defs/tier" },
+        "raw_path": {
+          "description": "POSIX path relative to work_dir; null for `background` sources registered without raw.",
+          "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1 }]
+        },
+        "raw_sha256": { "$ref": "#/$defs/sha256_or_null" },
+        "raw_chars": { "type": "integer", "minimum": 0 },
+        "meta": { "$ref": "#/$defs/meta" },
+        "liveness": { "$ref": "#/$defs/liveness" },
+        "verification": { "$ref": "#/$defs/verification" },
+        "currency": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/currency" }]
+        },
+        "pack": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/pack" }]
+        }
+      }
+    }
+  }
+}

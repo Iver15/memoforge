@@ -1,0 +1,16 @@
+{
+  "name": "memoforge",
+  "description": "Marketplace for memoforge: multi-agent legal memo drafting for Claude Code and Cowork.",
+  "owner": {
+    "name": "Grigorii Moskalev",
+    "url": "https://github.com/gregmos"
+  },
+  "plugins": [
+    {
+      "name": "memoforge",
+      "source": "./",
+      "description": "Multi-agent legal memo drafting: intake questions, planned legal research, a frozen source pack with verifiable quotes, a counterargument and citation review loop, and a footnoted docx deliverable.",
+      "version": "2.0.0-dev"
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/research-findings.schema.json",
+  "title": "memoforge research/<layer>.json",
+  "description": "legal-researcher output, one file per layer; also used (as a subset) for intake/preliminary-sources.json (TZ v1.5 §4.3, §6).",
+  "type": "object",
+  "required": ["layer", "issues", "_meta"],
+  "additionalProperties": false,
+  "properties": {
+    "layer": {
+      "description": "Research layer of this file. `preliminary` is the analyst's intake/preliminary-sources.json.",
+      "enum": ["statutes", "case_law", "doctrine", "preliminary"]
+    },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue_findings" }
+    },
+    "considered_excluded": {
+      "description": "Hits deliberately dropped from the analysed layer; never silently discarded.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/excluded" }
+    },
+    "methodology": { "$ref": "#/$defs/methodology" },
+    "_meta": { "$ref": "#/$defs/meta" }
+  },
+  "$defs": {
+    "issue_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "tier": { "enum": ["critical", "supporting", "background"] },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "quote_short": {
+      "description": "Verbatim fragment of at most 15 space-separated words (TZ §4.3); may be empty when the finding carries no quotable text.",
+      "type": "string",
+      "pattern": "^ *([^ ]+( +[^ ]+){0,14})? *$"
+    },
+    "finding": {
+      "type": "object",
+      "required": ["source_id", "proposition", "pinpoint", "role", "weight", "confidence", "tier", "quote_short"],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "description": "Assigned by `mf sources register`; researchers never invent it.",
+          "$ref": "#/$defs/source_id"
+        },
+        "proposition": { "type": "string", "minLength": 1 },
+        "pinpoint": {
+          "description": "Article / paragraph / page locator inside the source.",
+          "type": "string",
+          "minLength": 1
+        },
+        "role": { "enum": ["rule", "application", "risk", "background", "contrary"] },
+        "weight": { "enum": ["binding", "persuasive", "non_binding"] },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "tier": { "$ref": "#/$defs/tier" },
+        "quote_short": { "$ref": "#/$defs/quote_short" },
+        "contrary_point": {
+          "description": "Required in substance for role=contrary findings; surfaced by counterargument-reviewer.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "issue_findings": {
+      "type": "object",
+      "required": ["issue_id", "findings"],
+      "additionalProperties": false,
+      "properties": {
+        "issue_id": { "$ref": "#/$defs/issue_id" },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        }
+      }
+    },
+    "excluded": {
+      "type": "object",
+      "required": ["title", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 },
+        "issue_id": {
+          "description": "Planned issue the exclusion belongs to; `null` when it maps to no planned issue.",
+          "anyOf": [{ "$ref": "#/$defs/issue_id" }, { "type": "null" }]
+        }
+      }
+    },
+    "methodology": {
+      "type": "object",
+      "required": ["queried_sources", "jurisdictions", "date_of_search"],
+      "additionalProperties": false,
+      "properties": {
+        "queried_sources": {
+          "description": "MCP tools / portals actually queried.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "jurisdictions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "date_of_search": { "$ref": "#/$defs/date" },
+        "notes": { "type": "string" }
+      }
+    },
+    "meta": {
+      "description": "Execution identity of the attempt that produced this file (TZ §2.2 steps[]).",
+      "type": "object",
+      "required": ["task_id", "step_id", "attempt", "slot"],
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "step_id": { "type": "string", "minLength": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "slot": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/lint.schema.json",
+  "title": "memoforge lint.json / citations.json",
+  "description": "Deterministic checker report; the same shape serves `mf draft lint` (L-rules) and `mf draft audit-citations` (C-rules). `clean` is true when there is no blocker finding (TZ v1.5 section 5.4).",
+  "type": "object",
+  "required": ["draft_sha", "clean", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "draft_sha": {
+      "description": "sha of the draft the findings belong to; consumers refuse a report whose sha is stale.",
+      "$ref": "#/$defs/sha256"
+    },
+    "clean": { "type": "boolean" },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "finding": {
+      "type": "object",
+      "required": ["rule", "severity", "line", "section_id", "excerpt", "hint"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {
+          "description": "L-01..L-15 for lint, C-01..C-07 for the citation audit.",
+          "type": "string",
+          "pattern": "^[LC]-[0-9]{2}$"
+        },
+        "severity": {
+          "description": "`info` is a finding that is recorded but neither blocks nor counts as a defect (C-07 in brief mode, D34-10).",
+          "enum": ["blocker", "major", "minor", "info"]
+        },
+        "line": {
+          "description": "1-based line in the draft; null for findings that are not bound to a line (for example C-07).",
+          "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }]
+        },
+        "section_id": {
+          "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1 }]
+        },
+        "excerpt": {
+          "description": "The draft text the finding points at; null when the finding could not be located in the draft (D34-10).",
+          "anyOf": [{ "type": "null" }, { "type": "string" }]
+        },
+        "hint": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

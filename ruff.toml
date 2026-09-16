@@ -1,0 +1,13 @@
+# Lint configuration for the CI step of ТЗ §9 (`ruff check --select E,F,W scripts hooks`).
+# The rule set is passed on the command line; this file only fixes what a bare `ruff check`
+# cannot guess: the interpreter floor (Python 3.9, ТЗ §5.6) and the line width the package is
+# written to. 120 is the observed convention of `scripts/memoforge/` — not a new rule.
+
+line-length = 120
+target-version = "py39"
+
+# Archived v1 code is kept for reference only and is never shipped or imported.
+extend-exclude = ["docs/attic", "__pycache__"]
+
+[lint]
+select = ["E", "F", "W"]

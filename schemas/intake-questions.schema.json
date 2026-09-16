@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/intake-questions.schema.json",
+  "title": "memoforge intake/questions.json",
+  "description": "Intake questions produced by fact-assumption-analyst (TZ v1.5 §2.1 phase 1, §2.4 intake gate, §4.1). UI limits carried over from the v1.1.1 baseline agent contract: header <= 12 chars, 2..4 options, description <= 200 chars.",
+  "type": "object",
+  "required": ["must_answer", "optional", "default_assumptions_if_skipped"],
+  "additionalProperties": false,
+  "properties": {
+    "must_answer": {
+      "description": "Questions the gate renders first; ranked by `impact` and capped at limits.INTAKE_MAX_QUESTIONS by the CLI (not by this schema).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/question" }
+    },
+    "optional": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/question" }
+    },
+    "default_assumptions_if_skipped": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "option": {
+      "type": "object",
+      "required": ["label", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": [
+        "question",
+        "header",
+        "options",
+        "impact",
+        "default",
+        "default_if_wrong",
+        "confidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "question": { "type": "string", "minLength": 1 },
+        "header": {
+          "description": "AskUserQuestion chip label; hard UI limit of 12 characters.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12
+        },
+        "multiSelect": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "impact": {
+          "description": "How much the answer moves the legal conclusion; the gate ranks must-answer questions by it (TZ §2.4).",
+          "enum": ["high", "medium", "low"]
+        },
+        "default": {
+          "description": "Assumption applied when the question is not answered.",
+          "type": "string",
+          "minLength": 1
+        },
+        "default_if_wrong": {
+          "description": "What changes if the default is wrong; required, because `mf gate render` prints it next to the default (TZ §2.4, D-05).",
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "description": "Analyst confidence in `default`.",
+          "$ref": "#/$defs/confidence"
+        },
+        "rationale_md": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,6 +1,15 @@
 # Build artifacts
 dist/
 
+# memoforge working directories and scratch files (ТЗ §5.6)
+outputs/
+*.tmp
+.data/
+
+# Rendered deliverables never enter the repo; documentation samples do (ТЗ §5.6)
+*.docx
+!docs/**/*.docx
+
 # Python
 __pycache__/
 *.pyc

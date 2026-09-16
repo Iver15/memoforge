@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/mediator.schema.json",
+  "title": "memoforge reviews/v<N>-mediator.json",
+  "description": "Consolidated revision instructions produced by revision-mediator, or assembled by the CLI when no mediator is dispatched (TZ v1.5 section 4.5 p.4.6 and p.5). Priority: substance before form; inside substance, accumulate.",
+  "type": "object",
+  "required": ["instructions", "dropped"],
+  "additionalProperties": false,
+  "properties": {
+    "iteration": { "type": "integer", "minimum": 1 },
+    "draft_sha": { "$ref": "#/$defs/sha256" },
+    "instructions": {
+      "description": "The writer edits only the sections named here (TZ section 4.4).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/instruction" }
+    },
+    "dropped": {
+      "description": "Reviewer issues deliberately not passed to the writer, with the reason.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/dropped_issue" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "section_id": { "type": "string", "minLength": 1 },
+    "severity": { "enum": ["blocker", "major", "minor"] },
+    "source_reviewer": {
+      "description": "`deterministic` covers lint/citations blockers folded in by `mf review aggregate`.",
+      "enum": ["logic", "form", "citations", "counterarguments", "deterministic"]
+    },
+    "instruction": {
+      "type": "object",
+      "required": ["section_id", "source_reviewer", "category", "severity", "instruction"],
+      "additionalProperties": false,
+      "properties": {
+        "section_id": { "$ref": "#/$defs/section_id" },
+        "source_reviewer": { "$ref": "#/$defs/source_reviewer" },
+        "category": { "type": "string", "minLength": 1 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "instruction": { "type": "string", "minLength": 1 },
+        "resolution": {
+          "description": "How conflicting reviewer findings on the same section were resolved.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "dropped_issue": {
+      "type": "object",
+      "required": ["issue", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "section_id": { "$ref": "#/$defs/section_id" },
+        "source_reviewer": { "$ref": "#/$defs/source_reviewer" },
+        "category": { "type": "string", "minLength": 1 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "issue": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

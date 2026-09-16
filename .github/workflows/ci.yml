@@ -1,0 +1,84 @@
+name: CI
+
+# ТЗ §9. Every wave of §12 ends on a green run of this workflow.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # bash on both runners: `tee` for the skip guard, one command syntax for the whole matrix.
+    shell: bash
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt ruff
+
+      - name: Compile
+        run: python -m compileall scripts
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          python -m unittest discover -s scripts/tests -v 2>&1 | tee test-output.txt
+
+      - name: No skipped tests
+        # G9: a skip is how a missing dependency turns a broken build green. D-100: the guard
+        # allows the platform/environment skip reasons of scripts/tests/test_launcher_wrappers.py
+        # — `mf.cmd runs on Windows only` on the ubuntu job, the missing Store `python3` alias and
+        # the missing `py.exe` on windows-latest — and prints the ones it saw. A missing dependency
+        # is NOT allowed, `bash is not available` included: both runners have bash.
+        run: python scripts/ci/check_no_skips.py test-output.txt
+
+      - name: Lint
+        run: ruff check --select E,F,W scripts hooks
+
+      - name: Generated docs are current
+        # M11: docs/*.md are rendered from the code, never edited by hand.
+        run: python scripts/memoforge/__main__.py docs render --check
+
+      - name: Dry run — full
+        # D-52: a failed invariant answers `ok: false` + `errors[]` and exits 1, so the exit code
+        # alone fails the step; `ok` is re-read from the JSON as a guard against a silent regression.
+        run: |
+          set -o pipefail
+          python scripts/memoforge/__main__.py probe dry-run --mode full | tee dry-run-full.json
+          python -c "import json,sys; r=json.load(open('dry-run-full.json', encoding='utf-8')); print(r.get('errors') or 'ok'); sys.exit(0 if r.get('ok') else 1)"
+
+      - name: Dry run — brief
+        run: |
+          set -o pipefail
+          python scripts/memoforge/__main__.py probe dry-run --mode brief | tee dry-run-brief.json
+          python -c "import json,sys; r=json.load(open('dry-run-brief.json', encoding='utf-8')); print(r.get('errors') or 'ok'); sys.exit(0 if r.get('ok') else 1)"
+
+      - name: Versions agree
+        # D-73: plugin.json == marketplace.json == README badge == top of CHANGELOG.
+        run: python scripts/ci/check_versions.py

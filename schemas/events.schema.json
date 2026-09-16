@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/memoforge/schemas/events.schema.json",
+  "title": "memoforge events.jsonl record",
+  "description": "One line of <work_dir>/events.jsonl (ТЗ §7.2 C/C′). The enum is generated from scripts/memoforge/events.py; test_events.py asserts identity (M11).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ts", "event", "actor"],
+  "properties": {
+    "ts": {"$ref": "#/$defs/iso_datetime"},
+    "event": {"$ref": "#/$defs/event_type"},
+    "actor": {"type": "string", "minLength": 1},
+    "severity": {"type": "string", "enum": ["info", "warn", "error"]},
+    "phase": {"type": ["string", "null"]},
+    "step_id": {"type": ["string", "null"]},
+    "event_key": {
+      "type": ["string", "null"],
+      "description": "Dedup key for at-least-once hook events; markers live in events/.seen/ (§7.2 C)."
+    },
+    "data": {"type": "object"}
+  },
+  "$defs": {
+    "iso_datetime": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "agent_log",
+        "agent_returned",
+        "cancel_requested",
+        "cli_call",
+        "context_compacted",
+        "dashboard_published",
+        "dashboard_unavailable",
+        "fallback_invoked",
+        "gate_answered",
+        "gate_channel_switched",
+        "mcp_call",
+        "mcp_ratelimit_fallback",
+        "mode_selected",
+        "plan_approved",
+        "result_published",
+        "sources_frozen",
+        "state_written",
+        "step_autoclosed",
+        "step_issued",
+        "stop_guard_blocked",
+        "stop_guard_gave_up",
+        "subagent_requested",
+        "subagent_started",
+        "subagent_stopped",
+        "task_created",
+        "work_dir_resolved",
+        "writer_model_fallback"
+      ]
+    }
+  }
+}

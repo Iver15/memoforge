@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/memoforge/schemas/done-marker.schema.json",
+  "title": "memoforge agent completion marker",
+  "description": "steps/<step_id>/a<attempt>/<slot>/done.json written by `mf agent log --state done` (ТЗ §3.1, §6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "step_id", "attempt", "slot", "input_sha", "output_sha"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "step_id": {"type": "string", "minLength": 1},
+    "attempt": {"type": "integer", "minimum": 1},
+    "slot": {"type": "string", "minLength": 1},
+    "input_sha": {"$ref": "#/$defs/sha_map"},
+    "output_sha": {"$ref": "#/$defs/sha_map"},
+    "at": {"type": "string"},
+    "agent_type": {"type": "string"}
+  },
+  "$defs": {
+    "sha_map": {
+      "type": "object",
+      "description": "Relative POSIX path -> sha256 of the file as the agent saw it.",
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    }
+  }
+}
