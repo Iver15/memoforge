@@ -327,7 +327,10 @@ class MalformedPlanIsNotProjectedTest(unittest.TestCase):
                 action = self.driver.next()
                 self.assertNotIn("errors", action)
                 self.assertTrue(action.get("kind"))
-                self.assertIsNone(action["dashboard"]["patch"]["plan"])
+                patch = json.loads(
+                    Path(action["dashboard"]["write_db"]["file_path"]).read_text(encoding="utf-8")
+                )
+                self.assertIsNone(patch["plan"])
 
     def test_the_patch_is_still_serialisable_for_the_page(self):
         state_io.write_json_atomic(self.driver.work_dir / gates.PLAN_PATH, {"issues": 42})
@@ -374,17 +377,23 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
         for _ in range(3):
             action = driver.next()
             block = action["dashboard"]
-            self.assertEqual(sorted(block), ["patch", "write_db"])
-            self.assertEqual(
-                block["write_db"], {"url": URL, "collection": "run", "doc_id": "state"}
-            )
+            # D-159: the document travels as a file the Artifact tool reads itself — the router never
+            # retypes it inline, and the answer carries no `patch` any more.
+            self.assertEqual(sorted(block), ["write_db"])
+            write = block["write_db"]
+            self.assertEqual(sorted(write), ["collection", "doc_id", "file_path", "url"])
+            self.assertEqual((write["url"], write["collection"], write["doc_id"]), (URL, "run", "state"))
+            patch_file = Path(write["file_path"])
+            self.assertTrue(patch_file.is_absolute())
+            self.assertEqual(patch_file, (driver.work_dir / "dashboard" / "patch.json").absolute())
+            written = json.loads(patch_file.read_text(encoding="utf-8"))
             expected = machine.dashboard_patch(driver.state())
             # `updated_at` is stamped per call; everything else is a pure function of the state.
             self.assertEqual(
-                {key: value for key, value in block["patch"].items() if key != "updated_at"},
+                {key: value for key, value in written.items() if key != "updated_at"},
                 {key: value for key, value in expected.items() if key != "updated_at"},
             )
-            self.assertTrue(block["patch"]["updated_at"])
+            self.assertTrue(written["updated_at"])
             self.assertNotIn("publish", block)
             driver.act(action)
 
@@ -393,7 +402,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         action = driver.run_to_end()
         self.assertEqual(action["kind"], "terminal")
-        patch = action["dashboard"]["patch"]
+        patch = json.loads(Path(action["dashboard"]["write_db"]["file_path"]).read_text(encoding="utf-8"))
         self.assertTrue(patch["deliverable"], "the page must end on the deliverable path")
         self.assertEqual(patch["phase"], "done")
 
@@ -412,7 +421,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
         """D-88: the decline is final — it is read before the URL branch, not after it."""
         driver = Driver(temp_root(self), "brief", slug="dash-late", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
-        self.assertEqual(sorted(driver.next()["dashboard"]), ["patch", "write_db"])
+        self.assertEqual(sorted(driver.next()["dashboard"]), ["write_db"])
         task.run_dashboard(
             namespace(workdir=str(driver.work_dir), url=None, unavailable="Artifact stopped working")
         )
@@ -578,14 +587,13 @@ class EveryAnswerKindCarriesTheWriteDbTest(unittest.TestCase):
             kind = str(action.get("kind"))
             block = action.get("dashboard")
             self.assertIsNotNone(block, f"the {kind} answer lost the dashboard block")
-            self.assertEqual(sorted(block), ["patch", "write_db"])
-            self.assertEqual(
-                block["write_db"], {"url": URL, "collection": "run", "doc_id": "state"}
-            )
-            self.assertEqual(json.loads(json.dumps(block["patch"])), block["patch"])
+            self.assertEqual(sorted(block), ["write_db"])
+            self.assertEqual(sorted(block["write_db"]), ["collection", "doc_id", "file_path", "url"])
+            block_patch = json.loads(Path(block["write_db"]["file_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(json.loads(json.dumps(block_patch)), block_patch)
             seen.add(kind)
             if approved_now:
-                after_approval = block["patch"]
+                after_approval = block_patch
                 approved_now = False
             if kind == "terminal":
                 break
@@ -780,7 +788,9 @@ class UnreadableGateSourceIsNotProjectedTest(unittest.TestCase):
         action = driver.next()
         self.assertNotIn("errors", action)
         self.assertTrue(action.get("kind"))
-        return action["dashboard"]["patch"]["gate"]
+        return json.loads(Path(action["dashboard"]["write_db"]["file_path"]).read_text(encoding="utf-8"))[
+            "gate"
+        ]
 
     def assertNoQuestions(self, driver: Driver) -> None:
         gate = self.gate_of_next(driver)
@@ -896,7 +906,14 @@ class RunHistoryReachesThePageTest(unittest.TestCase):
             action = cls.driver.next()
             if action.get("errors"):
                 raise AssertionError(f"next failed: {action['errors']}")
-            cls.patches.append((str(action.get("phase") or ""), action["dashboard"]["patch"]))
+            cls.patches.append(
+                (
+                    str(action.get("phase") or ""),
+                    json.loads(
+                        Path(action["dashboard"]["write_db"]["file_path"]).read_text(encoding="utf-8")
+                    ),
+                )
+            )
             if action.get("kind") == "terminal":
                 break
             cls.driver.act(action)
@@ -1583,7 +1600,15 @@ class DashboardIsDocumentedTest(unittest.TestCase):
 
     def test_the_router_documents_both_branches(self):
         text = ROUTER.read_text(encoding="utf-8-sig")
-        for token in ("dashboard.publish", "dashboard.write_db", "task dashboard", "--unavailable"):
+        for token in (
+            "dashboard.publish",
+            "dashboard.write_db",
+            "task dashboard",
+            "--unavailable",
+            "if_version",
+            "version_mismatch",
+            "file_path",
+        ):
             self.assertIn(token, text, token)
 
     def test_the_skills_name_the_dashboard_section(self):

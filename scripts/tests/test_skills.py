@@ -207,6 +207,14 @@ class DashboardIsStepZeroTest(unittest.TestCase):
                               "AskUserQuestion", "terminal message", "`Artifact`"):
                     self.assertIn(token, rule, token)
 
+    def test_the_dashboard_sections_state_the_version_pin(self):
+        for path in (ROUTER, self.MEMO, SKILLS / "continue" / "SKILL.md"):
+            text = read(path)
+            with self.subTest(file=path.name):
+                for token in ("if_version", "file_path"):
+                    self.assertIn(token, text, token)
+        self.assertIn("any **other** `write_db` error", read(self.MEMO))
+
     def test_continue_repeats_the_ordering_for_a_resumed_run(self):
         rule = self.rule(SKILLS / "continue" / "SKILL.md")
         for token in ("`Agent`", "command[]", "AskUserQuestion", "`Artifact`", "never after"):

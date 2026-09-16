@@ -450,7 +450,7 @@ L-01 предложения >40 слов; L-02 абзацы >3 предложе�
 GATE-END на текстовых гейтах сохраняется как гарантированный flush.
 
 ### 7.5. Опциональный дашборд через `Artifact` tool (только при P3 = PASS в обоих окружениях)
-Оркестратор один раз публикует статичную страницу (`capabilities: {db: {}}`), подписанную на документ `run/state` (одна страница на прогон); далее **LLM делает один вызов `Artifact write_db` на шаг** с payload из ответа `next` (`dashboard_patch`). Это +1 обязательное действие LLM ⇒ G8 = 2 при `dashboard: on`. CLI/хуки Artifact не трогают (у него нет CLI/API). Флаг `userConfig.dashboard`, default `on` (D-92).
+Оркестратор один раз публикует статичную страницу (`capabilities: {db: {}}`), подписанную на документ `run/state` (одна страница на прогон); далее **LLM делает один вызов `Artifact write_db` на шаг**: `file_path` из ответа `next` (документ `dashboard_patch` CLI пишет в `<work_dir>/dashboard/patch.json`) и `if_version` = версия, которую вернула предыдущая запись (первая запись после `publish` — без версии; `version_mismatch` → один `get` и один повтор). Это +1 обязательное действие LLM ⇒ G8 = 2 при `dashboard: on`. CLI/хуки Artifact не трогают (у него нет CLI/API). Флаг `userConfig.dashboard`, default `on` (D-92).
 
 ---
 

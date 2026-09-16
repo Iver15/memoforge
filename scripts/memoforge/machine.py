@@ -282,7 +282,12 @@ DASHBOARD_HTML: tuple[str, ...] = ("lib", "dashboard.html")
 
 DASHBOARD_COLLECTION = "run"
 DASHBOARD_DOC_ID = "state"
-"""The single document the page subscribes to (`run/state`); one `write_db` per step updates it."""
+"""The single document the page subscribes to (`run/state`); one `write_db` per step updates it,
+pinned to the version the previous write returned (D-159)."""
+
+DASHBOARD_PATCH_FILE: tuple[str, ...] = ("dashboard", "patch.json")
+"""Where `next` writes the document for the Artifact tool's `file_path` (D-159): the router hands the
+path over instead of retyping up to 180 KB of JSON inline, and the answer of `next` stays small."""
 
 DASHBOARD_UNAVAILABLE = fallbacks.DASHBOARD_UNAVAILABLE
 """`fallbacks.py` condition key and banner id: the host has no working `Artifact` tool."""
@@ -1085,18 +1090,24 @@ def dashboard_block(work_dir: Path, state: dict) -> dict | None:
     `task dashboard --unavailable`, which raises the banner and silences this block for good.
     D-88: that decline is final, so it is read before the URL branch — a run that published a page
     and then reported the tool unavailable stops carrying the block, `write_db` included.
+    D-159: the document travels as `<work_dir>/dashboard/patch.json` (the router passes its
+    `file_path` to `Artifact` instead of retyping it inline), pinned to the version the previous
+    write returned — the first write after `publish` carries no `if_version` (the router holds it).
     """
     if not dashboard_enabled(state) or dashboard_declined(state):
         return None
     url = dashboard_url(state)
     if url:
+        target = Path(work_dir) / Path(*DASHBOARD_PATCH_FILE)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        state_io.write_json_atomic(target, dashboard_patch(state))
         return {
             "write_db": {
                 "url": url,
                 "collection": DASHBOARD_COLLECTION,
                 "doc_id": DASHBOARD_DOC_ID,
-            },
-            "patch": dashboard_patch(state),
+                "file_path": str(target.absolute()),
+            }
         }
     task_id = str(state.get("task_id") or Path(work_dir).name)
     return {
