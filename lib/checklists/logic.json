@@ -1,0 +1,68 @@
+[
+  {
+    "id": "LOG-01",
+    "text": "Each analytical subsection states its conclusion on that issue before it explains the rule (conclusion-first). Evidence: quote the opening sentence of a subsection that buries the conclusion, or of the first subsection when all pass.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-02",
+    "text": "Every rule the memo applies is stated with the authority it comes from and explained — what the provision or holding establishes — before it is applied to the facts. Evidence: name the subsection and quote the rule sentence that stands unexplained, or one that passes.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "LOG-03",
+    "text": "The application reasons about the user's actual facts rather than restating the rule in other words. Evidence: quote the application sentence that adds no facts, or one that engages them.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-04",
+    "text": "Each subsection's conclusion follows from the rule and application presented above it; no authority, fact, or reasoning appears for the first time in the conclusion. Evidence: quote the conclusion and the step it skips.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "LOG-05",
+    "text": "The risk verdict for a subsection is the same wherever it appears — the summary bullet, the subsection's risk line, and the conclusion item for it. Evidence: quote the two texts that disagree, or one matching pair.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "LOG-06",
+    "text": "Conclusions on different issues are consistent with each other; no conclusion assumes a position another conclusion rejects. Evidence: quote the two conclusions in tension, or state which pair you compared.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-07",
+    "text": "Material assumptions that drive a conclusion are stated, and each is either tied to an open question that would resolve it or marked as not affecting any conclusion. Evidence: quote the unmapped assumption, or one that is mapped.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-08",
+    "text": "Where a fact is missing, the memo names the conclusion that depends on it instead of quietly assuming an answer. Evidence: quote the sentence that assumes a missing fact, or the disclosure that handles one.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-09",
+    "text": "Binding authority is not presented as interchangeable with persuasive or non-binding material; where the memo relies on the weaker source it says so. Evidence: quote the sentence that flattens the difference, or one that marks it.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-10",
+    "text": "Every recommendation traces back to a finding in an analytical subsection, and no subsection finding that calls for action is left without one. Evidence: name the orphan recommendation or the finding with no action.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "LOG-11",
+    "text": "The memo answers the question it was asked and stays inside it: each planned issue is addressed, and no new issue is decided in passing. Evidence: name the unanswered issue or the passage that decides an unplanned one.",
+    "tier": "substance",
+    "hard_fail": false
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "CRD-01",
+    "text": "A reader gets the answer to the question asked within the first screen of the memo, without reading the analysis. Evidence: quote the sentence that carries the answer, or say where the reader first meets it.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-02",
+    "text": "The memo carries no internal-only detail, counterparty name, amount, or system reference beyond what the query supplied; generic phrasing is used where the specific one adds nothing. Evidence: quote the passage to generalise.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-03",
+    "text": "Research gaps, unverified sources, and drafting warnings recorded for this task appear as caveats where they affect a conclusion. Evidence: name the warning and the conclusion that should carry it.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CRD-04",
+    "text": "Conclusions are not stronger than their caveats allow; the memo does not give a confident answer and then quietly withdraw it. Evidence: quote the conclusion and the caveat it contradicts.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-05",
+    "text": "Recommendations are ordered by what matters most and are executable by the owner each one names. Evidence: quote the recommendation nobody could act on, or the pair that is out of order.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-06",
+    "text": "The memo reads as counsel's own work: no machine-sounding openers, no padding, no paragraph announcing what the memo is about to say. Evidence: quote the worst passage.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-07",
+    "text": "Caveats are present without hiding the answer: the reader is told what is uncertain and still told what to do. Evidence: quote the caveat that swallows the advice, or the pair that balances.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-08",
+    "text": "Nothing in the body contradicts the generated source list or the assumptions appendix — no source is described as relied on where the pack excludes it. Evidence: name the source and the two statements.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-09",
+    "text": "The memo is as long as its content needs; sections do not repeat each other and none exists only to look complete. Evidence: name the section to cut or merge.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "CRD-10",
+    "text": "Where the run ended with unresolved reviewer findings or manual review required, the body text neither contradicts that status nor talks the reader out of it. Evidence: quote the passage that softens the status.",
+    "tier": "substance",
+    "hard_fail": true
+  }
+]

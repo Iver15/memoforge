@@ -1,0 +1,62 @@
+[
+  {
+    "id": "CIT-01",
+    "text": "Every statement of law — a rule, an obligation, a holding, a regulator position — carries a source token; no legal proposition stands on the writer's authority alone. Evidence: quote the unsourced proposition.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CIT-02",
+    "text": "Each paraphrase says what the research record says the source says: not broader, not stronger, not reversed. Evidence: quote the draft sentence next to the finding it drifted from.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CIT-03",
+    "text": "Each quoted passage supports the proposition it is attached to when read in its own context, rather than being a fragment that reads differently whole. Evidence: quote the passage and the proposition it is asked to carry.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-04",
+    "text": "The pinpoint sends the reader to the provision or paragraph that actually contains the proposition. Evidence: quote the citation and name where the proposition really sits.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-05",
+    "text": "Each source is used in the role and at the weight the source pack assigns it; background material does not do rule work, and persuasive material is not written as binding. Evidence: name the source, its pack role, and the sentence that exceeds it.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CIT-06",
+    "text": "Where the source pack records a currency qualification — superseded, pending, or checked only by the agent — the draft's characterisation of that source reflects it. Evidence: quote the sentence that ignores the qualification.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-07",
+    "text": "No authority is described as more current, more settled, or more on point than the research record supports. Evidence: quote the overstated description.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-08",
+    "text": "Statements that no authority exists on a point match the gaps the research record actually records, rather than asserting a silence the research never established. Evidence: quote the claim of silence and the record entry.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-09",
+    "text": "The user's facts and assumptions are not presented as findings of the sources, and source content is not presented as a fact of the matter. Evidence: quote the sentence that blurs the two.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CIT-10",
+    "text": "Where the research record holds sources that pull in opposite directions on a point, the draft cites both rather than only the convenient one. Evidence: name the omitted source and the proposition it bears on.",
+    "tier": "substance",
+    "hard_fail": false
+  }
+]

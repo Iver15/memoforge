@@ -1,0 +1,86 @@
+[
+  {
+    "id": "FRM-01",
+    "text": "Every analytical subsection carries the four beats in the template's order — issue and conclusion, source, analysis, risk line — with none folded into another. Evidence: name the subsection and the missing or merged beat, or one subsection that shows all four.",
+    "tier": "form",
+    "hard_fail": true
+  },
+  {
+    "id": "FRM-02",
+    "text": "Each subsection either quotes its controlling source or the draft paraphrases it with a source token because a quote skip was recorded for that section and source. Evidence: quote the blockquote, or name the section with neither a quote nor a paraphrase of its cited provision.",
+    "tier": "form",
+    "hard_fail": true
+  },
+  {
+    "id": "FRM-03",
+    "text": "Section headings are noun phrases, not questions or instructions to the reader. Evidence: quote the offending heading and give a noun-phrase rewrite, or quote one heading that passes.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-04",
+    "text": "Headings say what is in the section; none is a bare label such as \"Analysis\" or \"Discussion\" where a specific subject exists. Evidence: quote the uninformative heading.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-05",
+    "text": "Analysis weight is proportionate: no single analytical subsection crowds out the others when they were planned as comparable issues. Evidence: name the dominant subsection and the compressed ones.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-06",
+    "text": "Legal terms of art, Latin, and abbreviations a business reader would not know are explained where first used, or avoided. Evidence: quote the unexplained term in context.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-07",
+    "text": "Statements are direct where the law is clear; hedging appears only where there is genuine legal uncertainty, and then it names what is uncertain. Evidence: quote the hedged sentence with no uncertainty behind it.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-08",
+    "text": "Every recommendation names an action, a trigger or deadline, and an owner; \"consider\", \"ensure\", \"review\" and the like do not count as the action. Evidence: quote the recommendation and say which of the three is missing.",
+    "tier": "form",
+    "hard_fail": true
+  },
+  {
+    "id": "FRM-09",
+    "text": "Claims are attributed to a named source rather than to \"commentators\", \"some scholars\", or \"it is generally accepted\". Evidence: quote the vague attribution.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-10",
+    "text": "The prose reads as counsel's own: no promotional or inflated phrasing, no filler openers, no decorative triplets, no machine-sounding turns beyond the ones the lint dictionary already catches. Evidence: quote the worst offender.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-11",
+    "text": "Bullets are used where the content is a genuine list and prose where the content is an argument; neither is used as a substitute for the other. Evidence: quote the bulleted argument or the list buried in prose.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-12",
+    "text": "Definitions appear as their own short paragraphs in the term-then-definition form, not as a bulleted glossary or bolded labels. Evidence: quote the definition that breaks the form.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-13",
+    "text": "English throughout, except quoted source text kept in the language of the source; a non-English quote is followed by an English gloss where the reader needs one. Evidence: quote the non-English passage that is not a source quote or lacks its gloss.",
+    "tier": "form",
+    "hard_fail": false
+  },
+  {
+    "id": "FRM-14",
+    "text": "The draft carries no grammar or punctuation errors that a reader would notice. Evidence: quote the sentence and the correction.",
+    "tier": "form",
+    "hard_fail": false
+  }
+]

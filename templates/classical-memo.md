@@ -1,49 +1,51 @@
+---
+citation_style: inline
+---
+
 # Template: classical-memo
 
-**Use when:** deep, multi-issue legal analysis where the reader needs full coverage, comprehensive context, and an audit trail of reasoning. Default for complex regulatory, transactional, or cross-disciplinary questions.
+**Use when:** multi-issue analysis where the reader needs full coverage and an audit trail of the reasoning. The default for complex regulatory, transactional or cross-disciplinary questions.
 
-All templates in this plugin share one rhetorical surface — the four-beat Risk subsection pattern from `lib/prose-style.md`. `classical-memo` is the longest form and the closest to the canonical legal memorandum shape. The four-beat pattern (description → verbatim source quote → analysis → risk assessment line) is mandatory inside every numbered analytical subsection.
+The rhetorical surface is the four-beat analytical subsection from `lib/prose-style.md`. This is the longest form and the closest to the classical office memorandum.
 
-## Required sections (in this order)
+## Sections, in this order
 
-1. **Title** — bold, format `<Subject>: <Analytical framing>`. No date or jurisdictions inside the title itself.
-2. **Header block** — date (YYYY-MM-DD), jurisdictions, one-line query restatement, template name. Each as its own body paragraph (not a table).
-3. **Context** — 1-2 body paragraphs: who is considering what, for what purpose, what this memo analyzes, what is out of scope.
-4. **Executive Summary** (`## 1.`) — **bullets ONLY, 3-5 of them, no prose paragraphs.** Each bullet is one concrete conclusion tied to a specific analytical subsection number below, **≤ 2 sentences and ≤ 40 words**, ending with `Risk: <high|medium|low|undetermined>.`. Stand-alone readable. Do NOT mix facts, context, or analytical prose into this section — facts live in `## 3. Facts, assumptions and limitations`; context lives in the unnumbered paragraphs above `## 1.`.
-5. **Background and definitions** — domain-specific terms needed to follow the analysis. Each definition as its own short body paragraph in the format `Term — short operational definition.` Skip the section entirely if the audience does not need orientation.
-6. **Facts, assumptions and limitations** — facts provided by the user; material assumptions from intake that affect conclusions; limitations that affect confidence. Brief.
-7. **Numbered analytical subsections** — one per legal question / risk area. Hierarchical numbering (`1.`, `2.`, `2.1.`, `2.2.`, `3.`). Section headings are bold descriptive noun phrases, not questions. Each numbered analytical subsection follows the four-beat pattern:
-   1. **Description** — what the issue is, the controlling provision named and cited.
-   2. **Verbatim source quote** — markdown blockquote (`> …`), source's original language, ≤ 30 words.
-   3. **Analysis** — 2-4 short paragraphs translating the quoted text into operational consequences for the user's facts, with inline case-law / doctrinal citations.
-   4. **Risk assessment line** — new body paragraph beginning with `Risk: high.` / `Risk: medium.` / `Risk: low.` / `Risk: undetermined.`, followed by one-sentence justification and a specific concrete recommendation.
-8. **General conclusion and recommendations** — structured list, one item per analytical subsection above, format `<subsection-number / risk label>: <specific action or condition>`. Include conservative / balanced / aggressive options where useful. Material assumptions and open questions listed here as sub-lists.
-9. **Sources** — numbered list with full bibliographic info (title, identifier, URL, retrieval date).
+1. **Title** — `# <Subject>: <Analytical framing>`. No date or jurisdiction inside the title line.
+2. **Header block** — date (YYYY-MM-DD), jurisdictions, the question, the template name. Body paragraphs, not a table. The `Question:` line carries the user's own question (`user_query`) word for word: copy it, do not rephrase, shorten, sharpen or re-scope it. A question with several limbs stays whole. The title above may name the analytical focus, but it never stands in for the question — a reader has to find what they asked in the document they get back.
+3. **Context** — one or two unnumbered paragraphs above the first `## ` heading: who is considering what, for what purpose, and what is out of scope.
+4. **`## 1. Executive summary`** — bullets only. Each bullet is one conclusion for one analytical subsection, ending with its risk verdict and a reference to that subsection. Literal form, the verdict last and closed by a period:
+   `- Consent is available as a lawful basis for the marketing flow. Risk: medium.`
+   No prose paragraphs in this section: facts belong in the facts section, framing in the Context paragraphs.
+5. **`## 2. Background and definitions`** — optional. Terms the reader needs, one short paragraph each in the form `Term — definition.` Skip the whole section for a counsel-to-counsel memo; the following sections then take the next numbers.
+6. **`## 3. Facts, assumptions and limitations`** — required. The facts the user supplied, the material assumptions the analysis rests on, and the limitations that affect confidence. Short.
+7. **Analytical subsections** — `## 4.`, `## 5.`, … one per legal question, with `### 4.1.`, `### 4.2.` for sub-issues. Headings are noun phrases naming the subject. Each subsection follows the four beats below.
+8. **`## N. Conclusion and recommendations`** — one item per analytical subsection, each naming the action, its trigger and its owner, and each pointing back at its subsection. Material assumptions and open questions as sub-lists here: every assumption either linked to the question that would resolve it or marked as affecting no conclusion.
+9. **Sources** — you do not write this section. End the draft with the marker line `<!-- sources: generated -->`. The renderer builds the citations, the source list and the appendix of unverified sources from the frozen source pack, and adds the status banner when the run needs one. Citations reach the reader as short parentheticals linked to the source; the full record of each one is in the Sources annex.
 
-## Tone
+## The four beats
 
-Formal, analytical, precise. Short declarative sentences. No hedging when the law is clear. English regardless of the query language.
+Every numbered analytical subsection carries these, in order:
 
-## Length guidance
+1. **Issue and conclusion.** Open with the answer for this issue, then the question and the controlling authority, cited as `[[src:<source_id> <pinpoint>]]`.
+2. **The source.** `> [[q:<quote_id>]] <text>` from `mf quote extract`, introduced by its locator. When a `quote skip` is recorded for this section and source — for any reason — replace the quote with a close paraphrase of the provision carrying `[[src:]]`. That is a legitimate outcome; do not go looking for another passage to fill the shape.
+3. **Rule explanation and application.** What the authority establishes, then what it means for the user's facts. This beat also carries the counterargument: one sentence giving the strongest contrary reading or contrary authority, and one resolving it — why the conclusion holds and what would have to change for it not to. This pair is required in every subsection, whatever the risk verdict.
+4. **Risk line.** The last paragraph of the subsection opens with the verdict written literally, then carries the justification and the recommendation with its action, trigger and owner in the same paragraph:
+   `Risk: medium. The basis holds only while the affirmative action stays in the flow. Product must keep the opt-in unticked before launch.`
+   The verdict word is one of `high`, `medium`, `low`, `undetermined`, lower case and followed by a period.
 
-3000-6000 words typical. Don't pad; a straightforward subsection can be 200-300 words while still containing all four beats (quote + 1-2 sentences each for description, analysis, and risk line).
+## Anchors and versions
+
+`<!-- §s-4 -->` on a `## ` heading and `<!-- §s-4-1 -->` on a `### ` heading are inserted by `mf draft anchor` after the first version — do not write them yourself, and leave the existing ones in place when you edit a later version. Later versions are targeted edits: change the sections the instructions name and nothing else.
+
+## Tone and length
+
+Formal, analytical, precise; English regardless of the query language. See `lib/prose-style.md`. Typically 3000–6000 words, but a straightforward subsection can be 200–300 words and still carry all four beats. Do not pad.
 
 ## Rules
 
-- The four-beat Risk subsection pattern is mandatory in every numbered analytical subsection. Skipping the verbatim source quote because "the rule is well known" is a blocking issue at style review.
-- **Executive Summary discipline (blocking at review):** `## 1. Executive Summary` contains **only** 3-5 bullets. No prose paragraphs in this section — neither before, between, nor after the bullets. Each bullet is one short conclusion + `Risk:` line, ≤ 2 sentences and ≤ 40 words. Facts and assumptions belong in `## 3. Facts, assumptions and limitations`; framing/scope belongs in the unnumbered Context paragraphs above `## 1.`.
-- **Facts section required (blocking at review):** `## 3. Facts, assumptions and limitations` is required for classical-memo. Skipping it (or merging facts into Executive Summary, Context, or Background) is a structural defect.
-- IRAC discipline (Issue, Rule, Application, Conclusion) is the writer's internal logic — **do not surface IRAC labels as visible sub-headings**. The reader sees the four beats, not "Rule" / "Application".
-- Each source quoted at most once across the whole memo.
-- Inline citation format: `[Source name, year, section]`.
-- **Sentence-length cap (hard, blocking at review):** no sentence over 40 words; no sentence chaining more than 2 independent ideas (via `and that …, and that …`, semicolon chains, `while …, and …`, or parallel relative clauses). Verbatim source quotes inside `> blockquote` paragraphs are exempt. See `lib/prose-style.md` §Sentence structure Hard limits.
-- **Paragraph-length cap (hard, blocking at review):** no paragraph over 3 sentences or 100 words. Each paragraph carries one developed idea; multi-argument "wall of text" paragraphs are a structural defect even when their sentences are within the sentence cap. Verbatim source quotes (`> blockquote`), bullet items, numbered list items, headings, and table cells are exempt. See `lib/prose-style.md` §Paragraph structure Hard limits.
-- **Cross-section consistency (hard, blocking at review):** risk scores match in three places per subsection (Exec Summary bullet, Analysis Risk line, Conclusion item — no drift). Each Exec Summary bullet ends with `(§ N)` referring to its analytical subsection; each Conclusion item starts with `§ N.M:` prefix. Every analytical subsection has BOTH an Exec Summary bullet AND a Conclusion item (no orphans). Recommendation matrix columns/rows are labelled with subsection numbers. See `lib/prose-style.md` §Cross-section consistency.
-- **Recommendation concreteness (hard, blocking at review):** every Risk-line recommendation names an action verb (specific operational step), a condition or trigger, and an owner. Generic verbs alone (`consider`, `ensure`, `review`, `evaluate`, `assess`, `monitor`) do not count. See `lib/prose-style.md` §Recommendation concreteness (Beat 4).
-- **Counter-argument framing (hard, blocking at review):** every `Risk: medium` / `Risk: undetermined` verdict names the contrary authority inline and explains why analysis stands; counter-arguments resolved as "does not prevail" carry explicit trigger conditions in the Risk line; Material Assumptions are mapped 1:1 to Open Questions (or labelled immaterial). See `lib/prose-style.md` §Counter-argument framing.
-- **Heading discipline (hard, blocking at review):** all headings (H1/H2/H3) are noun phrases — not questions, not imperatives. Hierarchy H1 → H2 → H3 only; no H4; no skip jumps. See `lib/prose-style.md` §Heading discipline.
-- See `lib/prose-style.md` for tone, sentence structure, anti-patterns, definition format.
-
-## What goes in the warning banner (forced exit / manual review)
-
-If `final_status` is `forced_exit_...` or `manual_review_required_...`, a yellow callout box at the top with the remaining blocking issues from `state.json.remaining_blocking_issues` or the client-readiness review.
+- The four beats appear in every numbered analytical subsection, with the quote beat replaced by a paraphrase only where a `quote skip` is recorded.
+- IRAC and CREAC are the underlying logic, never visible sub-headings: no heading reading `Rule`, `Application` or `Conclusion` inside a subsection.
+- The facts section is required. Facts merged into the Context paragraphs or the executive summary is a structural defect.
+- Cite with `[[src:]]` and `[[q:]]` tokens only; do not write citations, footnote numbers or a sources list as prose.
+- Risk verdicts match wherever they appear — summary bullet, risk line, conclusion item.
+- `mf draft lint` and `mf draft audit-citations` check the mechanical rules: sentence and paragraph caps, em-dash use, heading levels, the correspondence between summary bullets, subsections and conclusion items, risk-line format, quote and token form, placeholders and template section order. They run before review, and their findings come back to you as a list to fix.

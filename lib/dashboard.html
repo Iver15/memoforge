@@ -1,0 +1,470 @@
+<title>memoforge run</title>
+<style>
+  :root {
+    color-scheme: light; --ground: #f6f7f9; --surface: #ffffff; --ink: #1c2330; --muted: #5f6b7a; --hairline: #e1e5eb; --accent: #2f6f73; --good: #2e7d4f; --warn: #b7791f; --critical: #b23a3a;
+    --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --ground: #131619; --surface: #1b2026; --ink: #e6e9ee; --muted: #9aa5b4; --hairline: #2a313a; --accent: #5fb3b7; --good: #63c08a; --warn: #e0a94a; --critical: #e07a7a; } }
+  :root[data-theme="dark"] { color-scheme: dark; --ground: #131619; --surface: #1b2026; --ink: #e6e9ee; --muted: #9aa5b4; --hairline: #2a313a; --accent: #5fb3b7; --good: #63c08a; --warn: #e0a94a; --critical: #e07a7a; }
+  body { background: var(--ground); color: var(--ink); font: 400 14px/1.55 var(--sans); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 18px 48px; }
+  h1 { font-size: 20px; line-height: 1.35; font-weight: 600; margin: 6px 0 10px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  h2 { font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+  p { margin: 0; }
+  ul, ol, dl { margin: 0; padding: 0; list-style: none; }
+  .eyebrow { font-size: 13px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+  .eyebrow b { font: 400 13px/1.5 var(--mono); text-transform: none; letter-spacing: 0; color: var(--muted); }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .head { padding-bottom: 18px; border-bottom: 1px solid var(--hairline); margin-bottom: 18px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pill { font-size: 13px; border: 1px solid var(--hairline); border-radius: 999px; padding: 2px 10px; color: var(--muted); white-space: nowrap; }
+  .pill.now { color: var(--ink); border-color: var(--accent); }
+  .pill.on { color: var(--accent); border-color: var(--accent); }
+  .track { height: 3px; background: var(--hairline); border-radius: 2px; overflow: hidden; margin: 14px 0 8px; }
+  .fill { height: 100%; width: 0; background: var(--accent); }
+  .under { color: var(--muted); font-size: 13px; }
+  .cols { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  @media (min-width: 820px) { .cols { grid-template-columns: minmax(0, 1fr) 250px; gap: 26px; } }
+  .main > section, .side > section { margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 14px 16px; }
+  .card.gate { border-left: 3px solid var(--warn); }
+  .cardtop { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
+  .tag { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .tag.ok { color: var(--good); font-weight: 600; }
+  .tag.wait { color: var(--warn); }
+  .facts { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .facts span::after { content: " · "; }
+  .facts span:last-child::after, .facts span:empty::after { content: ""; }
+  .rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+  .rows dt { color: var(--muted); }
+  .rows dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .issues li { padding: 6px 0; border-top: 1px solid var(--hairline); display: flex; gap: 10px; overflow-wrap: anywhere; }
+  .issues li:first-child { border-top: 0; }
+  .issues .id { color: var(--muted); font-family: var(--mono); font-size: 13px; }
+  .q { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+  .qs > li { padding: 8px 0; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+  .qs > li:first-child { border-top: 0; padding-top: 0; }
+  .qhead { display: flex; gap: 8px; align-items: baseline; }
+  .qn { color: var(--muted); font-size: 13px; }
+  .opts { margin: 6px 0 0; }
+  .opts li { display: flex; gap: 8px; padding: 2px 0; font-size: 13px; overflow-wrap: anywhere; }
+  .opts .key { color: var(--accent); font-family: var(--mono); min-width: 14px; }
+  .opts b { font-weight: 600; }
+  .qdef { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .hint { color: var(--warn); font-size: 13px; margin-top: 12px; }
+  .agents li { display: flex; gap: 10px; padding: 4px 0; align-items: baseline; }
+  .rail { padding-left: 14px; border-left: 1px solid var(--hairline); }
+  .ev { display: grid; grid-template-columns: 62px 1fr; gap: 10px; padding: 5px 0; position: relative; align-items: baseline; }
+  .ev .dot { position: absolute; left: -18px; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .ev.is-running .dot { background: var(--accent); }
+  .ev.is-waiting .dot { background: var(--warn); }
+  .ev.is-failed .dot { background: var(--critical); }
+  .ev.is-waiting .txt { color: var(--warn); }
+  .ev.is-failed .txt { color: var(--critical); }
+  .ts { color: var(--muted); font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .notices li { color: var(--warn); font-size: 13px; padding: 3px 0; }
+  .path { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+  .tabs button { font: inherit; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); }
+  .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .panel > section { margin-bottom: 20px; }
+  @media (prefers-reduced-motion: no-preference) { .fill { transition: width .3s ease; } .bump { animation: bump .4s ease; } }
+  @keyframes bump { from { opacity: .35; } to { opacity: 1; } }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <p class="eyebrow">memoforge · <b id="task"></b></p>
+    <h1 id="query">Waiting for data…</h1>
+    <div class="pills">
+      <span class="pill now" id="phase-pill"></span>
+      <span class="pill" id="status-pill"></span>
+    </div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <p class="under" id="chat">Waiting for data…</p>
+  </div>
+
+  <div class="tabs" id="tabs" role="tablist" aria-label="Run sections">
+    <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0">Overview</button>
+    <button type="button" role="tab" id="tab-intake" aria-controls="panel-intake" aria-selected="false" tabindex="-1" hidden>Intake</button>
+    <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1" hidden>Plan</button>
+    <button type="button" role="tab" id="tab-sources" aria-controls="panel-sources" aria-selected="false" tabindex="-1" hidden>Sources</button>
+    <button type="button" role="tab" id="tab-reviews" aria-controls="panel-reviews" aria-selected="false" tabindex="-1" hidden>Reviews</button>
+    <button type="button" role="tab" id="tab-memo" aria-controls="panel-memo" aria-selected="false" tabindex="-1" hidden>Memo</button>
+  </div>
+
+  <div class="panel" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+    <div class="cols">
+      <div class="main">
+        <section class="card gate" id="gate-card" hidden>
+          <div class="cardtop"><h2>Your turn</h2><span class="tag wait" id="gate-phase"></span></div>
+          <ol class="qs" id="gate-questions"></ol>
+          <p class="hint" id="gate-hint"></p>
+        </section>
+
+        <section id="agents-card" hidden>
+          <h2>Running now</h2>
+          <ul class="agents" id="agents"></ul>
+        </section>
+
+        <section id="timeline-card" hidden>
+          <h2>Timeline</h2>
+          <ol class="rail" id="timeline"></ol>
+        </section>
+      </div>
+
+      <div class="side">
+        <section class="card">
+          <div class="cardtop"><h2>Run facts</h2><span class="pill" id="live">connecting…</span></div>
+          <dl class="rows">
+            <dt>Mode</dt><dd id="f-mode">—</dd>
+            <dt>Phase</dt><dd id="f-phase">—</dd>
+            <dt>Steps</dt><dd id="f-steps">—</dd>
+            <dt>Updated</dt><dd class="mono" id="f-updated">—</dd>
+          </dl>
+        </section>
+
+        <section id="banners-card" hidden>
+          <h2>Notices</h2>
+          <ul class="notices" id="banners"></ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-intake" role="tabpanel" aria-labelledby="tab-intake" hidden>
+    <section class="card">
+      <div class="cardtop"><h2>Intake</h2><span class="tag" id="intake-state"></span></div>
+      <ol class="qs" id="intake-questions"></ol>
+    </section>
+    <section class="card" id="intake-assumptions-card" hidden><h2>Assumed without asking</h2><ol class="issues" id="intake-assumptions"></ol></section>
+  </div>
+
+  <div class="panel" id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
+    <section class="card" id="plan-card">
+      <div class="cardtop"><h2>Plan</h2><span class="tag" id="plan-state"></span></div>
+      <p class="facts">
+        <span id="plan-what"></span><span id="plan-where"></span><span id="plan-complexity"></span><span id="plan-mode"></span><span id="plan-layers"></span><span id="plan-decision"></span>
+      </p>
+      <ol class="issues" id="plan-issues"></ol>
+    </section>
+  </div>
+
+  <div class="panel" id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" hidden>
+    <section class="card">
+      <div class="cardtop"><h2>Sources</h2><span class="tag" id="sources-frozen"></span></div>
+      <p class="facts"><span id="sources-critical"></span><span id="sources-supporting"></span><span id="sources-background"></span></p>
+      <ol class="issues" id="sources-items"></ol>
+    </section>
+  </div>
+
+  <div class="panel" id="panel-reviews" role="tabpanel" aria-labelledby="tab-reviews" hidden>
+    <section class="card"><h2>Review rounds</h2><ol class="issues" id="reviews"></ol></section>
+  </div>
+
+  <div class="panel" id="panel-memo" role="tabpanel" aria-labelledby="tab-memo" hidden>
+    <section class="card">
+      <div class="cardtop"><h2>Memo</h2><span class="tag" id="memo-status"></span></div>
+      <dl class="rows"><dt>File</dt><dd class="path" id="deliverable">—</dd><dt>Summary</dt><dd class="path" id="memo-summary">—</dd><dt>Published</dt><dd class="path" id="memo-published">—</dd></dl>
+    </section>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var el = function (id) { return document.getElementById(id); };
+
+    function put(id, value) {
+      var node = el(id);
+      var text = value == null ? "" : String(value);
+      if (node.textContent !== text) {
+        node.textContent = text;
+        node.classList.remove("bump");
+        void node.offsetWidth;
+        node.classList.add("bump");
+      }
+    }
+
+    function show(id, visible) { el(id).hidden = !visible; }
+
+    function list(id, rows, build) {
+      var host = el(id);
+      host.textContent = "";
+      for (var i = 0; i < rows.length; i++) {
+        var li = document.createElement("li");
+        build(li, rows[i]);
+        host.appendChild(li);
+      }
+      return rows.length;
+    }
+
+    function cell(parent, className, value) {
+      var span = document.createElement("span");
+      span.className = className;
+      span.textContent = value == null ? "" : String(value);
+      parent.appendChild(span);
+      return span;
+    }
+
+    function array(value) { return Array.isArray(value) ? value : []; }
+
+    function join(parts, sep) {
+      var kept = [];
+      for (var i = 0; i < parts.length; i++) { if (parts[i]) { kept.push(String(parts[i])); } }
+      return kept.join(sep);
+    }
+
+    function clock(value) {
+      var text = value == null ? "" : String(value);
+      var match = text.match(/T(\d\d:\d\d:\d\d)/);
+      return match ? match[1] : text;
+    }
+
+    function live(label, on) {
+      var pill = el("live");
+      pill.textContent = label;
+      pill.className = on ? "pill on" : "pill";
+    }
+
+    function options(host, rows) {
+      var box = document.createElement("ul");
+      box.className = "opts";
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i] || {};
+        var li = document.createElement("li");
+        cell(li, "key", row.key || "·");
+        var text = cell(li, "grow", "");
+        var name = document.createElement("b");
+        name.textContent = String(row.label || "");
+        text.appendChild(name);
+        if (row.detail) { text.appendChild(document.createTextNode(" — " + row.detail)); }
+        box.appendChild(li);
+      }
+      host.appendChild(box);
+    }
+
+    function qhead(li, row) {
+      var head = document.createElement("p");
+      head.className = "qhead";
+      cell(head, "qn mono", (row.n || "") + ".");
+      cell(head, "grow", row.text || "");
+      if (row.header) { cell(head, "qn", row.header); }
+      li.appendChild(head);
+    }
+
+    function gateCard(gate) {
+      show("gate-card", !!gate);
+      if (!gate) { return; }
+      put("gate-phase", gate.phase_label || "");
+      put("gate-hint", gate.answer_hint || gate.hint || "");
+      list("gate-questions", array(gate.questions), function (li, row) {
+        qhead(li, row || {});
+        options(li, array(row && row.options));
+        if (row && row.default) {
+          var note = document.createElement("p");
+          note.className = "qdef";
+          note.textContent = "If you skip it: " + row.default;
+          li.appendChild(note);
+        }
+      });
+    }
+
+    function planCard(plan) {
+      show("plan-card", !!plan);
+      if (!plan) { return; }
+      put("plan-what", plan.classification || "unclassified");
+      put("plan-where", join(array(plan.jurisdictions), ", "));
+      put("plan-complexity", plan.complexity ? "complexity " + plan.complexity : "");
+      put("plan-mode", plan.recommended_mode ? "recommended mode " + plan.recommended_mode : "");
+      var layers = array(plan.layers).join(", ");
+      put("plan-layers", layers ? "layers: " + layers : "");
+      put("plan-state", plan.approved ? "approved" : "awaiting your approval");
+      el("plan-state").className = plan.approved ? "tag ok" : "tag wait";
+      var decision = plan.decision || null;
+      put("plan-decision", decision ? join(["you chose " + (decision.action || ""), decision.mode, decision.edit_text], " · ") : "");
+      detail("plan-issues", plan.issues,
+        function (row) { return row.id || ""; },
+        function (row) { return join([row.title, join(array(row.jurisdictions), ", ")], " — "); },
+        function (row) { return row.question || ""; });
+    }
+
+    // Every history list is the same row: a short mark, a title and one muted line under it.
+    function detail(id, rows, mark, title, note) {
+      return list(id, array(rows), function (li, row) {
+        row = row || {};
+        cell(li, "id", mark(row));
+        cell(cell(li, "grow", title(row)), "q", note(row));
+      });
+    }
+
+    function intakePanel(intake) {
+      if (!intake) { return false; }
+      var rows = array(intake.questions);
+      var answered = 0;
+      list("intake-questions", rows, function (li, row) {
+        row = row || {};
+        if (row.answered) { answered++; }
+        qhead(li, row);
+        cell(li, "q", (row.answered ? "You answered: " : "Not answered, assumed: ") + join([row.answer_key, row.answer_label], " — "));
+      });
+      put("intake-state", answered + " of " + rows.length + " answered");
+      show("intake-assumptions-card", detail("intake-assumptions", intake.assumptions,
+        function () { return "assumed"; },
+        function (row) { return row.text || ""; },
+        function (row) { return row.confidence ? "confidence " + row.confidence : ""; }) > 0);
+      return true;
+    }
+
+    function sourcesPanel(pack) {
+      if (!pack) { return false; }
+      var counts = pack.counts || {};
+      put("sources-frozen", "frozen " + clock(pack.frozen_at));
+      put("sources-critical", Number(counts.critical || 0) + " critical");
+      put("sources-supporting", Number(counts.supporting || 0) + " supporting");
+      put("sources-background", Number(counts.background || 0) + " background");
+      detail("sources-items", pack.items,
+        function (row) { return row.tier || ""; },
+        function (row) { return row.title || ""; },
+        function (row) { return join([row.id, row.status], " · "); });
+      return true;
+    }
+
+    function reviewsPanel(rows) {
+      if (!array(rows).length) { return false; }
+      detail("reviews", rows,
+        function (row) { return "round " + (row.iteration || ""); },
+        function (row) { return row.summary || ""; },
+        function (row) {
+          var failed = array(row.failed_reviewers);
+          return join([row.draft_version ? "draft v" + row.draft_version : "", Number(row.blockers || 0) + " blockers", failed.length ? "no answer from " + failed.join(", ") : ""], " · ");
+        });
+      return true;
+    }
+
+    function memoPanel(memo) {
+      if (!memo) { return false; }
+      put("memo-status", memo.final_status || "");
+      put("deliverable", memo.deliverable || "—");
+      put("memo-summary", memo.summary_path || "—");
+      put("memo-published", memo.published_to || "—");
+      return true;
+    }
+
+    var TAB_NAMES = ["overview", "intake", "plan", "sources", "reviews", "memo"];
+    var TAB_STEPS = { ArrowLeft: -1, ArrowRight: 1, Home: 0, End: 0 };
+    var openTab = "overview";
+
+    function selectTab(name, focus) {
+      openTab = name;
+      for (var i = 0; i < TAB_NAMES.length; i++) {
+        var chosen = TAB_NAMES[i] === name;
+        el("tab-" + TAB_NAMES[i]).setAttribute("aria-selected", chosen ? "true" : "false");
+        el("tab-" + TAB_NAMES[i]).tabIndex = chosen ? 0 : -1; // roving tabindex: one stop, not six
+        el("panel-" + TAB_NAMES[i]).hidden = !chosen;
+      }
+      if (focus) { el("tab-" + name).focus(); }
+    }
+
+    function tabs(available, gateOpen) {
+      // An open gate is the one thing the run needs from the reader, so it takes the page back;
+      // otherwise the tab they opened stays open across updates (kept in memory, nowhere else).
+      if (gateOpen || available.indexOf(openTab) < 0) { openTab = "overview"; }
+      for (var i = 0; i < TAB_NAMES.length; i++) {
+        el("tab-" + TAB_NAMES[i]).hidden = available.indexOf(TAB_NAMES[i]) < 0;
+      }
+      selectTab(openTab);
+    }
+
+    TAB_NAMES.forEach(function (name) {
+      el("tab-" + name).addEventListener("click", function () { selectTab(name); });
+    });
+
+    // Tablist keyboard: the arrows walk the visible tabs and wrap, Home/End jump to the ends, selection follows focus.
+    el("tabs").addEventListener("keydown", function (event) {
+      var key = String(event.key || "");
+      var names = TAB_NAMES.filter(function (name) { return !el("tab-" + name).hidden; });
+      if (!Object.prototype.hasOwnProperty.call(TAB_STEPS, key) || !names.length) { return; }
+      event.preventDefault();
+      var at = (Math.max(0, names.indexOf(openTab)) + TAB_STEPS[key] + names.length) % names.length;
+      selectTab(names[key === "Home" ? 0 : (key === "End" ? names.length - 1 : at)], true);
+    });
+
+    function render(data) {
+      if (!data || typeof data !== "object") {
+        put("chat", "Waiting for data…");
+        return;
+      }
+      put("task", data.task_id || "");
+      put("query", data.query || "memoforge run");
+      var no = Number(data.phase_no || 0);
+      var total = Number(data.phase_total || 0);
+      put("phase-pill", data.phase_label || data.phase || "");
+      put("status-pill", data.status_label || data.status || "");
+      el("fill").style.width = (total > 0 ? Math.max(0, Math.min(100, (no / total) * 100)) : 0) + "%";
+      put("chat", data.chat_line || "");
+
+      put("f-mode", data.mode || "—");
+      put("f-phase", total > 0 ? no + "/" + total + " — " + (data.phase_label || data.phase || "") : (data.phase_label || "—"));
+      put("f-steps", Number(data.steps_done || 0) + "/" + Number(data.steps_total || 0));
+      put("f-updated", clock(data.updated_at) || "—");
+
+      gateCard(data.gate);
+      planCard(data.plan);
+      var available = ["overview"];
+      if (intakePanel(data.intake)) { available.push("intake"); }
+      if (data.plan) { available.push("plan"); }
+      if (sourcesPanel(data.sources)) { available.push("sources"); }
+      if (reviewsPanel(data.reviews)) { available.push("reviews"); }
+      if (memoPanel(data.memo)) { available.push("memo"); }
+      tabs(available, !!data.gate);
+
+      show("agents-card", list("agents", array(data.agents_running), function (li, row) {
+        cell(li, "grow", row && row.description ? row.description : (row && row.slot) || "");
+        cell(li, "ts", clock(row && row.since));
+      }) > 0);
+
+      show("timeline-card", list("timeline", array(data.timeline), function (li, row) {
+        li.className = "ev is-" + ((row && row.state) || "done");
+        cell(li, "dot", "");
+        cell(li, "ts", clock(row && row.ts));
+        cell(li, "txt grow", row && row.text ? row.text : "");
+      }) > 0);
+
+      show("banners-card", list("banners", array(data.banners), function (li, row) {
+        li.textContent = row && (row.text || row.id) ? String(row.text || row.id) : "";
+      }) > 0);
+    }
+
+    render(null);
+
+    (async function connect() {
+      var db = null;
+      try {
+        if (window.claude && typeof window.claude.use === "function") {
+          db = await window.claude.use("db");
+        }
+      } catch (error) {
+        db = null;
+      }
+      if (!db) {
+        live("live updates unavailable", false);
+        return;
+      }
+      try {
+        db.doc("run/state").onSnapshot(
+          function (snapshot) {
+            live("live", true);
+            render(snapshot && snapshot.exists ? snapshot.data() : null);
+          },
+          function () { live("live updates unavailable", false); }
+        );
+      } catch (error) {
+        live("live updates unavailable", false);
+      }
+    })();
+  })();
+</script>

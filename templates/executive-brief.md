@@ -1,45 +1,45 @@
+---
+citation_style: inline
+---
+
 # Template: executive-brief
 
-**Use when:** a fast, high-level answer is needed for a non-lawyer business stakeholder. Short, dense, no abstract. Default for simple compliance questions or product-team requests.
+**Use when:** a business stakeholder needs a defensible answer fast. Short, dense, no abstract. The default for a single compliance question or a product-team request.
 
-All templates in this plugin share one rhetorical surface — the four-beat Risk subsection pattern from `lib/prose-style.md`. In `executive-brief` the pattern is **compressed**: each beat is one-to-two sentences and the brief covers a maximum of 2-3 risks. The verbatim source quote is still required (a brief without a quote is just an opinion).
+Same rhetorical surface as `classical-memo` — the four beats from `lib/prose-style.md` — compressed: one or two sentences per beat, and no more than three issues.
 
-## Required sections (in this order)
+## Sections, in this order
 
-1. **Title** — bold, format `<Subject>: <Analytical framing>`. No date or jurisdictions inside the title.
-2. **Header block** — date (YYYY-MM-DD), jurisdictions, one-line query restatement, template name.
-3. **Context** — 1 short body paragraph: who is considering what, for what purpose. No abstract or TL;DR separately — the context IS the TL;DR for a brief.
-4. **Key assumptions** — only if material; ≤ 3 bullets. Skip entirely if assumptions do not affect the answer.
-5. **Numbered analytical subsections** — 2-3 maximum. Combine related risks into one subsection rather than splitting them. Each subsection follows the four-beat pattern, compressed:
-   1. **Description** — 1 sentence naming the issue and the controlling provision.
-   2. **Verbatim source quote** — markdown blockquote (`> …`), source's original language, ≤ 25 words.
-   3. **Analysis** — 1-2 sentences linking the quote to the user's facts.
-   4. **Risk assessment line** — one paragraph: `Risk: high.` / `Risk: medium.` / `Risk: low.`, one-sentence justification, one-sentence concrete recommendation.
-6. **Recommendation** — 3-5 bullets total: one line per subsection above linking risk to action, plus any cross-cutting recommendation (e.g. "Run a DPIA before launch").
-7. **Sources** — numbered list with full bibliographic info.
+1. **Title** — `# <Subject>: <Analytical framing>`. No date or jurisdiction inside the title line.
+2. **Header block** — date (YYYY-MM-DD), jurisdictions, the question, the template name. The `Question:` line carries the user's own question (`user_query`) word for word: copy it, do not rephrase, shorten, sharpen or re-scope it. A question with several limbs stays whole. The title above may name the analytical focus, but it never stands in for the question — a reader has to find what they asked in the document they get back.
+3. **Context** — one short unnumbered paragraph: who is considering what, for what purpose, and the bottom line. There is no separate executive summary; this paragraph is it. The facts the analysis rests on go here too.
+4. **Key assumptions** — optional, only when an assumption changes the answer. A few bullets at most.
+5. **Analytical subsections** — `## 1.`, `## 2.`, `## 3.`; three at the outside. Related risks are combined into one subsection rather than split. Each follows the four beats below.
+6. **`## N. Recommendations`** — one bullet per subsection linking its risk to an action, plus any recommendation that cuts across them. Each bullet points back at its subsection and names an action, a trigger and an owner.
+7. **Sources** — you do not write this section. End the draft with the marker line `<!-- sources: generated -->`. The renderer builds the citations, the source list and the appendix of unverified sources from the frozen source pack, and adds the status banner when the run needs one. Citations reach the reader as short parentheticals linked to the source; the full record of each one is in the Sources annex.
 
-## Tone
+## The four beats, compressed
 
-Direct, plain English. Avoid legalese unless necessary. The reader is a business decision-maker, not a lawyer. Short declarative sentences. No hedging when the law is clear.
+1. **Issue and conclusion.** One sentence: the answer, the issue, and the controlling authority as `[[src:<source_id> <pinpoint>]]`.
+2. **The source.** `> [[q:<quote_id>]] <text>` from `mf quote extract`, introduced by its locator. Where a `quote skip` is recorded for this section and source, one sentence paraphrasing the provision with `[[src:]]` takes its place. A brief without either has no audit trail.
+3. **Rule explanation and application.** One or two sentences on what the authority establishes and what it means here, including the sentence that names the strongest counterargument and resolves it. Compressed, but present — a brief is not an excuse to skip the other side.
+4. **Risk line.** The last paragraph of the subsection opens with the verdict written literally, then carries a one-sentence justification and one concrete recommendation with its action, trigger and owner:
+   `Risk: medium. The basis holds while the opt-in stays unticked. Product must keep it unticked before launch.`
+   The verdict word is one of `high`, `medium`, `low`, `undetermined`, lower case and followed by a period.
 
-## Length guidance
+## Anchors and versions
 
-500-1200 words total **including footnotes and Sources** — hard cap in Brief mode (the only mode that produces `executive-brief`). Target 800-1000 words. If genuine analysis cannot fit defensibly under the cap, add the `length_overflow_recommendation: true` YAML front-matter and let the mediator route to a Full-mode rerun.
+`<!-- §s-1 -->` anchors are inserted by `mf draft anchor` after the first version — do not write them yourself, and leave the existing ones in place when you edit a later version. Later versions are targeted edits: change the sections the instructions name and nothing else.
+
+## Tone and length
+
+Direct, plain English for a reader who is not a lawyer; define an unavoidable legal term in a phrase where it first appears, inline — this template has no background section. Keep it tight: the word cap for the brief is enforced by `mf draft lint`, which counts the body and the footnotes it will generate. If the question genuinely cannot be answered defensibly at this length, write the honest short version and say so in your final response rather than padding or over-compressing.
 
 ## Rules
 
-- The four-beat pattern is compressed but **all four beats are present** — including the verbatim source quote. A brief without quotes loses the audit trail and gets blocked at style review.
-- Plain language: if a legal term is unavoidable, define it on first use in one phrase (inline, not in a separate Background section — there is no Background section in `executive-brief`).
-- Maximum 3 numbered analytical subsections. If `plan.md` lists more legal questions, fold the secondary ones into the Recommendation bullets as one-liners or escalate the template.
-- Use prose paragraphs for the four beats, bullets only for Recommendation and Key assumptions.
-- **Sentence-length cap (hard, blocking at review):** no sentence over 40 words; no sentence chaining more than 2 independent ideas (via `and that …, and that …`, semicolon chains, `while …, and …`, or parallel relative clauses). Verbatim source quotes inside `> blockquote` paragraphs are exempt. See `lib/prose-style.md` §Sentence structure Hard limits.
-- **Paragraph-length cap (hard, blocking at review):** no paragraph over 3 sentences or 100 words. Executive-brief paragraphs are already compressed (1-2 sentences per beat) so this cap rarely binds, but it is enforced uniformly across templates. Verbatim source quotes (`> blockquote`), bullet items, numbered list items, headings, and table cells are exempt. See `lib/prose-style.md` §Paragraph structure Hard limits.
-- **Cross-section consistency (hard, blocking at review):** executive-brief has no separate Exec Summary section (Context paragraph IS the TL;DR), so the bullet-to-subsection check does not apply. However, each item in the §Recommendation bullets MUST start with `§ N.M:` (or `§ N:`) prefix referring back to its analytical subsection, and risk scores must match between each analytical subsection's Risk line and its Recommendation bullet. See `lib/prose-style.md` §Cross-section consistency.
-- **Recommendation concreteness (hard, blocking at review):** every Risk-line recommendation AND every Recommendation bullet names an action verb (specific operational step), a condition or trigger, and an owner. Generic verbs alone (`consider`, `ensure`, `review`, `evaluate`, `assess`, `monitor`) do not count. See `lib/prose-style.md` §Recommendation concreteness (Beat 4).
-- **Counter-argument framing (hard, blocking at review):** every `Risk: medium` / `Risk: undetermined` verdict names the contrary authority inline (compressed to one sentence in executive-brief) and explains why analysis stands; counter-arguments resolved as "does not prevail" carry explicit trigger conditions in the Risk line. Material Assumptions (when present in Key Assumptions section) are mapped to whatever would change them. See `lib/prose-style.md` §Counter-argument framing.
-- **Heading discipline (hard, blocking at review):** all headings are noun phrases — not questions, not imperatives. Hierarchy H1 → H2 only (executive-brief rarely needs H3); no H4; no skip jumps. See `lib/prose-style.md` §Heading discipline.
-- See `lib/prose-style.md` for tone, anti-patterns, definition format.
-
-## What goes in the warning banner (forced exit / manual review)
-
-Same yellow callout pattern at the top of the docx for any non-approved final status.
+- All four beats appear in every subsection, with the quote beat replaced by a paraphrase only where a `quote skip` is recorded.
+- Prose for the beats; bullets only for key assumptions and recommendations.
+- Three analytical subsections at most. Extra questions from the plan become one-line entries under recommendations, or the task belongs in `classical-memo`.
+- Cite with `[[src:]]` and `[[q:]]` tokens only; do not write citations, footnote numbers or a sources list as prose.
+- Risk verdicts match between each subsection's risk line and its recommendation bullet.
+- `mf draft lint` and `mf draft audit-citations` check the mechanical rules: sentence and paragraph caps, em-dash use, heading levels, risk-line format, the word cap, quote and token form, placeholders and template section order. They run before review, and their findings come back to you as a list to fix.

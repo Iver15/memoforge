@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "routing",
+  "checked_at": "2026-09-08",
+  "source": "Legal Data Hunter discover_sources / discover_countries (analysis/05-best-practices-research.md §5)",
+  "entries": {
+    "EU": {
+      "sources": [
+        "EU/EUR-Lex",
+        "EU/ConsolidatedLegislation",
+        "EU/CURIA",
+        "EU/EDPB",
+        "EU/GDPRhub"
+      ],
+      "notes": "EU/CURIA starts at 2015; EUR-Lex index lag is about one month."
+    },
+    "UK": {
+      "sources": [
+        "UK/Legislation",
+        "UK/ICO"
+      ],
+      "notes": "The code GB returns an empty list; no LDH source covers England & Wales / UKSC judgments — use Find Case Law."
+    },
+    "US": {
+      "sources": [
+        "US/USCode",
+        "US/eCFR",
+        "US/CourtListenerBulk",
+        "US/CAP"
+      ],
+      "notes": "discover_sources(\"US\") exceeds the tool output limit (415 sources); US/eCFR is 2026 only, US/USCode 2024 only."
+    }
+  }
+}

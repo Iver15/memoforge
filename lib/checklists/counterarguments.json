@@ -1,0 +1,62 @@
+[
+  {
+    "id": "CTR-01",
+    "text": "Each analytical subsection contains the strongest counterargument and its resolution — both, inside the analysis, not merely a nod to uncertainty. Evidence: quote the counterargument sentence and its resolution, or name the subsection that has neither.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CTR-02",
+    "text": "Contrary authority in the research record is surfaced wherever it bears on a conclusion, rather than left out of the draft. Evidence: name the contrary finding and the conclusion it touches.",
+    "tier": "substance",
+    "hard_fail": true
+  },
+  {
+    "id": "CTR-03",
+    "text": "Where a counterargument is resolved as not prevailing on these facts, the memo names the factual or legal trigger that would change that answer. Evidence: quote the resolution that leaves the trigger implicit.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-04",
+    "text": "Conclusions are stated with no more confidence than the cited authority carries; an unsettled point is not written as settled. Evidence: quote the overconfident sentence and the authority behind it.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-05",
+    "text": "Factual assumptions a conclusion depends on are stated in the analysis, not left for the reader to infer. Evidence: quote the conclusion and name the assumption it hides.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-06",
+    "text": "The memo engages the strongest opposing reading of the rule rather than an easy version of it. Evidence: quote the counterargument as framed and state the stronger form it avoids.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-07",
+    "text": "Adverse consequences for the client are named where they would follow, including the ones the recommendation does not remove. Evidence: quote the passage that understates exposure.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-08",
+    "text": "The first challenge a regulator or opposing counsel would raise is addressed somewhere in the memo. Evidence: name the challenge and where it is met, or say that it is unmet.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-09",
+    "text": "Where the memo relies on the absence of adverse authority, it says so explicitly rather than implying the point is settled. Evidence: quote the sentence that rests on silence.",
+    "tier": "substance",
+    "hard_fail": false
+  },
+  {
+    "id": "CTR-10",
+    "text": "A source the research recorded as considered and excluded is not presented as non-existent, and where the exclusion reason is thin the memo says why the source still does not change the answer. Evidence: name the excluded source and how the draft treats it.",
+    "tier": "substance",
+    "hard_fail": false
+  }
+]

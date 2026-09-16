@@ -3,18 +3,20 @@ name: style
 description: Manage custom style and formatting profiles for legal memos. Sub-actions new / list / use / show / delete. Use only when explicitly invoked via /memoforge:style.
 argument-hint: "[new <name> [--examples <paths>] [--rules <text-or-path>] [--mode brief|full] | list | use <name> | show <name> | delete <name>]"
 disable-model-invocation: true
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, AskUserQuestion
 ---
 
 # memoforge / style skill
 
 You manage the user's custom style profiles. A profile is a directory under `~/.claude/plugin-data/memoforge/profiles/<name>/` containing `prose-style.md` (always), `template.md` (sometimes), `meta.json`, and supporting files. The `memo` skill reads these at Phase 1.5 when the user picks a profile for a new memo.
 
+`mf` = `${CLAUDE_PLUGIN_ROOT}/scripts/mf`. If that path is not executable in this host (Windows without a POSIX shell), call `${CLAUDE_PLUGIN_ROOT}/scripts/mf.cmd` with the same arguments; every example below is written with `<mf>` standing for whichever of the two ran.
+
 **Authority hierarchy** (highest wins, same shape as `memo` skill):
 
 1. Cowork / Anthropic platform policy.
 2. This skill and its arguments.
-3. `scripts/resolve_style_profile.py` — the canonical write path for profiles. Never bypass it.
+3. `mf style <subcommand>` — the canonical write path for profiles. Never bypass it.
 4. User input from `AskUserQuestion` or text replies.
 
 **Key invariant.** All user-facing strings (menu items, checkpoint questions, warnings, summaries) are **English**. The contents of generated `prose-style.md` and `template.md` are in the input language (English, Russian, etc.) — that is the extractor's concern, not yours.
@@ -63,18 +65,18 @@ If `<name>` is missing from `$ARGUMENTS`, ask via `AskUserQuestion`:
 
 If `AskUserQuestion` is unavailable, print the prompt as text and end the turn.
 
-Validate the name via Bash:
+Validate the name:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" validate-name "<name>"
+```
+<mf> style validate-name "<name>"
 ```
 
 If exit code is non-zero, print the stderr message and re-ask the name (or end turn if no `AskUserQuestion`).
 
 Also check that the name does NOT already exist. Read the list:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" list
+```
+<mf> style list
 ```
 
 If the JSON output contains a record with this name, ask:
@@ -114,7 +116,8 @@ Parse the remaining `$ARGUMENTS` flags:
 
 ### Step 3 — Validate paths (if examples were provided)
 
-For each example path: check it exists via Bash (`test -e`). If a path does not exist, print:
+For each example path: check that the file exists — `Read` it, or `Glob` its directory; do not
+shell out to a POSIX `test`. If a path does not exist, print:
 
 ```
 error: example path not found: <path>
@@ -145,11 +148,14 @@ Map the answer: "Brief…" → `brief`, "Full…" → `full`. Store as `mode_bin
 
 Print a one-line heads-up to chat: `Extracting style profile '<name>' — this takes ~1 minute…`
 
-Dispatch the extractor via `Agent`:
+Dispatch the extractor via `Agent`. Substitute the real values before sending — the prompt is plain
+text, so it carries the expanded absolute path of the launcher chosen above
+(`${CLAUDE_PLUGIN_ROOT}/scripts/mf`, or `${CLAUDE_PLUGIN_ROOT}/scripts/mf.cmd` on Windows),
+never the `<mf>` placeholder:
 
 ```
 Agent(
-  subagent_type="style-extractor",
+  subagent_type="memoforge:style-extractor",
   prompt="""
   Extract a style profile.
   - profile_name: <name>
@@ -158,9 +164,10 @@ Agent(
   - input_type: <examples|rules|both>
   - mode_binding: <brief|full>
   - work_dir: <a writable temp directory; create $TMPDIR/style-extract-<name> if needed>
+  - mf: <absolute launcher path — run the `mf style` commands of your spec through it>
 
   Follow your agent spec in agents/style-extractor.md exactly.
-  Init the profile via scripts/resolve_style_profile.py first; write prose-style.md (always);
+  Init the profile via `mf style init-profile` first; write prose-style.md (always);
   write template.md only if structural input is present; write rules.md if rules were provided;
   copy examples into sources/; atomically write the final meta.json at the end.
   Return a ≤200-word English summary with any warnings.
@@ -174,8 +181,8 @@ Wait for the extractor to return. Print its summary to chat verbatim (it is alre
 
 After the extractor returns, validate the result:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" validate-profile "<name>"
+```
+<mf> style validate-profile "<name>"
 ```
 
 If exit code is non-zero, print: `Profile validation failed — the profile directory is malformed and was not registered. Please retry or report this issue.` Then run `delete <name>` to clean up. End turn.
@@ -191,7 +198,7 @@ Ask:
   - label: "Yes — make it default", description: "Next /memoforge:memo will preselect this profile"
   - label: "No — keep current default", description: "You can change later with /memoforge:style use <name>"
 
-If "Yes": run `set-default <name>` via Bash. Print confirmation.
+If "Yes": run `<mf> style set-default "<name>"`. Print confirmation.
 
 If "No": print a one-line note: `Profile saved. Use /memoforge:style use <name> to select it later.`
 
@@ -201,8 +208,8 @@ End turn.
 
 Run:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" list
+```
+<mf> style list
 ```
 
 Parse the JSON and render a plain-text table in chat:
@@ -224,16 +231,16 @@ End turn.
 
 If `$ARGUMENTS` is `use --clear`:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" clear-default
+```
+<mf> style clear-default
 ```
 
 Print: `Default profile cleared. /memoforge:memo will offer all profiles next time.` End turn.
 
 Otherwise, `<name>` is the second token. Validate and set:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" set-default "<name>"
+```
+<mf> style set-default "<name>"
 ```
 
 If exit code is non-zero, print the stderr message (`profile not found: <name>` is the common case — suggest `/memoforge:style list`).
@@ -244,16 +251,16 @@ On success, print: `Default profile set to '<name>'. /memoforge:memo will presel
 
 `<name>` is the second token. Validate it exists:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" validate-profile "<name>"
+```
+<mf> style validate-profile "<name>"
 ```
 
 If exit code is non-zero, print the stderr message and end turn.
 
 Print `meta.json` content:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" read-meta "<name>"
+```
+<mf> style read-meta "<name>"
 ```
 
 Then print the first 30 lines of `prose-style.md` and (if present) the first 30 lines of `template.md`, each with a header:
@@ -268,10 +275,10 @@ Then print the first 30 lines of `prose-style.md` and (if present) the first 30 
 (Open the full files at <profile_dir>.)
 ```
 
-Use `Read` with `offset=0, limit=30` for the lines; `Bash` for resolving the profile dir path:
+Use `Read` with `offset=0, limit=30` for the lines; the profile dir path comes from:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" resolve-paths "<name>"
+```
+<mf> style resolve-paths "<name>"
 ```
 
 End turn.
@@ -280,11 +287,11 @@ End turn.
 
 `<name>` is the second token. Check if it is currently the default:
 
-```bash
-DEFAULT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" get-default)
+```
+<mf> style get-default    # -> {"default": "<name>"|null}
 ```
 
-If `DEFAULT == <name>`, ask first:
+If the `default` field of that JSON equals `<name>`, ask first:
 
 - **Question:** "`<name>` is the current default. Delete and clear default?"
 - **Header:** "Confirm"
@@ -296,8 +303,8 @@ If "No": end turn.
 
 Otherwise (or if not the default), run:
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" delete "<name>"
+```
+<mf> style delete "<name>"
 ```
 
 The script atomically removes the directory AND clears the default file if `<name>` was the default.
@@ -306,7 +313,7 @@ Print confirmation: `Profile '<name>' deleted.` End turn.
 
 ## Hard constraints
 
-- Never write to `~/.claude/plugin-data/memoforge/` directly — always go through `scripts/resolve_style_profile.py`. The script is the canonical write path: it validates names, writes atomically, and keeps the default-file consistent on delete.
+- Never write to the plugin data directory (`profiles/`) by hand — always go through `mf style`. It is the canonical write path: it validates names, writes atomically, and keeps the default-file consistent on delete.
 - Never modify `state.json` of an in-flight memo task. This skill manages user-level style profiles only — it has no relationship to any specific memo task in progress.
 - Never call `Agent` for anything other than `style-extractor` from this skill. Subagents for the memo pipeline are dispatched by `skills/memo/SKILL.md`, not from here.
 - All user-facing strings (chat output, AskUserQuestion text) are English. Profile body content language is decided by the extractor based on the inputs.
