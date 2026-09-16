@@ -1,178 +1,239 @@
 # memoforge
 
-> **From one legal question to a finished `.docx` memorandum, with sources cited and contrary authority surfaced — in a single command.**
+> **From one legal question to a finished `.docx` memorandum — researched, quoted, footnoted and stress-tested — in a single command.**
 
-![version](https://img.shields.io/badge/version-1.1.1-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![for](https://img.shields.io/badge/built%20for-Cowork-purple)
-
----
-
-## See it in action
+![version](https://img.shields.io/badge/version-2.0.0--dev-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
 
 ![Memoforge — from a legal question to a cited .docx memorandum](docs/media/memoforge-promo.webp)
 
-<sub>~60-second walkthrough: intake → research plan → three researchers in parallel → a five-reviewer stress test → exported <code>.docx</code>.&nbsp; <a href="https://github.com/gregmos/memoforge/releases/download/v1.1.1/memoforge-promo.mp4">▶ Full-resolution MP4</a> (1920×1080).</sub>
+<sub>~60-second walkthrough, recorded on v1.1.1: intake → research plan → parallel researchers → reviewer stress test → exported <code>.docx</code>. v2 is the same shape with fewer, better-checked steps.</sub>
 
 ---
 
 ## What it does
 
-**memoforge** is a Cowork plugin that turns a research-grade legal question into a structured, footnoted legal memorandum.
+memoforge turns a research-grade legal question into a structured, footnoted memorandum. It runs the pipeline a small legal team would run: an analyst clarifies the missing facts, researchers pull primary sources in parallel (statutes, case law, regulator guidance), a currency check confirms the law is still good, a writer produces an IRAC draft, reviewers stress-test it against fixed checklists, a mediator consolidates the findings, and the writer revises before export. It assumes no jurisdiction — the plan step classifies the query and routes research accordingly. EU data protection (GDPR, AI Act, NIS2, DSA), US privacy and sectoral regulation, UK consumer law and cross-border compliance are its strong ground.
 
-It runs a multi-agent pipeline that mirrors how a small legal team produces a memo: a triage analyst clarifies missing facts, three researchers pull primary sources in parallel (statutes, case law, regulator guidance), a currency check confirms the law is still good, a writer produces an IRAC draft, five reviewers stress-test it from different angles (logic, clarity, style, citations, counter-arguments), a mediator consolidates their findings, and the writer revises — up to three rounds — before a client-readiness polish and export to `.docx`.
-
-You ask. The plugin works. You read.
-
-Typical domains it handles well include EU data-protection (GDPR, AI Act, NIS2, DSA), US privacy (CCPA, HIPAA, sectoral), UK consumer law, cross-border compliance questions, and similar regulated-industry research. The pipeline does not assume a specific jurisdiction — it classifies your query and picks researchers accordingly.
-
----
+What changed in v2 is where the pipeline lives. Phases, budgets, source freezing, citation provenance and every `state.json` write belong to a Python package (`scripts/memoforge/`, the `mf` CLI) with ~1,270 tests behind it. The orchestrating model follows one three-command protocol — `next → act → report` — and holds no pipeline knowledge that context summarisation can eat.
 
 ## What you get
 
-After one command and a few approval clicks, you walk away with:
-
-- **`memo.docx`** — a formatted memorandum (Arial 12pt, 1″ margins, numbered sections, IRAC analysis per issue, footnoted citations).
-- **A complete source pack** — every statute, case, and regulator document the analysis relies on, with verbatim quotations and current-as-of dates.
-- **Reviewer findings** — JSON files showing what each reviewer flagged, what the mediator kept, and what the writer changed in response.
-- **An honest verdict** — the memo is marked `approved`, `forced_exit_on_v3` (revision budget reached with unresolved issues), or `manual_review_required`. No false confidence.
-- **A full audit trail** — `state.json`, `events.jsonl`, all draft versions, and the changelog of revisions, so you can show your work to a partner.
-
----
-
-## Quick start
-
-### 1 · Install
-
-In Cowork: **Settings → Plugins → drag-and-drop `memoforge-1.1.1.zip`** from the [Releases page](../../releases). The plugin auto-registers two bundled MCP servers via `.mcp.json`.
-
-### 2 · Connect the two legal databases
-
-From the plugin panel, click **Connect** next to `legal-data-hunter` (multi-jurisdictional law) and `courtlistener` (US case law). The first call may trigger an OAuth sign-in.
-
-If you skip this step, the pipeline still runs — research falls back to WebFetch against official portals only, and the final memo carries a banner asking you to verify each citation against a primary source.
-
-### 3 · Ask your question
-
-A real example — a US SaaS team asking about an EU-facing AI feature:
-
-```
-/memoforge:memo "We're a US-based SaaS company planning to launch a new feature that uses AI to analyze customer support chat transcripts (from EU users) to automatically suggest responses to agents. The transcripts contain names, email addresses, and sometimes account details. Do we need a separate legal basis under GDPR for this AI processing, or does it fall under our existing 'contract performance' basis for providing the support service? Also, does this trigger any DPIA requirement or AI Act obligations?"
-```
-
-The plugin can handle multi-part questions like the one above (lawful basis + DPIA trigger + AI Act classification) in a single memo, surfacing each as its own analysed issue with separate citations.
-
-More examples that work across regulators and jurisdictions:
-
-```
-/memoforge:memo "Does our US SaaS need a CCPA notice at collection for B2B-only users?"
-/memoforge:memo "Is a click-wrap arbitration clause enforceable against UK consumers under the Consumer Rights Act 2015?"
-/memoforge:memo "Risk analysis for using AI to classify employee emails under the EU AI Act."
-/memoforge:memo "Can we process biometric data for minors in the EU under GDPR Art. 9 and Art. 22?"
-```
+- **`memo-<slug>.docx`** — Arial 12pt, 1″ margins, numbered sections, IRAC per issue, and *real* Word footnotes in OSCOLA form. Without `python-docx` the run still delivers a markdown memo with a banner explaining the downgrade: a run never ends empty-handed.
+- **A frozen source pack** — every statute, case and regulator document the analysis relies on, each with a saved raw copy, a SHA-256 and a currency date. Once frozen, nothing new gets in.
+- **Verifiable quotations** — every blockquote was extracted from that raw copy by exact string match, not recalled by a model. A quote that cannot be matched is refused, and the refusal is recorded.
+- **Reviewer findings** — binary checklist verdicts per reviewer, plus what the mediator kept, dropped or flagged as a conflict.
+- **An honest verdict** — `approved_on_v<N>`, `forced_exit_on_v<N>_with_remaining_issues` (revision budget spent with blockers left), `manual_review_required_on_v<N>`, or `fallback_summary_delivered` when a dependency failed, with reasons. No false confidence.
+- **A full audit trail** — `state.json`, `events.jsonl`, every draft version and every lint report.
 
 ---
 
-## How it works
+## Install
+
+**Claude Code:** `/plugin marketplace add gregmos/memoforge` then `/plugin install memoforge`.
+**Cowork:** Settings → Plugins → drag and drop `memoforge-2.0.0.zip` from the [Releases page](../../releases) (published with the 2.0.0 release).
+
+### Dependencies
+
+The CLI, the hooks and the status line are stdlib-only, so the plugin installs and answers without anything extra. Schema validation, research and the docx renderer need three packages ([`requirements.txt`](requirements.txt): `jsonschema`, `python-docx`, `mistune`). Install them into the plugin's own data directory, where they never touch your project environment:
 
 ```
-   you             memoforge                            you
-    │                  │                                 │
-    ▼                  ▼                                 ▼
-  query  ──► intake ──► plan ──► research ──► source pack
-                                                    │
-                                                    ▼
-                                             draft  v1
-                                                    │
-                                            ┌───────┴───────┐
-                                            ▼               ▼
-                                    5 reviewers       mediator
-                                    (parallel)              │
-                                            └───────┬───────┘
-                                                    │
-                                              revise (up to 3×)
-                                                    │
-                                                    ▼
-                                                  polish
-                                                    │
-                                                    ▼
-                                                 memo.docx
+<plugin>/scripts/mf deps install      # Windows: scripts\mf.cmd deps install
+<plugin>/scripts/mf deps check
 ```
 
-You choose how thorough to be with one click before the pipeline starts:
+`pip install -r requirements.txt` works too if you prefer the ambient interpreter. A `SessionStart` hook reports what is missing; without the packages the pipeline degrades to the markdown fallback instead of failing.
 
-| Mode | Pages | Researchers | Reviewers | Revisions | Polish | Best for |
-|---|---|---|---|---|---|---|
-| **Brief** | 2–3 | statutory only | 3 | 1 | no | Quick check, low-stakes question |
-| **Full** | 5–8 | statutory + case-law + doctrine | 5 | up to 3 | yes | Client-facing, contested or novel issues |
+### Connect the legal databases
 
-A Full-mode run on a complex question takes roughly 60–90 minutes wall-clock and uses heavy parallel work; Brief is faster.
+The plugin registers six MCP servers through `.mcp.json`:
 
----
+- `legal-data-hunter` — multi-jurisdictional statutes, case law and regulator guidance (230+ jurisdictions).
+- `courtlistener` — US case law, plus the citation check that says whether a US citation exists at all.
+- `legalviz` — [LegalViz.EU](https://legalviz.eu), a free reader for EU legislation: CELEX lookup, article-level slices of an act, the CJEU judgments interpreting a provision, and the amendments that say whether it is still current.
+- `uk-legal` — [UK Legal MCP](https://github.com/paulieb89/uk-legal-mcp), free and keyless: legislation.gov.uk sections with their extent and in-force metadata, Find Case Law judgments down to the paragraph, and an OSCOLA citation resolver.
+- `justicelibre` — [JusticeLibre](https://github.com/Dahliyaal/justicelibre), free and keyless: French code articles by abbreviation and number, the Cour de cassation, Conseil d'État and Conseil constitutionnel, CNIL deliberations, and CJEU/ECtHR judgments as a second text source. Légifrance itself is behind a Cloudflare challenge, so this is the only way into French law that does not need a PISTE account.
+- `opencaselaw` — [OpenCaseLaw](https://github.com/jonashertner/opencaselaw), free and keyless, CC0 data: Swiss federal law by SR number and article (with the consolidations already scheduled), a million decisions back to 1875 with their official headnotes, and the commentary literature.
 
-## What you'll see along the way
+Click **Connect** on each in the plugin panel; the first call may open an OAuth sign-in (LegalViz, UK Legal, JusticeLibre and OpenCaseLaw need no key). Skipping this is supported — research falls back to WebFetch against official portals, and the memo carries a banner asking you to verify each citation.
 
-The pipeline pauses **four times** to ask for your input. Everything between pauses runs autonomously, with a live dashboard tracking progress in the sidebar.
+**More jurisdictions.** The bundled six cover the EU, the UK, the US, France and Switzerland. For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
 
-1. **Intake card** — up to 10 questions about facts the triage analyst flagged as missing. Answer in chat, or type `proceed` to accept conservative defaults.
-2. **Mode pick** — Brief or Full. Pick once per task.
-3. **Plan review** — the proposed research plan (jurisdictions, issues, source types). Approve, edit, or cancel.
-4. **Source review** — after research and source-pack assembly, a checkpoint to inspect what was found before drafting begins. Continue or cancel.
-
-That is the full set of human touch points. From source-review approval onward, the pipeline finishes on its own and delivers the docx.
-
----
-
-## Customization — your own house style
-
-By default the writer follows a built-in house style (concise, no em-dashes, OSCOLA-flavoured citations). To override it with your firm's style, the **Style Studio** turns your example memos or written rules into a saved profile:
+### Ask
 
 ```
-/memoforge:style new my-firm --examples ~/memos/2025-q4/ --mode full
-/memoforge:style use my-firm
+/memoforge:memo "We're a US-based SaaS company launching a feature that uses AI to analyse customer
+support chat transcripts from EU users and suggest replies to agents. The transcripts contain names,
+email addresses and sometimes account details. Do we need a separate legal basis under GDPR, or does
+this fall under our existing 'contract performance' basis? Does it trigger a DPIA or AI Act duties?"
 ```
 
-Profiles live in `~/.claude/plugin-data/memoforge/profiles/<name>/` as plain markdown — open and tweak them by hand if you want. When a profile is active, all reviewers defer to your rules; substantive checks (citation accuracy, IRAC structure, contrary authority) remain uniform.
-
-If you never create a profile, the plugin runs identically to its defaults — no extra prompts.
-
-### Where memos land
-
-First writable wins:
-
-1. `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER` (Cowork plugin setting)
-2. `$MEMOFORGE_OUTPUT_FOLDER` (env var)
-3. `~/Documents/memoforge/` (default)
+Multi-part questions are fine: each part becomes its own analysed issue with its own citations. `/memoforge:continue` resumes an interrupted task or answers a pending question; `/memoforge:status` shows where a task stands.
 
 ---
 
-## What it won't do
+## Modes
 
-- **It is not a substitute for a lawyer.** The memo is a research-grade draft. A qualified lawyer must review before any client use, especially for regulated advice.
-- **English on the output.** You can ask in other languages but the memo is written in English.
-- **It does not interview the client.** The intake step asks about facts you already know; it does not ask follow-up questions about the underlying business.
-- **It cannot guarantee currency.** The currency-check phase is best-effort against the connected databases. For litigation-sensitive citations, verify each judgment is still good law before relying on the memo.
+Picked once, at the plan gate. Source of truth: `scripts/memoforge/modes.py`, rendered into [`docs/modes.md`](docs/modes.md).
+
+| | **Brief** | **Full** |
+|---|---|---|
+| Research layers | statutes | statutes, case law, doctrine |
+| Reviewers | logic, citations, counterarguments | logic, form, citations, counterarguments |
+| Revision iterations | 2 | 2 |
+| Client-readiness polish | no | yes |
+| Template | executive brief (≤1200 words) | classical memo |
+| Source-review gate | off | on exceptions only |
+| MCP budget (LDH / CourtListener / LegalViz / UK Legal / JusticeLibre / OpenCaseLaw) | 8 / 10 / 10 / 10 / 10 / 10 | 10 / 40 / 40 / 40 / 40 / 40 |
+| Best for | a quick check, low stakes | client-facing, contested or novel issues |
+
+## Where it stops to ask you
+
+Everything between these pauses runs on its own.
+
+1. **Intake** — up to ten must-answer questions about facts the analyst could not infer. Answer `1A 2C 3: we only process EU users`, or `proceed` to accept the stated defaults, or `cancel`.
+2. **Plan + mode** — one card carrying the research plan (jurisdictions, issues, source types), the mode, your style profile if you have one, and a reduced-coverage question if the MCP budget will not stretch. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
+3. **Source review — conditional.** In Full mode it fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP budget. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
+
+Two more gates appear only when research came back thin: a targeted follow-up question, and a continue-or-cancel when coverage is too weak to draft from.
+
+## What progress looks like
+
+`dashboard` is **on by default**: the run publishes one live page through the host's `Artifact` tool, updated once per step; the link is printed in the chat right after it is published, and the page then re-renders itself as the run moves. Turn it off (`mf config set dashboard false`, or the plugin settings) to save one tool call per step; a host without an `Artifact` tool simply continues without the page. Cowork's Live artifacts were shut off on 2026-08-19, taking the v1 progress stack with them (the HTML renderer, the artifact updates and the widget MCP server), and v2 does not rebuild that. Either way the run leans on signals the runtime already shows:
+
+- **Subagent tiles.** Every dispatch is labelled `P<n>/<N> · <agent> · <label>`, e.g. `P5/13 · legal-researcher · case law, CJEU`. The denominator is the number of pipeline phases reachable in your configuration — not a step count — so the tiles alone say how far along the run is.
+- **One line per step** in the chat, printed between steps. In Cowork these buffer until the turn ends and read as a segment summary; a gate always flushes them.
+- **`/tasks`** lists running subagents with those same labels, and a plugin `subagentStatusLine` adds elapsed time per task.
+- **`mf events analyze`** reads `events.jsonl` afterwards: timeline, per-agent durations, whether reviewers really ran in parallel, and any gap over five minutes where the run went dark. Hooks write that journal; the CLI writes a guaranteed record of every step it issued.
+
+Full `**Progress —**` blocks are printed at gates and at the end, where you are reading anyway.
+
+## Options
+
+Eight settings, all optional: `output_folder`, `publish_folder` (where the finished result is copied; empty means the host's outputs area if it has one), `writer_model` (`opus` | `fable` | `sonnet`), `source_review_gate` (`auto` | `on` | `off`), `citation_style` (`inline` | `footnotes`; `inline` is the default — short parenthetical citations linked to the source, with the full record of each one in the Sources annex), `dashboard` (on), `stop_guard` (off), `websearch_autoallow` (on).
+
+Set them in the host's plugin settings when it offers a UI for them. When it does not — and a host that exports plugin options only to hook processes never reaches a `Bash`-launched `mf` with them — set them yourself, once:
+
+```
+mf config show                                  # effective value and where each one came from
+mf config set dashboard false
+mf config set output_folder ~/Documents/memoforge   # or the working folder your host shows you
+mf config unset writer_model
+```
+
+`mf config` reads and writes `<plugin_data_dir>/options.json`, and the SessionStart hook mirrors every option the host did export into that same file at each session start, so a real host setting keeps winning. `mf task new` resolves each option as **explicit flag (`--option key=value`) → host setting (`CLAUDE_PLUGIN_OPTION_*`) → `options.json` → default**, and its answer carries `options_source` — the level each value actually came from. A value that still reads `${…}` is an unexpanded placeholder and is skipped.
+
+## Permissions
+
+A plugin cannot ship permission rules, so research prompts for approval unless you allow the hosts yourself. Paste the block below into `~/.claude/settings.json`; it is generated from the plugin allowlist by `mf docs render permissions`, and [`docs/permissions.md`](docs/permissions.md) is the canonical copy. Replace `${CLAUDE_PLUGIN_ROOT}` with your install path. `Agent(memoforge:*)` is deliberately absent: globs for `Agent` are not confirmed.
+
+<details>
+<summary><b>Permission block — 205 rules</b></summary>
+
+```json
+{"permissions": {"allow": [
+  "WebFetch(domain:europa.eu)", "WebFetch(domain:*.europa.eu)", "WebFetch(domain:coe.int)", "WebFetch(domain:*.coe.int)",
+  "WebFetch(domain:artificialintelligenceact.eu)", "WebFetch(domain:*.artificialintelligenceact.eu)", "WebFetch(domain:legalviz.eu)",
+  "WebFetch(domain:*.legalviz.eu)", "WebFetch(domain:boe.es)", "WebFetch(domain:*.boe.es)", "WebFetch(domain:buzer.de)",
+  "WebFetch(domain:*.buzer.de)", "WebFetch(domain:caselaw.nationalarchives.gov.uk)", "WebFetch(domain:*.caselaw.nationalarchives.gov.uk)",
+  "WebFetch(domain:data.bka.gv.at)", "WebFetch(domain:*.data.bka.gv.at)", "WebFetch(domain:dejure.org)", "WebFetch(domain:*.dejure.org)",
+  "WebFetch(domain:gesetze-im-internet.de)", "WebFetch(domain:*.gesetze-im-internet.de)", "WebFetch(domain:irishstatutebook.ie)",
+  "WebFetch(domain:*.irishstatutebook.ie)", "WebFetch(domain:legifrance.gouv.fr)", "WebFetch(domain:*.legifrance.gouv.fr)",
+  "WebFetch(domain:legislation.gov.uk)", "WebFetch(domain:*.legislation.gov.uk)", "WebFetch(domain:normattiva.it)",
+  "WebFetch(domain:*.normattiva.it)", "WebFetch(domain:ris.bka.gv.at)", "WebFetch(domain:*.ris.bka.gv.at)", "WebFetch(domain:wetten.overheid.nl)",
+  "WebFetch(domain:*.wetten.overheid.nl)", "WebFetch(domain:api.normattiva.it)", "WebFetch(domain:*.api.normattiva.it)",
+  "WebFetch(domain:dati.normattiva.it)", "WebFetch(domain:*.dati.normattiva.it)", "WebFetch(domain:repository.officiele-overheidspublicaties.nl)",
+  "WebFetch(domain:*.repository.officiele-overheidspublicaties.nl)", "WebFetch(domain:zoekservice.overheid.nl)",
+  "WebFetch(domain:*.zoekservice.overheid.nl)", "WebFetch(domain:code.travail.gouv.fr)", "WebFetch(domain:*.code.travail.gouv.fr)",
+  "WebFetch(domain:rechtsinformationen.bund.de)", "WebFetch(domain:*.rechtsinformationen.bund.de)", "WebFetch(domain:courdecassation.fr)",
+  "WebFetch(domain:*.courdecassation.fr)", "WebFetch(domain:fedlex.admin.ch)", "WebFetch(domain:*.fedlex.admin.ch)", "WebFetch(domain:bger.ch)",
+  "WebFetch(domain:*.bger.ch)", "WebFetch(domain:aepd.es)", "WebFetch(domain:*.aepd.es)", "WebFetch(domain:aki.ee)", "WebFetch(domain:*.aki.ee)",
+  "WebFetch(domain:autoriteprotectiondonnees.be)", "WebFetch(domain:*.autoriteprotectiondonnees.be)",
+  "WebFetch(domain:autoriteitpersoonsgegevens.nl)", "WebFetch(domain:*.autoriteitpersoonsgegevens.nl)", "WebFetch(domain:azop.hr)",
+  "WebFetch(domain:*.azop.hr)", "WebFetch(domain:baylda.de)", "WebFetch(domain:*.baylda.de)", "WebFetch(domain:bfdi.bund.de)",
+  "WebFetch(domain:*.bfdi.bund.de)", "WebFetch(domain:cnil.fr)", "WebFetch(domain:*.cnil.fr)", "WebFetch(domain:cnpd.public.lu)",
+  "WebFetch(domain:*.cnpd.public.lu)", "WebFetch(domain:cnpd.pt)", "WebFetch(domain:*.cnpd.pt)", "WebFetch(domain:cpdp.bg)",
+  "WebFetch(domain:*.cpdp.bg)", "WebFetch(domain:dataprotection.gov.cy)", "WebFetch(domain:*.dataprotection.gov.cy)",
+  "WebFetch(domain:dataprotection.gov.sk)", "WebFetch(domain:*.dataprotection.gov.sk)", "WebFetch(domain:dataprotection.ro)",
+  "WebFetch(domain:*.dataprotection.ro)", "WebFetch(domain:datatilsynet.dk)", "WebFetch(domain:*.datatilsynet.dk)",
+  "WebFetch(domain:datatilsynet.no)", "WebFetch(domain:*.datatilsynet.no)", "WebFetch(domain:datenschutz-berlin.de)",
+  "WebFetch(domain:*.datenschutz-berlin.de)", "WebFetch(domain:datenschutz.hessen.de)", "WebFetch(domain:*.datenschutz.hessen.de)",
+  "WebFetch(domain:datenschutzkonferenz-online.de)", "WebFetch(domain:*.datenschutzkonferenz-online.de)", "WebFetch(domain:dpa.gr)",
+  "WebFetch(domain:*.dpa.gr)", "WebFetch(domain:dpc.ie)", "WebFetch(domain:*.dpc.ie)", "WebFetch(domain:dsb.gv.at)", "WebFetch(domain:*.dsb.gv.at)",
+  "WebFetch(domain:dvi.gov.lv)", "WebFetch(domain:*.dvi.gov.lv)", "WebFetch(domain:edoeb.admin.ch)", "WebFetch(domain:*.edoeb.admin.ch)",
+  "WebFetch(domain:garanteprivacy.it)", "WebFetch(domain:*.garanteprivacy.it)", "WebFetch(domain:ico.org.uk)", "WebFetch(domain:*.ico.org.uk)",
+  "WebFetch(domain:idpc.org.mt)", "WebFetch(domain:*.idpc.org.mt)", "WebFetch(domain:imy.se)", "WebFetch(domain:*.imy.se)",
+  "WebFetch(domain:ip-rs.si)", "WebFetch(domain:*.ip-rs.si)", "WebFetch(domain:lda.bayern.de)", "WebFetch(domain:*.lda.bayern.de)",
+  "WebFetch(domain:ldi.nrw.de)", "WebFetch(domain:*.ldi.nrw.de)", "WebFetch(domain:naih.hu)", "WebFetch(domain:*.naih.hu)",
+  "WebFetch(domain:personuvernd.is)", "WebFetch(domain:*.personuvernd.is)", "WebFetch(domain:tietosuoja.fi)", "WebFetch(domain:*.tietosuoja.fi)",
+  "WebFetch(domain:uodo.gov.pl)", "WebFetch(domain:*.uodo.gov.pl)", "WebFetch(domain:uoou.cz)", "WebFetch(domain:*.uoou.cz)",
+  "WebFetch(domain:vdai.lrv.lt)", "WebFetch(domain:*.vdai.lrv.lt)", "WebFetch(domain:ada.gov)", "WebFetch(domain:*.ada.gov)",
+  "WebFetch(domain:cisa.gov)", "WebFetch(domain:*.cisa.gov)", "WebFetch(domain:congress.gov)", "WebFetch(domain:*.congress.gov)",
+  "WebFetch(domain:courtlistener.com)", "WebFetch(domain:*.courtlistener.com)", "WebFetch(domain:cppa.ca.gov)", "WebFetch(domain:*.cppa.ca.gov)",
+  "WebFetch(domain:dol.gov)", "WebFetch(domain:*.dol.gov)", "WebFetch(domain:eeoc.gov)", "WebFetch(domain:*.eeoc.gov)", "WebFetch(domain:ftc.gov)",
+  "WebFetch(domain:*.ftc.gov)", "WebFetch(domain:govinfo.gov)", "WebFetch(domain:*.govinfo.gov)", "WebFetch(domain:hhs.gov)",
+  "WebFetch(domain:*.hhs.gov)", "WebFetch(domain:irs.gov)", "WebFetch(domain:*.irs.gov)", "WebFetch(domain:justice.gov)",
+  "WebFetch(domain:*.justice.gov)", "WebFetch(domain:law.cornell.edu)", "WebFetch(domain:*.law.cornell.edu)", "WebFetch(domain:nist.gov)",
+  "WebFetch(domain:*.nist.gov)", "WebFetch(domain:nlrb.gov)", "WebFetch(domain:*.nlrb.gov)", "WebFetch(domain:oag.ca.gov)",
+  "WebFetch(domain:*.oag.ca.gov)", "WebFetch(domain:sec.gov)", "WebFetch(domain:*.sec.gov)", "WebFetch(domain:supremecourt.gov)",
+  "WebFetch(domain:*.supremecourt.gov)", "WebFetch(domain:uscourts.gov)", "WebFetch(domain:*.uscourts.gov)", "WebFetch(domain:whitehouse.gov)",
+  "WebFetch(domain:*.whitehouse.gov)", "WebFetch(domain:bis.org)", "WebFetch(domain:*.bis.org)", "WebFetch(domain:cen.eu)",
+  "WebFetch(domain:*.cen.eu)", "WebFetch(domain:cenelec.eu)", "WebFetch(domain:*.cenelec.eu)", "WebFetch(domain:etsi.org)",
+  "WebFetch(domain:*.etsi.org)", "WebFetch(domain:fatf-gafi.org)", "WebFetch(domain:*.fatf-gafi.org)", "WebFetch(domain:iec.ch)",
+  "WebFetch(domain:*.iec.ch)", "WebFetch(domain:ietf.org)", "WebFetch(domain:*.ietf.org)", "WebFetch(domain:iso.org)", "WebFetch(domain:*.iso.org)",
+  "WebFetch(domain:oecd.org)", "WebFetch(domain:*.oecd.org)", "WebFetch(domain:ohchr.org)", "WebFetch(domain:*.ohchr.org)",
+  "WebFetch(domain:un.org)", "WebFetch(domain:*.un.org)", "WebFetch(domain:w3.org)", "WebFetch(domain:*.w3.org)", "WebFetch(domain:wipo.int)",
+  "WebFetch(domain:*.wipo.int)", "WebFetch(domain:wto.org)", "WebFetch(domain:*.wto.org)", "WebFetch(domain:edri.org)",
+  "WebFetch(domain:*.edri.org)", "WebFetch(domain:gdprhub.eu)", "WebFetch(domain:*.gdprhub.eu)", "WebFetch(domain:noyb.eu)",
+  "WebFetch(domain:*.noyb.eu)", "mcp__plugin_memoforge_legal-data-hunter__*", "mcp__plugin_memoforge_courtlistener__*",
+  "mcp__plugin_memoforge_legalviz__*", "mcp__plugin_memoforge_uk-legal__*", "mcp__plugin_memoforge_justicelibre__*",
+  "mcp__plugin_memoforge_opencaselaw__*", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/mf *)"
+]}}
+```
+
+</details>
+
+**In Cowork these rules do not apply.** There, Bash and web fetching arrive as `mcp__workspace__*` tools that the list above does not cover. The only protection in that environment is the plugin's `permission_gate` hook, which approves a fetch only for an allowlisted host and a Bash command only when it is a single, operator-free call to the plugin's own `mf`.
 
 ---
 
-## Privacy and data
+## Your own house style
 
-Everything memoforge writes lives **on your machine**, inside the output folder you chose (defaults to `~/Documents/memoforge/`). There is no shared backend, no server, no telemetry uploaded anywhere.
+By default the writer follows a built-in house style (concise, no em-dashes, OSCOLA citations). The Style Studio turns your own memos or written rules into a saved profile:
 
-MCP calls go through the connectors you authenticated in Cowork — they reach the providers' servers (Legal Data Hunter, CourtListener, and any official portals you allow via WebFetch) using your credentials. The plugin never proxies or stores credentials itself.
+```
+/memoforge:style new my-firm --examples ~/memos/2025-q4/
+/memoforge:style list
+```
 
-The audit trail (`events.jsonl`, draft versions, reviewer outputs) stays in the task folder until you delete it.
+Profiles live under the plugin data directory as plain markdown — open and edit them by hand. When profiles exist, the plan gate offers them as a choice, and a profile may bind itself to a mode. Form review then defers to your rules while the substantive checks (citations, IRAC, contrary authority) stay uniform. No profile means no extra prompts and default behaviour.
 
----
+## Where the results land
+
+A run produces two things: a **work dir** — one folder per question, holding the protocol files, the drafts and the raw sources — and a **published result**: the deliverable, `summary.md` and `sources/` (the source pack plus the raw text of every critical and supporting source). The work dir is the machine room and stays where it is; the published copy is the part meant for you. The published copy also carries a `_run/` folder with the small diagnostic files of the run — `state.json`, `events.jsonl`, `plan.json`, the intake facts, the sufficiency verdict and the reviews — so a finished result can be inspected without opening the work dir.
+
+The work dir goes to the first writable of: the `output_folder` option (host setting or `mf config set output_folder <dir>`) → `$MEMOFORGE_OUTPUT_FOLDER` → `<session folder>/memoforge/` — the folder attached to the session (`$CLAUDE_PROJECT_DIR`, else the current directory), skipped when that is the plugin's own folder, your home directory itself or a drive root → `~/Documents/memoforge/` → `./outputs/memoforge-work/`. `mf task new` prints the absolute path it chose and the skill repeats it as one chat line.
+
+The published copy goes to `<publish folder>/memoforge/<slug>/`, and where that is depends on the host:
+
+- **Claude Code, project folder.** The work dir is already inside the folder you attached, so unless you set `publish_folder` nothing is copied — the deliverable is where you are working. The final message prints its absolute path.
+- **Cowork.** The plugin runs in a container that cannot see your connected folder. The result is copied into the session's outputs area (`/mnt/user-data/outputs`), which is what the files sidebar shows, and the skill then copies that same folder into your connected folder through the session's own file tools. Both paths are printed when the run ends.
+- **Anywhere else** (a hosted VM with neither): set `publish_folder` to a directory you can reach and the result lands there; with nothing set and no outputs area, nothing is copied and the work dir stays the single source.
+
+Everything stays on your machine: no backend, no telemetry. MCP calls go to the providers you authenticated, with your credentials; the plugin never proxies or stores them.
+
+## Limits
+
+- **Not a substitute for a lawyer.** The memo is a research-grade draft for a qualified reviewer.
+- **English output**, whatever language you ask in.
+- **Provenance is bounded.** A quote is proven to come from the raw file the researcher saved; that the file came from the cited URL is confirmed only where the URL is still live and its hash matches. Each source records which of the two it is.
+- **Currency is best-effort** against the connected databases. Verify litigation-sensitive citations yourself.
+- **No cancelling mid-segment.** Cancellation is honoured at gates and at the next step boundary.
+- **Cowork caveats:** buffered chat output, and permission rules that do not apply (above).
 
 ## Going deeper
 
-For the canonical orchestrator specification, agent prompts, pipeline contracts, and state-schema, see `skills/memo/references/` inside the plugin. For release history and architecture decisions, see [`CHANGELOG.md`](CHANGELOG.md).
-
-If you want to fork or contribute: the plugin is two skills (`memo`, `style`), one continue/status helper, ~15 agents, and a small library of canonical reference docs. Everything is plain markdown plus a handful of Python scripts for state validation and live-progress HTML rendering.
-
----
+[`docs/decisions.md`](docs/decisions.md) records why v2 looks like this, and [`docs/TZ-memoforge-v2.md`](docs/TZ-memoforge-v2.md) is the specification it was built from. Phases, modes, events, state fields and the always-deliver matrix are generated from the code into [`docs/`](docs/); the v1 contracts they replaced are kept in `docs/attic/`. Release history is in [`CHANGELOG.md`](CHANGELOG.md); `scripts/tests/README.md` explains how to run the suite.
 
 ## License and contact
 
-MIT License — see [`LICENSE`](LICENSE).
-
-Author: Grigorii Moskalev. Issues, ideas, or production stories: open a GitHub issue at [github.com/gregmos/memoforge/issues](https://github.com/gregmos/memoforge/issues).
+MIT — see [`LICENSE`](LICENSE). Author: Grigorii Moskalev. Issues and production stories: [github.com/gregmos/memoforge/issues](https://github.com/gregmos/memoforge/issues).
