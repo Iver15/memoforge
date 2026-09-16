@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import re
@@ -12,6 +13,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from pathlib import Path
 
 from . import events, limits, schema, state_io, stepctx
@@ -993,6 +995,9 @@ def probe_headers(url: str) -> dict[str, str]:
     """Request headers of one probe: the contact UA, and the `Accept` the host needs (D-146)."""
     headers = {"User-Agent": LIVENESS_USER_AGENT}
     headers.update(CELLAR_HEADERS if is_cellar(url) else {"Accept": DEFAULT_ACCEPT})
+    # D-162: the eCFR API refuses (406) any request that does not allow a compressed answer; every
+    # other host simply ignores the header, and the caller inflates what comes back compressed.
+    headers.setdefault("Accept-Encoding", "gzip")
     return headers
 
 
@@ -1107,6 +1112,16 @@ def header_value(headers: object, name: str) -> str:
         lowered = name.lower()
         value = next((item for key, item in headers.items() if str(key).lower() == lowered), None)
     return str(value or "")
+
+
+def _inflate(payload: bytes, headers: object) -> bytes:
+    """Undo a `Content-Encoding: gzip` answer (D-162); anything else, or a broken stream, is returned as is."""
+    if header_value(headers, "Content-Encoding").strip().lower() != "gzip":
+        return payload
+    try:
+        return gzip.decompress(payload)
+    except (OSError, EOFError, zlib.error):
+        return payload
 
 
 def challenge_error(code: int | None, headers: object) -> str | None:
@@ -1258,6 +1273,9 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
             if code in UNCHECKED_HTTP_CODES:
                 return _unchecked_http(code, headers, hops)
             payload = response.read(limits.LIVENESS_MAX_BODY_BYTES)
+            payload = _inflate(payload, headers)
+            # the same cap fetch applies after inflating (D-162): both sides hash the same prefix
+            payload = payload[: limits.LIVENESS_MAX_BODY_BYTES]
             content_type = header_value(headers, "Content-Type")
     except urllib.error.HTTPError as exc:
         if exc.code in UNCHECKED_HTTP_CODES:
@@ -1618,9 +1636,10 @@ def fetch_body(
             code = getattr(response, "status", None) or response.getcode()
             # cap + 1: one byte over the ceiling is how `truncated` is told from «exactly this long».
             payload = response.read(cap + 1)
+            payload = _inflate(payload, response.headers)
             return _fetch_answer(url, code, response.headers, payload, response.geturl(), hops)
     except urllib.error.HTTPError as exc:
-        return _fetch_answer(url, exc.code, exc.headers, exc.read(cap + 1), url, hops)
+        return _fetch_answer(url, exc.code, exc.headers, _inflate(exc.read(cap + 1), exc.headers), url, hops)
     except RedirectRefused as exc:
         # D-151: the hop was refused before the request to it was sent; nothing was read.
         return {

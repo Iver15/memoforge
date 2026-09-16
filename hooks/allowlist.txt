@@ -11,7 +11,7 @@
 # trackers the research layers actually cite. Law-firm blogs and commentary publishers are
 # deliberately absent — a user grants those in `~/.claude/settings.json`.
 #
-# 99 hosts active + 5 in the `optional` group (off by default) = 104: the v1 `hooks.json` list, the
+# 101 hosts active + 3 in the `optional` group (off by default) = 104: the v1 `hooks.json` list, the
 # LegalViz reader of D-105 and the `legislature` group (plus the Austrian DPA) of D34-02, as
 # corrected by the reachability sweep of D-145 and extended by the `legislature-api` group of D-148.
 
@@ -111,7 +111,9 @@ congress.gov
 courtlistener.com
 cppa.ca.gov
 dol.gov
+ecfr.gov
 eeoc.gov
+federalregister.gov
 ftc.gov
 govinfo.gov
 hhs.gov
@@ -154,8 +156,7 @@ noyb.eu
 # justia.com
 # findlaw.com
 # iapp.org
-# ecfr.gov and federalregister.gov joined the group in D-145: to a non-browser client both answer
-# HTTP 200 with a 10 KB «Request Access» stub instead of the document, so an auto-allowed fetch of
-# them returns nothing citable. Their open APIs are the way in, and those are not auto-allowed.
-# ecfr.gov
-# federalregister.gov
+# ecfr.gov and federalregister.gov: their ordinary pages answer a non-browser client with an HTTP 200
+# «Request Access» stub (D-145) that `is_interstitial` refuses as a source (D-149); they are listed for
+# their open APIs — ecfr.gov/api/… (gzip, D-162) and federalregister.gov/api/v1/… — the US fallback
+# of `routing.statutes.US` through `mf sources fetch`.

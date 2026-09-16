@@ -143,8 +143,12 @@ A plugin cannot ship permission rules, so paste this block into `~/.claude/setti
   "WebFetch(domain:*.cppa.ca.gov)",
   "WebFetch(domain:dol.gov)",
   "WebFetch(domain:*.dol.gov)",
+  "WebFetch(domain:ecfr.gov)",
+  "WebFetch(domain:*.ecfr.gov)",
   "WebFetch(domain:eeoc.gov)",
   "WebFetch(domain:*.eeoc.gov)",
+  "WebFetch(domain:federalregister.gov)",
+  "WebFetch(domain:*.federalregister.gov)",
   "WebFetch(domain:ftc.gov)",
   "WebFetch(domain:*.ftc.gov)",
   "WebFetch(domain:govinfo.gov)",
@@ -211,6 +215,8 @@ A plugin cannot ship permission rules, so paste this block into `~/.claude/setti
   "mcp__plugin_memoforge_uk-legal__*",
   "mcp__plugin_memoforge_justicelibre__*",
   "mcp__plugin_memoforge_opencaselaw__*",
+  "mcp__plugin_memoforge_federal-regulations__*",
+  "mcp__plugin_memoforge_lex__*",
   "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/mf *)"
 ]}}
 ```

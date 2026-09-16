@@ -43,6 +43,12 @@ P1 (plugin workflows), P2 (exec-form hooks with `${CLAUDE_PLUGIN_ROOT}` on Windo
 
 `python -m unittest discover -s scripts/tests` — ~1,270 tests, no network, no skips. CI runs Ubuntu and Windows × Python 3.9 and 3.13: `compileall`, the suite with a zero-skip guard, `ruff check --select E,F,W`, `mf docs render --check`, `mf probe dry-run` in both modes, and a version check across `plugin.json`, the README badge and this file.
 
+### Unreleased (on top of 2.0.0-dev)
+
+- mf sources fetch: gzip; ecfr.gov / federalregister.gov APIs reachable as the US fallback (D-162).
+- Bundled MCP server `federal-regulations`: US CFR (eCFR) and Federal Register, keyless (D-160).
+- Bundled MCP server `lex` (i.AI): UK legislation sections, explanatory notes and amendments, keyless (D-161).
+
 ---
 
 ## 1.1.1 — 2026-05-29 (post-validation fixes: Phase 12.5 tidy now runs · WebFetch auto-approve covers Cowork's MCP fetch tool)

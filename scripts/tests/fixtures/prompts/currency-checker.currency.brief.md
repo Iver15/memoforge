@@ -15,11 +15,11 @@ First action (Bash, before any other tool call):
 - deterministic pre-checks already done for you: `research/sources.json` carries `liveness` and `verification` per source
 - sources to judge: src-1, src-2
 - available legal MCP namespaces: `ldh, courtlistener`
-- your share of the run MCP budget: `courtlistener 10, justicelibre 10, ldh 8, legalviz 10, opencaselaw 10, uklegal 10` calls
+- your share of the run MCP budget: `courtlistener 10, fedregs 10, justicelibre 10, ldh 8, legalviz 10, lex 10, opencaselaw 10, uklegal 10` calls
 - previous attempt errors to fix: none
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot currency --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw> --detail <tool>`
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot currency --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
 
 For an EU act, start with `legalviz_get_law_relations` on its CELEX id — it lists amendments, corrigenda, repeals and implementing acts, which is the whole question — and confirm the text in force with `legalviz_get_law_part` at `version="current"`, whose answer names the consolidated CELEX in `versionCelex`. On 2026-09-13 the AI Act reads as `02024R1689-20260727`, amended by Regulation (EU) 2026/1744 (Digital Omnibus on AI, CELEX `32026R1744`). Go to the registry URL, LDH or EUR-Lex only for what those two leave open, and if EUR-Lex answers HTTP 202 with a challenge header, read the same CELEX from `https://publications.europa.eu/resource/celex/<CELEX>` with `Accept: application/xhtml+xml` instead of retrying.
 For UK legislation, `uklegal_legislation_get_section` returns the section with its extent and in-force metadata, which settles the same question in one call.

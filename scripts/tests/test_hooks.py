@@ -203,8 +203,8 @@ class FetchGateTest(unittest.TestCase):
         self.assertEqual(self.decide({"url": "https://evil.com"}, tool_name="mcp__workspace__web_fetch"), {})
 
     def test_the_optional_group_is_off_by_default(self):
-        """§8.1: justia.com / findlaw.com / iapp.org ship commented out; D-145 adds two."""
-        for host in ("justia.com", "findlaw.com", "iapp.org", "ecfr.gov", "federalregister.gov"):
+        """§8.1: justia.com / findlaw.com / iapp.org ship commented out."""
+        for host in ("justia.com", "findlaw.com", "iapp.org"):
             self.assertPassthrough({"url": f"https://{host}/x"})
 
     def test_the_crafted_fragment_host_is_never_allowed(self):
@@ -260,17 +260,22 @@ class AllowlistFileTest(unittest.TestCase):
         # D-105: the v1 78 plus the two LegalViz hosts; D34-02 adds the 11-host `legislature`
         # group and the Austrian supervisory authority; D-145 nets 92 - 3 + 1 = 90 —
         # `data.bka.gv.at` in, `api.legalviz.eu` out, `ecfr.gov`/`federalregister.gov` to
-        # `optional`; D-148 adds the nine-host `legislature-api` group, 90 + 9 = 99.
-        self.assertEqual(len(hosts), 99)
+        # `optional`; D-148 adds the nine-host `legislature-api` group, 90 + 9 = 99;
+        # D-162 returns the two US regulation API hosts to the active set, 99 + 2 = 101.
+        self.assertEqual(len(hosts), 101)
         self.assertIn("europa.eu", hosts)
         self.assertNotIn("justia.com", hosts)
 
     def test_the_hosts_the_sweep_retired_are_no_longer_auto_allowed(self):
-        """D-145: two «Request Access» stubs and one MCP endpoint that is not a fetch target."""
+        """D-145: two «Request Access» stubs and one MCP endpoint that is not a fetch target.
+
+        D-162 re-allowlisted the two stubs' hosts for their open APIs; only the MCP
+        endpoint row remains retired.
+        """
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
-        for host in ("ecfr.gov", "federalregister.gov", "api.legalviz.eu"):
-            with self.subTest(host=host):
-                self.assertNotIn(host, hosts)
+        self.assertIn("ecfr.gov", hosts)
+        self.assertIn("federalregister.gov", hosts)
+        self.assertNotIn("api.legalviz.eu", hosts)
 
     def test_the_national_statute_portals_of_the_routing_table_are_allowlisted(self):
         """D34-02: the 20260910 run could not fetch a single member-state statute book."""
@@ -307,17 +312,29 @@ class AllowlistFileTest(unittest.TestCase):
             with self.subTest(host=host):
                 self.assertIn(host, hosts)
 
-    def test_the_two_new_mcp_endpoints_are_not_fetch_targets(self):
+    def test_the_mcp_endpoints_are_not_fetch_targets(self):
         """D-148 keeps the D-145 rule: an MCP endpoint is called as a server, never fetched."""
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
-        for host in ("justicelibre.org", "mcp.opencaselaw.ch"):
+        for host in ("justicelibre.org", "mcp.opencaselaw.ch", "federal-regulations.caseyjhand.com"):
             with self.subTest(host=host):
                 self.assertNotIn(host, hosts)
+
+    def test_the_lex_endpoint_is_not_a_fetch_target(self):
+        # D-161: the i.AI Lex endpoint is called as a server, never fetched.
+        hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
+        self.assertNotIn("lex.lab.i.ai.gov.uk", hosts)
 
     def test_the_uk_portals_the_routing_table_points_at_are_allowlisted(self):
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
         self.assertIn("legislation.gov.uk", hosts)
         self.assertIn("caselaw.nationalarchives.gov.uk", hosts)
+
+    def test_the_us_regulation_api_hosts_are_allowlisted(self):
+        # D-162: `mf sources fetch` refuses hosts off the allowlist, and the eCFR / Federal Register
+        # APIs are the US fallback route.
+        hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
+        self.assertIn("ecfr.gov", hosts)
+        self.assertIn("federalregister.gov", hosts)
 
     def test_the_legalviz_reader_is_allowlisted_but_not_its_mcp_endpoint(self):
         """D-145 corrects D-105: an MCP endpoint is not called through WebFetch, so it is not here."""
@@ -640,6 +657,13 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 ("mcp__justicelibre__search_judiciaire", "justicelibre"),
                 ("mcp__plugin_memoforge_opencaselaw__get_law", "opencaselaw"),
                 ("mcp__swiss-caselaw__search_decisions", "opencaselaw"),
+                ("mcp__plugin_memoforge_federal-regulations__regulations_get_cfr_section", "fedregs"),
+                ("mcp__federal-regulations-mcp-server__regulations_search_rules", "fedregs"),
+                # D-161: Lex (i.AI) announces itself as `Lex API`; the bare spelling
+                # must never capture `eurlex` (which stays LegalViz).
+                ("mcp__plugin_memoforge_lex__lookup_legislation", "lex"),
+                ("mcp__Lex_API__search_for_legislation_sections", "lex"),
+                ("mcp__eurlex__get_case_law", "legalviz"),
             )
         ):
             with self.subTest(tool_name=tool_name):
@@ -664,6 +688,11 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 "justicelibre",
                 "opencaselaw",
                 "opencaselaw",
+                "fedregs",
+                "fedregs",
+                "lex",
+                "lex",
+                "legalviz",
             ],
             servers,
         )

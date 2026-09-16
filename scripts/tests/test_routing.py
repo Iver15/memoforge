@@ -479,6 +479,7 @@ class RouteTest(unittest.TestCase):
 
     def test_uk_statutes_go_to_legislation_gov_uk(self):
         # D-105: the UK Legal server slices the act; legislation.gov.uk is the fail-soft portal.
+        # D-161: Lex (i.AI) follows uklegal for sections, explanatory notes and amendments.
         row = routing.route("statutes", "gb")
         self.assertEqual("UK", row["jurisdiction"])
         self.assertEqual(
@@ -486,6 +487,11 @@ class RouteTest(unittest.TestCase):
                 "uklegal_legislation_search",
                 "uklegal_legislation_get_toc",
                 "uklegal_legislation_get_section",
+                "lex_search_for_legislation_sections",
+                "lex_lookup_legislation",
+                "lex_get_legislation_sections",
+                "lex_get_explanatory_note_by_section",
+                "lex_search_amendments",
                 "WebFetch",
                 "ldh_search",
             ],
@@ -498,6 +504,23 @@ class RouteTest(unittest.TestCase):
         self.assertIn("extent and in-force metadata", note)
         self.assertIn("uklegal_citations_resolve", note)
         self.assertIn("uklegal_citations_format_oscola", note)
+
+    def test_uk_statutes_route_legislation_through_uklegal_and_lex(self):
+        # D-161: Lex (i.AI) over the same legislation.gov.uk data, for explanatory
+        # notes and amendment history; judgments stay on uklegal.
+        row = routing.route("statutes", "UK")
+        self.assertEqual(
+            ["uklegal_legislation_search", "uklegal_legislation_get_toc",
+             "uklegal_legislation_get_section", "lex_search_for_legislation_sections",
+             "lex_lookup_legislation", "lex_get_legislation_sections",
+             "lex_get_explanatory_note_by_section", "lex_search_amendments",
+             "WebFetch", "ldh_search"],
+            row["tools"],
+        )
+        self.assertEqual(["uklegal", "lex", "ldh"], routing.row_servers("statutes", "UK"))
+        self.assertIn("lex_lookup_legislation", row["note"])
+        self.assertIn("lex_get_explanatory_note_by_section", row["note"])
+        self.assertIn("lex_search_amendments", row["note"])
 
     def test_uk_case_law_uses_find_case_law_and_never_bailii(self):
         row = routing.route("case_law", "UK")
@@ -546,6 +569,17 @@ class RouteTest(unittest.TestCase):
         self.assertIn("Request Access", note)
         self.assertIn("federalregister.gov/api/v1/documents.json", note)
 
+    def test_us_statutes_route_cfr_through_the_federal_regulations_server(self):
+        row = routing.route("statutes", "US")
+        self.assertEqual(
+            ["fedregs_regulations_get_cfr_section", "fedregs_regulations_browse_cfr",
+             "fedregs_regulations_search_rules", "fedregs_regulations_get_document", "WebFetch", "ldh_search"],
+            row["tools"],
+        )
+        self.assertEqual(["fedregs", "ldh"], routing.row_servers("statutes", "US"))
+        self.assertIn("ecfr.gov/current/title-<title>/section-<section>", row["note"])
+        self.assertIn("federalregister.gov/d/", row["note"])
+
     def test_doctrine_falls_back_to_edpb_domain_for_the_eu(self):
         row = routing.route("doctrine", "EU")
         self.assertIn("edpb.europa.eu", row["domains"])
@@ -583,11 +617,19 @@ class McpServerAliasTest(unittest.TestCase):
         self.assertEqual("opencaselaw", routing.MCP_SERVERS["opencaselaw"])
         self.assertEqual("https://justicelibre.org/mcp", manifest["justicelibre"]["url"])
         self.assertEqual("https://mcp.opencaselaw.ch/mcp", manifest["opencaselaw"]["url"])
+        # D-160: US federal regulations (eCFR + Federal Register), hosted keyless.
+        self.assertEqual("federal-regulations", routing.MCP_SERVERS["fedregs"])
+        self.assertEqual("https://federal-regulations.caseyjhand.com/mcp", manifest["federal-regulations"]["url"])
+        # D-161: Lex (UK legislation, explanatory notes and amendments by i.AI), hosted keyless.
+        self.assertEqual("lex", routing.MCP_SERVERS["lex"])
+        self.assertEqual("https://lex.lab.i.ai.gov.uk/mcp", manifest["lex"]["url"])
 
     def test_every_server_is_named_for_the_sources_question_of_the_plan_gate(self):
         self.assertEqual(sorted(routing.MCP_SERVERS), sorted(routing.MCP_SERVER_LABELS))
         self.assertEqual("JusticeLibre (FR)", routing.MCP_SERVER_LABELS["justicelibre"])
         self.assertEqual("OpenCaseLaw (CH)", routing.MCP_SERVER_LABELS["opencaselaw"])
+        self.assertEqual("Federal Regulations (US)", routing.MCP_SERVER_LABELS["fedregs"])
+        self.assertEqual("Lex (UK, i.AI)", routing.MCP_SERVER_LABELS["lex"])
 
     def test_every_mcp_tool_of_the_table_starts_with_a_known_alias(self):
         for layer in routing.LAYERS:
@@ -654,9 +696,11 @@ class EstimateTest(unittest.TestCase):
         # D-107: 60 is a safety ceiling — neither free server publishes a quota.
         self.assertEqual(60, estimate["provider_daily_limits"]["legalviz"])
         self.assertEqual(60, estimate["provider_daily_limits"]["uklegal"])
+        self.assertEqual(60, estimate["provider_daily_limits"]["fedregs"])
+        self.assertEqual(60, estimate["provider_daily_limits"]["lex"])
 
     def test_a_new_server_run_budget_is_bounded_by_its_daily_ceiling(self):
-        for name in ("legalviz", "uklegal"):
+        for name in ("legalviz", "uklegal", "fedregs", "lex"):
             with self.subTest(server=name):
                 verdict = routing.budget_verdict(["statutes"], 1, {name: 8})
                 self.assertEqual(

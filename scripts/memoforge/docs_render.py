@@ -26,9 +26,11 @@ MCP_NAMESPACES: tuple[str, ...] = (
     "mcp__plugin_memoforge_uk-legal__*",
     "mcp__plugin_memoforge_justicelibre__*",
     "mcp__plugin_memoforge_opencaselaw__*",
+    "mcp__plugin_memoforge_federal-regulations__*",
+    "mcp__plugin_memoforge_lex__*",
 )
 """§8.2: the MCP namespaces of the bundled servers the README block allows (D-105 and D-148 add
-two each)."""
+two each; D-160 adds the US regulations server; D-161 the UK Lex server)."""
 
 BASH_RULE_PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}"
 """D-26: the `Bash(...)` rule keeps the placeholder, so `docs/permissions.md` is machine-independent."""

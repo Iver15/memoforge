@@ -23,6 +23,14 @@
     "opencaselaw": {
       "type": "http",
       "url": "https://mcp.opencaselaw.ch/mcp"
+    },
+    "federal-regulations": {
+      "type": "http",
+      "url": "https://federal-regulations.caseyjhand.com/mcp"
+    },
+    "lex": {
+      "type": "http",
+      "url": "https://lex.lab.i.ai.gov.uk/mcp"
     }
   }
 }

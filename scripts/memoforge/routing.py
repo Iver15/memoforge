@@ -20,6 +20,8 @@ MCP_SERVERS: dict[str, str] = {
     "uklegal": "uk-legal",
     "justicelibre": "justicelibre",
     "opencaselaw": "opencaselaw",
+    "fedregs": "federal-regulations",
+    "lex": "lex",
 }
 """Routing alias -> bundled server of `.mcp.json`, and the key of that server in `intake/mcp-probe.json`.
 
@@ -37,6 +39,8 @@ MCP_SERVER_LABELS: dict[str, str] = {
     "uklegal": "UK Legal",
     "justicelibre": "JusticeLibre (FR)",
     "opencaselaw": "OpenCaseLaw (CH)",
+    "fedregs": "Federal Regulations (US)",
+    "lex": "Lex (UK, i.AI)",
 }
 """How a server is named to the user — in the `Sources` question of the plan gate (§2.4)."""
 
@@ -219,6 +223,11 @@ ROUTING: dict[str, dict[str, dict]] = {
                 "uklegal_legislation_search",
                 "uklegal_legislation_get_toc",
                 "uklegal_legislation_get_section",
+                "lex_search_for_legislation_sections",
+                "lex_lookup_legislation",
+                "lex_get_legislation_sections",
+                "lex_get_explanatory_note_by_section",
+                "lex_search_amendments",
                 "WebFetch",
                 "ldh_search",
             ],
@@ -229,22 +238,45 @@ ROUTING: dict[str, dict[str, dict]] = {
                 "structure, uklegal_legislation_get_section the parsed text of the one section you "
                 "need — that answer carries extent and in-force metadata, so it is also the currency "
                 "check for UK legislation. uklegal_citations_resolve confirms a citation points at a "
-                "real document and uklegal_citations_format_oscola formats it. Fall back to a "
+                "real document and uklegal_citations_format_oscola formats it. "
+                "lex_* is the i.AI (GDS) service over the same legislation.gov.uk data: "
+                "lex_lookup_legislation takes the official citation (ukpga/2018/12), "
+                "lex_get_legislation_sections and lex_search_for_legislation_sections read or find "
+                "sections, lex_get_explanatory_note_by_section adds the explanatory note of a "
+                "section and lex_search_amendments the amendments that touched it — use it for "
+                "explanatory notes and amendment history, or when uklegal is down; its case law is "
+                "disabled, so judgments stay on uklegal. Fall back to a "
                 "WebFetch of legislation.gov.uk, which is authoritative and point-in-time addressable."
             ),
         },
         "US": {
-            "tools": ["WebFetch", "ldh_search"],
+            "tools": [
+                "fedregs_regulations_get_cfr_section",
+                "fedregs_regulations_browse_cfr",
+                "fedregs_regulations_search_rules",
+                "fedregs_regulations_get_document",
+                "WebFetch",
+                "ldh_search",
+            ],
             "ldh_sources": ["US/USCode"],
             "domains": ["govinfo.gov"],
             "note": (
-                "govinfo.gov only, and there the year-free form "
-                "govinfo.gov/link/uscode/<title>/<section>?link-type=html is preferred: it redirects "
-                "to the current edition by itself. ecfr.gov and federalregister.gov answer HTTP 200 "
-                "with a 10 KB «Request Access» stub to any non-browser client, so a 200 from them "
-                "means nothing and they are never registered as a source; their open APIs "
-                "(federalregister.gov/api/v1/documents.json, and the eCFR API, which needs a "
-                "compressed Accept-Encoding) are the alternative."
+                "Two federal sources, two routes. Statutes (U.S. Code): govinfo.gov only, and there the "
+                "year-free form govinfo.gov/link/uscode/<title>/<section>?link-type=html is preferred: "
+                "it redirects to the current edition by itself. Regulations (CFR) and rulemaking: "
+                "fedregs_regulations_get_cfr_section with title, part and section (16, 312, 312.3) "
+                "returns the codified text as of a date; register it with --tool "
+                "fedregs_regulations_get_cfr_section and the official page as --url, "
+                "https://www.ecfr.gov/current/title-<title>/section-<section>. "
+                "fedregs_regulations_browse_cfr walks a title or part when the section is not known. "
+                "fedregs_regulations_search_rules finds Federal Register proposed and final rules and "
+                "fedregs_regulations_get_document reads one by its FR document number; register those at "
+                "https://www.federalregister.gov/d/<FR number>. ecfr.gov and federalregister.gov pages "
+                "answer HTTP 200 with a 10 KB «Request Access» stub to any non-browser client, so a "
+                "WebFetch of them is never a source; their open APIs "
+                "(federalregister.gov/api/v1/documents.json, and the eCFR API, which needs a compressed "
+                "Accept-Encoding) are the fallback through mf sources fetch (Accept-Encoding gzip is sent "
+                "for you) when the server is down."
             ),
         },
     },

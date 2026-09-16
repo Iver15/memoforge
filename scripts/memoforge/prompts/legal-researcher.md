@@ -29,7 +29,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw> --detail <tool>`
+`${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
 
 ## Register before you cite
 

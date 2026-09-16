@@ -162,12 +162,15 @@ MCP_PROVIDER_DAILY_LIMITS: dict[str, int] = {  # S3
     "uklegal": 60,
     "justicelibre": 60,
     "opencaselaw": 60,
+    "fedregs": 60,
+    "lex": 60,
 }
 """Upper bound of the provider's own daily quota; the real remainder is unknown (§4.3).
 
-LegalViz, UK Legal, JusticeLibre and OpenCaseLaw are free hosted servers that publish no quota at
+LegalViz, UK Legal, JusticeLibre, OpenCaseLaw, Federal Regulations and Lex are free hosted servers
+that publish no quota at
 all, so 60 is a safety ceiling rather than a modelled remainder — the run may not plan past it
-(D-105, D-107, D-148). The Legal Data Hunter free plan died on the **second** `resolve_reference`
+(D-105, D-107, D-148, D-160, D-161). The Legal Data Hunter free plan died on the **second** `resolve_reference`
 of one real run (code `-32029`) and on the **fifteenth** of another, so the quota floats and its
 ceiling stays 10, not 20 (D-122, analysis/39 §9.3).
 """

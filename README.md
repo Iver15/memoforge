@@ -45,7 +45,7 @@ The CLI, the hooks and the status line are stdlib-only, so the plugin installs a
 
 ### Connect the legal databases
 
-The plugin registers six MCP servers through `.mcp.json`:
+The plugin registers eight MCP servers through `.mcp.json`:
 
 - `legal-data-hunter` — multi-jurisdictional statutes, case law and regulator guidance (230+ jurisdictions).
 - `courtlistener` — US case law, plus the citation check that says whether a US citation exists at all.
@@ -53,10 +53,12 @@ The plugin registers six MCP servers through `.mcp.json`:
 - `uk-legal` — [UK Legal MCP](https://github.com/paulieb89/uk-legal-mcp), free and keyless: legislation.gov.uk sections with their extent and in-force metadata, Find Case Law judgments down to the paragraph, and an OSCOLA citation resolver.
 - `justicelibre` — [JusticeLibre](https://github.com/Dahliyaal/justicelibre), free and keyless: French code articles by abbreviation and number, the Cour de cassation, Conseil d'État and Conseil constitutionnel, CNIL deliberations, and CJEU/ECtHR judgments as a second text source. Légifrance itself is behind a Cloudflare challenge, so this is the only way into French law that does not need a PISTE account.
 - `opencaselaw` — [OpenCaseLaw](https://github.com/jonashertner/opencaselaw), free and keyless, CC0 data: Swiss federal law by SR number and article (with the consolidations already scheduled), a million decisions back to 1875 with their official headnotes, and the commentary literature.
+- `federal-regulations` — [federal-regulations-mcp-server](https://github.com/cyanheads/federal-regulations-mcp-server), free and keyless: the Code of Federal Regulations from eCFR, section by section and as of a date, and the Federal Register's proposed and final rules by number or search. The U.S. Code itself is read from govinfo.gov.
+- `lex` — [Lex](https://github.com/i-dot-ai/lex) by i.AI (the UK government's AI incubator, with The National Archives and the Ministry of Justice), free and keyless: Acts and SIs by citation or search, the explanatory note of a section, and the amendments that changed it. An experimental service — the plugin uses it for explanatory notes and amendment history and keeps `uk-legal` first for statutes and judgments.
 
 Click **Connect** on each in the plugin panel; the first call may open an OAuth sign-in (LegalViz, UK Legal, JusticeLibre and OpenCaseLaw need no key). Skipping this is supported — research falls back to WebFetch against official portals, and the memo carries a banner asking you to verify each citation.
 
-**More jurisdictions.** The bundled six cover the EU, the UK, the US, France and Switzerland. For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
+**More jurisdictions.** The bundled eight cover the EU, the UK, the US, France and Switzerland. For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
 
 ### Ask
 
@@ -83,7 +85,7 @@ Picked once, at the plan gate. Source of truth: `scripts/memoforge/modes.py`, re
 | Client-readiness polish | no | yes |
 | Template | executive brief (≤1200 words) | classical memo |
 | Source-review gate | off | on exceptions only |
-| MCP budget (LDH / CourtListener / LegalViz / UK Legal / JusticeLibre / OpenCaseLaw) | 8 / 10 / 10 / 10 / 10 / 10 | 10 / 40 / 40 / 40 / 40 / 40 |
+| MCP budget (LDH / CourtListener / LegalViz / UK Legal / JusticeLibre / OpenCaseLaw / Federal Regulations / Lex) | 8 / 10 / 10 / 10 / 10 / 10 / 10 / 10 | 10 / 40 / 40 / 40 / 40 / 40 / 40 / 40 |
 | Best for | a quick check, low stakes | client-facing, contested or novel issues |
 
 ## Where it stops to ask you
@@ -127,7 +129,7 @@ mf config unset writer_model
 A plugin cannot ship permission rules, so research prompts for approval unless you allow the hosts yourself. Paste the block below into `~/.claude/settings.json`; it is generated from the plugin allowlist by `mf docs render permissions`, and [`docs/permissions.md`](docs/permissions.md) is the canonical copy. Replace `${CLAUDE_PLUGIN_ROOT}` with your install path. `Agent(memoforge:*)` is deliberately absent: globs for `Agent` are not confirmed.
 
 <details>
-<summary><b>Permission block — 205 rules</b></summary>
+<summary><b>Permission block — 211 rules</b></summary>
 
 ```json
 {"permissions": {"allow": [
@@ -169,7 +171,9 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
   "WebFetch(domain:vdai.lrv.lt)", "WebFetch(domain:*.vdai.lrv.lt)", "WebFetch(domain:ada.gov)", "WebFetch(domain:*.ada.gov)",
   "WebFetch(domain:cisa.gov)", "WebFetch(domain:*.cisa.gov)", "WebFetch(domain:congress.gov)", "WebFetch(domain:*.congress.gov)",
   "WebFetch(domain:courtlistener.com)", "WebFetch(domain:*.courtlistener.com)", "WebFetch(domain:cppa.ca.gov)", "WebFetch(domain:*.cppa.ca.gov)",
-  "WebFetch(domain:dol.gov)", "WebFetch(domain:*.dol.gov)", "WebFetch(domain:eeoc.gov)", "WebFetch(domain:*.eeoc.gov)", "WebFetch(domain:ftc.gov)",
+  "WebFetch(domain:dol.gov)", "WebFetch(domain:*.dol.gov)", "WebFetch(domain:ecfr.gov)", "WebFetch(domain:*.ecfr.gov)",
+  "WebFetch(domain:eeoc.gov)", "WebFetch(domain:*.eeoc.gov)", "WebFetch(domain:federalregister.gov)",
+  "WebFetch(domain:*.federalregister.gov)", "WebFetch(domain:ftc.gov)",
   "WebFetch(domain:*.ftc.gov)", "WebFetch(domain:govinfo.gov)", "WebFetch(domain:*.govinfo.gov)", "WebFetch(domain:hhs.gov)",
   "WebFetch(domain:*.hhs.gov)", "WebFetch(domain:irs.gov)", "WebFetch(domain:*.irs.gov)", "WebFetch(domain:justice.gov)",
   "WebFetch(domain:*.justice.gov)", "WebFetch(domain:law.cornell.edu)", "WebFetch(domain:*.law.cornell.edu)", "WebFetch(domain:nist.gov)",
@@ -186,7 +190,9 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
   "WebFetch(domain:*.edri.org)", "WebFetch(domain:gdprhub.eu)", "WebFetch(domain:*.gdprhub.eu)", "WebFetch(domain:noyb.eu)",
   "WebFetch(domain:*.noyb.eu)", "mcp__plugin_memoforge_legal-data-hunter__*", "mcp__plugin_memoforge_courtlistener__*",
   "mcp__plugin_memoforge_legalviz__*", "mcp__plugin_memoforge_uk-legal__*", "mcp__plugin_memoforge_justicelibre__*",
-  "mcp__plugin_memoforge_opencaselaw__*", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/mf *)"
+  "mcp__plugin_memoforge_opencaselaw__*", "mcp__plugin_memoforge_federal-regulations__*",
+  "mcp__plugin_memoforge_lex__*",
+  "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/mf *)"
 ]}}
 ```
 

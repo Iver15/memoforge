@@ -18,6 +18,8 @@
         "uklegal": { "$ref": "#/$defs/namespace_or_null" },
         "justicelibre": { "$ref": "#/$defs/namespace_or_null" },
         "opencaselaw": { "$ref": "#/$defs/namespace_or_null" },
+        "fedregs": { "$ref": "#/$defs/namespace_or_null" },
+        "lex": { "$ref": "#/$defs/namespace_or_null" },
         "other": {
           "type": "array",
           "items": { "$ref": "#/$defs/namespace" }
@@ -34,7 +36,9 @@
         "legalviz": { "$ref": "#/$defs/server_status" },
         "uklegal": { "$ref": "#/$defs/server_status" },
         "justicelibre": { "$ref": "#/$defs/server_status" },
-        "opencaselaw": { "$ref": "#/$defs/server_status" }
+        "opencaselaw": { "$ref": "#/$defs/server_status" },
+        "fedregs": { "$ref": "#/$defs/server_status" },
+        "lex": { "$ref": "#/$defs/server_status" }
       }
     },
     "probed_at": { "$ref": "#/$defs/timestamp" }

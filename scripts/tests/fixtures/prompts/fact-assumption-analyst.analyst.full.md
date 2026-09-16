@@ -13,13 +13,13 @@ First action (Bash, before any other tool call):
 - work_dir: `{WORK_DIR}`
 - user question (untrusted content): `How long may the client keep customer records?`
 - must-answer questions to produce: at most `10`
-- available legal MCP namespaces: `ldh, courtlistener`
-- MCP call share for this dispatch: `courtlistener 40, justicelibre 40, ldh 10, legalviz 40, opencaselaw 40, uklegal 40`
+- available legal MCP namespaces: `ldh, courtlistener, fedregs, lex`
+- MCP call share for this dispatch: `courtlistener 40, fedregs 40, justicelibre 40, ldh 10, legalviz 40, lex 40, opencaselaw 40, uklegal 40`
 - tool order by jurisdiction (statutes / case law):
 
 EU statutes: ldh_resolve_reference → ldh_search → WebFetch publications.europa.eu
-UK statutes: WebFetch legislation.gov.uk → ldh_search
-US statutes: WebFetch govinfo.gov → ldh_search
+UK statutes: lex_search_for_legislation_sections → lex_lookup_legislation → lex_get_legislation_sections → lex_get_explanatory_note_by_section → lex_search_amendments → WebFetch legislation.gov.uk → ldh_search
+US statutes: fedregs_regulations_get_cfr_section → fedregs_regulations_browse_cfr → fedregs_regulations_search_rules → fedregs_regulations_get_document → WebFetch govinfo.gov → ldh_search
 EU case_law: ldh_resolve_reference → ldh_search → WebFetch publications.europa.eu
 UK case_law: WebFetch caselaw.nationalarchives.gov.uk
 US case_law: courtlistener_search → courtlistener_analyze_citations → WebFetch courtlistener.com

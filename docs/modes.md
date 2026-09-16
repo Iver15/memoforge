@@ -16,7 +16,7 @@ chain is `userConfig on|off` > mode > `auto`.
 | `source_review_gate` | `off` | `auto` |
 | `lint_fix_rounds` | `1` | `2` |
 | `intake_max_questions` | `10` | `10` |
-| `mcp_budget` | courtlistener: 10, justicelibre: 10, ldh: 8, legalviz: 10, opencaselaw: 10, uklegal: 10 | courtlistener: 40, justicelibre: 40, ldh: 10, legalviz: 40, opencaselaw: 40, uklegal: 40 |
+| `mcp_budget` | courtlistener: 10, fedregs: 10, justicelibre: 10, ldh: 8, legalviz: 10, lex: 10, opencaselaw: 10, uklegal: 10 | courtlistener: 40, fedregs: 40, justicelibre: 40, ldh: 10, legalviz: 40, lex: 40, opencaselaw: 40, uklegal: 40 |
 
 Default writer model: `opus`; allowed: `opus`, `fable`, `sonnet` (§4.1).
 

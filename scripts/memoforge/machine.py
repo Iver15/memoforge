@@ -2020,6 +2020,8 @@ def inline_spec(work_dir: Path, state: dict, phase: str, step_id: str, attempt: 
                 "List the legal MCP namespaces available in this session (Legal Data Hunter, "
                 "CourtListener, LegalViz — the EU-law server, which names itself `eurlex` — "
                 "UK Legal (`uk-legal-mcp`), JusticeLibre (French law), OpenCaseLaw (Swiss law), "
+                "Federal Regulations (US CFR via eCFR and the Federal Register), "
+                "Lex (UK legislation, explanatory notes and amendments, by i.AI), "
                 "any other legal server). Then make exactly ONE cheap call per connected server and "
                 'record what came back: LegalViz `resolve("Regulation (EU) 2016/679")`, UK Legal '
                 '`legislation_search("Data Protection Act 2018", limit 1)`, CourtListener `search` '
@@ -2029,9 +2031,10 @@ def inline_spec(work_dir: Path, state: dict, phase: str, step_id: str, attempt: 
                 '`mcp-probe` JSON: {"namespaces": {"ldh": "<namespace or null>", '
                 '"courtlistener": "<namespace or null>", "legalviz": "<namespace or null>", '
                 '"uklegal": "<namespace or null>", "justicelibre": "<namespace or null>", '
-                '"opencaselaw": "<namespace or null>", "other": ["<namespace>", …]}, '
+                '"opencaselaw": "<namespace or null>", "fedregs": "<namespace or null>", '
+                '"lex": "<namespace or null>", "other": ["<namespace>", …]}, '
                 '"status": {"ldh": "ok|quota|auth|error|absent", "courtlistener": …, '
-                '"legalviz": …, "uklegal": …, "justicelibre": …, "opencaselaw": …}}. `ok` only '
+                '"legalviz": …, "uklegal": …, "justicelibre": …, "opencaselaw": …, "fedregs": …, "lex": …}}. `ok` only '
                 "when the call returned a real answer: a quota or rate-limit refusal is `quota`, a "
                 "401/OAuth refusal is `auth`, any other failure is `error`, a server that is not "
                 "connected is `absent`. One call each, no retries — a server that is not `ok` is "

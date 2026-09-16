@@ -13,6 +13,8 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 from memoforge import events, limits, modes, routing  # noqa: E402
 
 # D-148: six bundled servers; `ldh` in Full is 10, not 16 — the free plan's day ends at 14-15 calls.
+# D-160: `fedregs` (US federal regulations) is the seventh.
+# D-161: `lex` (UK legislation, explanatory notes and amendments by i.AI) is the eighth.
 BRIEF_BUDGET = {
     "ldh": 8,
     "courtlistener": 10,
@@ -20,6 +22,8 @@ BRIEF_BUDGET = {
     "uklegal": 10,
     "justicelibre": 10,
     "opencaselaw": 10,
+    "fedregs": 10,
+    "lex": 10,
 }
 FULL_BUDGET = {
     "ldh": 10,
@@ -28,6 +32,8 @@ FULL_BUDGET = {
     "uklegal": 40,
     "justicelibre": 40,
     "opencaselaw": 40,
+    "fedregs": 40,
+    "lex": 40,
 }
 
 # Literal transcription of the ТЗ §2.3 table.

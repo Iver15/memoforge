@@ -22,6 +22,8 @@ MODES: dict[str, dict] = {
             "uklegal": 10,
             "justicelibre": 10,
             "opencaselaw": 10,
+            "fedregs": 10,
+            "lex": 10,
         },
     },
     "full": {
@@ -42,6 +44,8 @@ MODES: dict[str, dict] = {
             "uklegal": 40,
             "justicelibre": 40,
             "opencaselaw": 40,
+            "fedregs": 40,
+            "lex": 40,
         },
     },
 }

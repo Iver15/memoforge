@@ -21,7 +21,7 @@ First action (Bash, before any other tool call):
 - follow-up prompts from an earlier pass: none
 - your earlier findings for this layer: none - first pass of this layer
 - research gaps to close in this pass (from the sufficiency review): none
-- your share of the run MCP budget: `courtlistener 13, justicelibre 13, ldh 3, legalviz 13, opencaselaw 13, uklegal 13` calls
+- your share of the run MCP budget: `courtlistener 13, fedregs 13, justicelibre 13, ldh 3, legalviz 13, lex 13, opencaselaw 13, uklegal 13` calls
 - previous attempt errors to fix: none
 
 A jurisdiction that appears in the tool order without a preferred domain is off-table: no route is
@@ -29,7 +29,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot case_law --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw> --detail <tool>`
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot case_law --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
 
 ## Register before you cite
 

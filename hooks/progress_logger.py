@@ -46,8 +46,17 @@ MCP_ALIAS_SPELLINGS: tuple[tuple[str, str], ...] = (
     ("justicelibre", "justicelibre"),
     ("opencaselaw", "opencaselaw"),
     ("swisscaselaw", "opencaselaw"),
+    # D-160: the manifest name in Claude Code, the `serverInfo.name` in Cowork.
+    ("federalregulationsmcpserver", "fedregs"),
+    ("federalregulations", "fedregs"),
+    ("fedregs", "fedregs"),
+    # D-161: the manifest name in Claude Code, `Lex API` in Cowork. Last on purpose: `eurlex` and
+    # `legalviz` above must win before the bare spelling is tried.
+    ("pluginmemoforgelex", "lex"),
+    ("lexapi", "lex"),
+    ("lex", "lex"),
 )
-"""How a host spells one of the six bundled legal servers -> its `routing.MCP_SERVERS` alias.
+"""How a host spells one of the bundled legal servers -> its `routing.MCP_SERVERS` alias.
 
 The `PostToolUse` matcher is `^mcp__`, so every MCP server of the session reaches this hook and the
 filter lives here: a call to anything else is not accounted for. The alias is the same value the
@@ -129,7 +138,7 @@ def build_subagent(payload: dict) -> dict | None:
 
 
 def build_mcp(payload: dict) -> dict | None:
-    """PostToolUse on any MCP tool: account for the four legal servers under their routing alias.
+    """PostToolUse on any MCP tool: account for the bundled legal servers under their routing alias.
 
     `server` carries the alias, not the host namespace — anything else and `progress.mcp_calls`
     could never be compared with `config.mcp_budget`. A call to any other MCP server writes nothing.

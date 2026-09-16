@@ -14,6 +14,7 @@ import time
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
@@ -1318,6 +1319,7 @@ class LivenessContractTest(SourcesTestCase):
         self.assertEqual("application/xhtml+xml", headers["Accept"])
         self.assertEqual("eng", headers["Accept-Language"])
         self.assertEqual(sources.LIVENESS_USER_AGENT, headers["User-Agent"])
+        self.assertEqual("gzip", headers["Accept-Encoding"])
 
     def test_only_the_cellar_resource_path_gets_the_cellar_contract(self):
         """`Accept: application/xhtml+xml` is a 404 on most of the web — it is not a default."""
@@ -1330,6 +1332,7 @@ class LivenessContractTest(SourcesTestCase):
                 headers = sources.probe_headers(url)
                 self.assertEqual(sources.DEFAULT_ACCEPT, headers["Accept"])
                 self.assertNotIn("Accept-Language", headers)
+                self.assertEqual("gzip", headers["Accept-Encoding"])
 
     # --- 3. challenges and interstitials ------------------------------------
 
@@ -1651,6 +1654,202 @@ class FetchTest(SourcesTestCase):
         self.assertEqual("application/xml", headers["accept"], "BOE answers XML only when asked")
         self.assertEqual("spa", headers["accept-language"])
         self.assertEqual(sources.LIVENESS_USER_AGENT, headers["user-agent"])
+
+    # --- gzip (D-162) ---------------------------------------------------------
+
+    def test_fetch_asks_for_gzip_and_decompresses_a_gzip_answer(self):
+        # D-162: the eCFR API answers 406 to a request that does not allow compression.
+        import gzip
+
+        body = gzip.compress(b"<DIV8 N=\"312.3\">verifiable parental consent</DIV8>")
+        seen = {}
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/xml", "Content-Encoding": "gzip"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(url, method, timeout, headers=None, **kwargs):
+            seen["headers"] = dict(headers or {})
+            return Response()
+
+        with mock.patch("memoforge.sources._open", fake_open):
+            answer = sources.fetch_body(
+                "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+            )
+        self.assertEqual("gzip", seen["headers"].get("Accept-Encoding"))
+        self.assertEqual("ok", answer["status"])
+        self.assertIn(b"verifiable parental consent", answer["payload"])
+
+    def test_a_plain_answer_is_left_alone(self):
+        # no Content-Encoding → bytes pass through unchanged (every existing fixture stays valid)
+        body = b"<html>x</html>"
+        seen = {}
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/html"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return "https://www.ecfr.gov/current/title-16/part-312/section-312.3"
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(url, method, timeout, headers=None, **kwargs):
+            seen["headers"] = dict(headers or {})
+            return Response()
+
+        with mock.patch("memoforge.sources._open", fake_open):
+            answer = sources.fetch_body("https://www.ecfr.gov/current/title-16/part-312/section-312.3")
+        self.assertEqual("gzip", seen["headers"].get("Accept-Encoding"))
+        self.assertEqual(b"<html>x</html>", answer["payload"])
+
+    def test_a_corrupt_gzip_answer_passes_through_unchanged(self):
+        # D-162: a gzip member with a valid header but corrupt DEFLATE data must survive as
+        # bytes — `zlib.error` is not an `OSError`, so it needs its own except arm.
+        import gzip
+
+        good = gzip.compress(b"x" * 64)
+        body = good[:15] + bytes([good[15] ^ 0xFF]) + good[16:]
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/xml", "Content-Encoding": "gzip"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(url, method, timeout, headers=None, **kwargs):
+            return Response()
+
+        with mock.patch("memoforge.sources._open", fake_open):
+            answer = sources.fetch_body(
+                "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+            )
+        self.assertEqual(body, answer["payload"])
+
+    def test_a_fetched_gzip_document_verifies_by_liveness(self):
+        # D-162 (final Astra review): fetch negotiates gzip, so liveness must too — otherwise
+        # the eCFR API answers its HEAD/GET with 406 and a fetched source reads `dead`.
+        import gzip
+
+        document = b"<DIV8 N=\"312.3\">verifiable parental consent</DIV8>" * 40
+        body = gzip.compress(document)
+        seen = []
+        url = "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/xml", "Content-Encoding": "gzip"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return url
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(request_url, method, timeout, headers=None, **kwargs):
+            # the real `_open` fills in `probe_headers(url)` when none are passed (as
+            # `probe_url` calls it); the fake mirrors that default, then plays the eCFR API.
+            sent = dict(headers or sources.probe_headers(request_url))
+            seen.append((method, sent))
+            if sent.get("Accept-Encoding") != "gzip":
+                raise urllib.error.HTTPError(request_url, 406, "Not Acceptable", {}, None)
+            return Response()
+
+        with mock.patch("memoforge.sources._open", fake_open):
+            fetched = sources.fetch_body(url)
+            probe = sources.probe_url(url, want_body=True)
+        self.assertEqual("ok", probe["status"])
+        self.assertEqual(fetched["payload"], document)
+        self.assertEqual(probe["sha256"], state_io.sha256_bytes(fetched["payload"]))
+        # one GET of `fetch_body`, then the HEAD + GET of `probe_url`
+        self.assertEqual(["GET", "HEAD", "GET"], [method for method, _ in seen])
+        for _, sent in seen:
+            self.assertEqual("gzip", sent.get("Accept-Encoding"))
+
+    def test_an_oversized_gzip_document_hashes_the_same_prefix_on_both_sides(self):
+        # D-162 (re-review): compressed bytes fit under the cap but inflate beyond it — fetch
+        # keeps the capped prefix, so liveness must hash that same prefix, not the whole body.
+        import gzip
+
+        body = gzip.compress(b"a" * 2200)
+        url = "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-16.xml"
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "text/xml", "Content-Encoding": "gzip"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return url
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(request_url, method, timeout, headers=None, **kwargs):
+            return Response()
+
+        with mock.patch.object(limits, "LIVENESS_MAX_BODY_BYTES", 1024):
+            with mock.patch("memoforge.sources._open", fake_open):
+                fetched = sources.fetch_body(url)
+                probe = sources.probe_url(url, want_body=True)
+        self.assertTrue(fetched["truncated"])
+        self.assertEqual("ok", probe["status"])
+        self.assertEqual(probe["sha256"], state_io.sha256_bytes(fetched["payload"]))
 
     # --- limits and refusals -------------------------------------------------
 

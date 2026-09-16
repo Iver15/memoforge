@@ -22,7 +22,13 @@ UPDATE = os.environ.get("MF_UPDATE_GOLDEN") == "1"
 
 TASK_ID = "memo-20260908T120000Z-prompt-golden"
 
-PROBED_NAMESPACES = {"ldh": "mcp__ldh", "courtlistener": "mcp__courtlistener", "other": []}
+PROBED_NAMESPACES = {
+    "ldh": "mcp__ldh",
+    "courtlistener": "mcp__courtlistener",
+    "fedregs": "mcp__plugin_memoforge_federal-regulations",
+    "lex": "mcp__plugin_memoforge_lex",
+    "other": [],
+}
 """D-110: what the fixture `intake/mcp-probe.json` of `mcp_namespaces` above would have found."""
 
 
@@ -53,7 +59,7 @@ def _specs(work_dir: Path, state: dict) -> list[dict]:
             "intake",
             [("intake/questions.json", "intake-questions"), ("intake/preliminary-sources.json", "research-findings")],
             max_questions=str(config["intake_max_questions"]),
-            mcp_namespaces="ldh, courtlistener",
+            mcp_namespaces="ldh, courtlistener, fedregs, lex",
             routing_digest=routing.routing_digest(PROBED_NAMESPACES),
             mcp_budget_share=dispatch.mcp_budget_share(config, ["intake"]),
             retry_errors="none",
@@ -466,9 +472,11 @@ class DescriptionTest(unittest.TestCase):
     def test_mcp_budget_share_is_divided_between_the_researchers(self):
         # D-106: every bundled server of the run budget reaches the researcher's share line.
         # D-148: six servers now, and `ldh` 10 // 3 = 3.
+        # D-160: `fedregs` (US federal regulations) is the seventh.
+        # D-161: `lex` (UK legislation by i.AI) is the eighth.
         config = modes.resolve_config("full")
         self.assertEqual(
-            "courtlistener 13, justicelibre 13, ldh 3, legalviz 13, opencaselaw 13, uklegal 13",
+            "courtlistener 13, fedregs 13, justicelibre 13, ldh 3, legalviz 13, lex 13, opencaselaw 13, uklegal 13",
             dispatch.mcp_budget_share(config, ["a", "b", "c"]),
         )
 
