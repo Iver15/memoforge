@@ -25,6 +25,7 @@ a corrupt `state.json`.
 | `gate_defaults_applied` | any | After `attempts.gate_parse_errors` is exhausted apply the documented defaults; never set `assumptions_accepted=true` (§2.4 c). | `gate_defaults` |
 | `plan_forced_approve` | `plan_approval_pending` | After `attempts.plan_edit` is exhausted force-approve the last submitted plan version (§2.2). | `plan_forced_approve` |
 | `writer_failed` | `drafting` | Re-dispatch once (`single_dispatch_retry`); on a second failure finalize as `failed` with whatever was salvaged (§2.1 row 12). | `drafting_incomplete` |
+| `revision_writer_failed` | `revision_loop` | The writer returned the pre-seeded draft unchanged on both attempts: the copy is not a new version. Leave the loop on the last reviewed version under manual review, with its open blockers recorded (D-153). | `revision_incomplete` |
 | `lint_not_converged` | `drafting` | After `config.lint_fix_rounds` go to `revision_loop` with `lint.json` and `citations.json` as reviewer input (§2.1 row 12). | `lint_not_converged` |
 | `reviewer_json_invalid` | `revision_loop` | Retry once (`reviewer_json_retry`), then substitute a stub review and continue. | `reviewer_output_malformed` |
 | `mediator_failed` | `revision_loop` | Exit the loop at the last validated draft version. | `mediator_unavailable` |
@@ -60,6 +61,7 @@ a corrupt `state.json`.
 - **`gate_defaults`** — Some answers were not recognised; documented defaults were applied and assumptions were not accepted.
 - **`plan_forced_approve`** — Plan edit budget exhausted; the last submitted plan version was approved automatically.
 - **`drafting_incomplete`** — Drafting incomplete — partial draft delivered; manual completion required.
+- **`revision_incomplete`** — Revision incomplete — the writer could not produce a changed draft; the last reviewed version is delivered for manual review with its open blockers listed.
 - **`lint_not_converged`** — Automated checks did not converge; the remaining findings are attached for review.
 - **`reviewer_output_malformed`** — Revision loop forced exit at iteration {iteration} — {count} reviewer output(s) malformed; latest draft delivered.
 - **`mediator_unavailable`** — Mediation unavailable; exited at the last validated draft v{version}.

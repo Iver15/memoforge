@@ -12,6 +12,7 @@ import contextlib
 import inspect
 import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -598,6 +599,129 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
 
         second = finalize.run_finalize(finalize_args(work_dir, step=None))
         self.assertEqual(second["deliverable_kind"], "docx", "the copy is not part of the memo")
+
+    def test_a_failed_republish_keeps_the_previous_publication(self):
+        # A43-5 / D-157: the old copy is replaced only once the new one exists in full.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        target = Path(first["published_to"])
+        before = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertTrue(before, "the first publish wrote files")
+        md_target = target / finalize.DELIVERABLE_MD
+        docx_target = target / finalize.DELIVERABLE_DOCX
+        deliverable_bytes = md_target.read_bytes() if md_target.is_file() else docx_target.read_bytes()
+
+        with mock.patch("memoforge.finalize.shutil.copyfile", side_effect=OSError("disk full")):
+            second = finalize.run_finalize(finalize_args(work_dir, step=None))
+
+        self.assertIsNone(second["published_to"])
+        after = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertEqual(before, after, "the previous publication survived the failed copy")
+        kept = md_target if md_target.is_file() else docx_target
+        self.assertEqual(deliverable_bytes, kept.read_bytes())
+        leftover = [p for p in target.parent.iterdir() if p.name.endswith(".publishing")]
+        self.assertEqual([], leftover, "no staging left behind")
+
+    def test_a_replacement_that_fails_half_way_restores_the_previous_publication(self):
+        """A43-5 / D-158: staging succeeded, so the failure is in the swap — it has to roll back.
+
+        A `deliverable.docx` open in Word, an antivirus holding the file, a volume that turned
+        read-only: the replacement raises after the first item already landed in the folder.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        target = Path(first["published_to"])
+        before = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertTrue(before, "the first publish wrote files")
+        deliverable = target / finalize.DELIVERABLE_MD
+        kept_bytes = deliverable.read_bytes()
+        run_state = target / finalize.PUBLISH_RUN_DIRNAME / state_io.STATE_FILENAME
+        kept_run_bytes = run_state.read_bytes()
+
+        # The second run has something new to say, so a half-replaced folder would be visible.
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nA later revision.\n", encoding="utf-8")
+        real_replace = os.replace
+        landed: list[str] = []
+        broken: list[str] = []
+
+        def replace_but_break_the_second_item(src, dst, *args, **kwargs):
+            # Staging and the move-aside run for real; only the replacements into `target` count,
+            # and the second of them is the one the lock catches.
+            if not broken and Path(dst).parent == target:
+                if landed:
+                    broken.append(str(dst))
+                    raise PermissionError("the deliverable is open in another program")
+                landed.append(str(dst))
+            return real_replace(src, dst, *args, **kwargs)
+
+        with mock.patch("memoforge.finalize.os.replace", replace_but_break_the_second_item):
+            second = finalize.run_finalize(finalize_args(work_dir, step=None))
+
+        self.assertEqual(1, len(landed), "the first item of the new set has to land before the failure")
+        self.assertTrue(broken, "the failure has to happen during the replacement, not before it")
+        self.assertIsNone(second["published_to"])
+        banners = [row["banner_id"] for row in second["banners"]]
+        self.assertIn("publish_failed", banners)
+        self.assertIn("PermissionError", " ".join(row["text"] for row in second["banners"]))
+        after = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertEqual(before, after, "the previous publication came back in full")
+        self.assertEqual(kept_bytes, deliverable.read_bytes(), "and it is yesterday's deliverable")
+        self.assertEqual(kept_run_bytes, run_state.read_bytes(), "the item that had landed was undone")
+        leftover = sorted(p.name for p in target.parent.iterdir() if p.name != target.name)
+        self.assertEqual([], leftover, "neither the staging nor the aside copy is left behind")
+
+    def test_a_move_aside_that_fails_half_way_leaves_the_untouched_files_alone(self):
+        """A43-5 / D-158: the swap fails *while* the old set is being moved aside.
+
+        The items that were never moved are still standing at their own paths, so the rollback has
+        to undo what it did and nothing else — deleting by name would destroy them.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        target = Path(first["published_to"])
+        before = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertTrue(before, "the first publish wrote files")
+        kept_bytes = {name: (target / name).read_bytes() for name in before}
+        aside_dir = target.parent / f"{target.name}.previous"
+
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nA later revision.\n", encoding="utf-8")
+        real_replace = os.replace
+        moved: list[str] = []
+        broken: list[str] = []
+
+        def replace_but_break_the_second_move_aside(src, dst, *args, **kwargs):
+            # Only the moves into `<slug>.previous` count; the second one is the locked item, so
+            # `summary.md`, `sources/` and `_run/` never leave the folder at all.
+            if not broken and Path(dst).parent == aside_dir:
+                if moved:
+                    broken.append(str(src))
+                    raise PermissionError("the folder is held by another program")
+                moved.append(str(src))
+            return real_replace(src, dst, *args, **kwargs)
+
+        with mock.patch("memoforge.finalize.os.replace", replace_but_break_the_second_move_aside):
+            second = finalize.run_finalize(finalize_args(work_dir, step=None))
+
+        self.assertEqual(1, len(moved), "one old item has to be moved aside before the failure")
+        self.assertTrue(broken, "the failure has to happen during the move-aside, not after it")
+        self.assertIsNone(second["published_to"])
+        self.assertIn("publish_failed", [row["banner_id"] for row in second["banners"]])
+        self.assertIn("PermissionError", " ".join(row["text"] for row in second["banners"]))
+        after = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+        self.assertEqual(before, after, "every file of the previous publication is still there")
+        self.assertEqual(
+            kept_bytes,
+            {name: (target / name).read_bytes() for name in after},
+            "and every one of them is still yesterday's bytes",
+        )
+        leftover = sorted(p.name for p in target.parent.iterdir() if p.name != target.name)
+        self.assertEqual([], leftover, "neither the staging nor the aside copy is left behind")
 
     def test_a_failed_publish_clears_the_path_the_previous_run_left(self):
         """D-111: `published_to` describes this finalize, so the terminal text stops naming a folder."""

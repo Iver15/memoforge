@@ -568,24 +568,70 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
         if root is None:
             return result
         target = root / PUBLISH_DIRNAME / slug_of(state, work_dir)
-        clear_publication(target)
-        sources_dir = target / PUBLISH_SOURCES_DIRNAME
-        sources_dir.mkdir(parents=True, exist_ok=True)
-        for name in (deliverable, summary):
-            origin = work_dir / name
-            if origin.is_file():
-                shutil.copyfile(origin, target / name)
-                result["files"].append(name)
-        state_io.write_bytes_atomic(
-            sources_dir / SOURCE_PACK_MD, source_pack_markdown(work_dir).encode("utf-8")
-        )
-        result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{SOURCE_PACK_MD}")
-        for source_id, text in published_source_texts(work_dir):
-            state_io.write_bytes_atomic(sources_dir / f"{source_id}.txt", text.encode("utf-8"))
-            result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{source_id}.txt")
-        # D-113: `_run/` travels with the result — the state as it stood before the terminal write,
-        # the journal, the plan, the intake facts, the sufficiency verdict and the reviews.
-        result["files"].extend(copy_run_diagnostics(work_dir, target))
+        # A43-5 / D-157: build the new publication next to the old one; the old set is cleared only
+        # once every file of the new one exists, so a failed copy leaves yesterday's result in place.
+        staging = target.parent / f"{target.name}.publishing"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staged_sources = staging / PUBLISH_SOURCES_DIRNAME
+        staged_sources.mkdir(parents=True, exist_ok=True)
+        try:
+            for name in (deliverable, summary):
+                origin = work_dir / name
+                if origin.is_file():
+                    shutil.copyfile(origin, staging / name)
+                    result["files"].append(name)
+            state_io.write_bytes_atomic(
+                staged_sources / SOURCE_PACK_MD, source_pack_markdown(work_dir).encode("utf-8")
+            )
+            result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{SOURCE_PACK_MD}")
+            for source_id, text in published_source_texts(work_dir):
+                state_io.write_bytes_atomic(staged_sources / f"{source_id}.txt", text.encode("utf-8"))
+                result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{source_id}.txt")
+            # D-113: `_run/` travels with the result — the state as it stood before the terminal write,
+            # the journal, the plan, the intake facts, the sufficiency verdict and the reviews.
+            result["files"].extend(copy_run_diagnostics(work_dir, staging))
+            # D-158: the old set is renamed aside, never deleted, so a replacement that fails half
+            # way — a docx open in Word, a read-only volume — is undone instead of leaving a
+            # mixture of two runs. `<slug>.previous` is a rename on the same volume, like staging.
+            previous = target.parent / f"{target.name}.previous"
+            shutil.rmtree(previous, ignore_errors=True)
+            target.mkdir(parents=True, exist_ok=True)
+            owned = [target / name for name in PUBLICATION_FILES] + [
+                target / PUBLISH_SOURCES_DIRNAME,
+                target / PUBLISH_RUN_DIRNAME,
+            ]
+            moved: list[tuple[Path, Path]] = []
+            landed: list[Path] = []
+            try:
+                for path in owned:
+                    if path.exists():
+                        previous.mkdir(parents=True, exist_ok=True)
+                        aside = previous / path.name
+                        os.replace(path, aside)
+                        moved.append((aside, path))
+                for item in sorted(staging.iterdir()):
+                    destination = target / item.name
+                    os.replace(item, destination)
+                    landed.append(destination)
+            except Exception:
+                # Undo exactly what the swap did, by the two lists that record it and by nothing
+                # else: the new items that landed go away, then the old ones are renamed back. A
+                # path in neither list is an old file the swap never reached — when the failure is
+                # in the move-aside loop it is still standing there, and deleting it by name (it
+                # shares the name of a staged item) is precisely what must not happen.
+                for destination in landed:
+                    if destination.is_dir():
+                        shutil.rmtree(destination, ignore_errors=True)
+                    elif destination.is_file():
+                        destination.unlink()
+                for aside, original in reversed(moved):
+                    os.replace(aside, original)
+                raise
+            finally:
+                shutil.rmtree(previous, ignore_errors=True)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
         result["published_to"] = str(target)
     except Exception as exc:  # noqa: BLE001 - M9: nothing here may stop a delivered run (D-111)
         result["published_to"] = None

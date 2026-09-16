@@ -375,6 +375,114 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual("fail", row["agents"][0]["status"])
         self.assertIsNone(row["status"])
 
+    def test_a_writer_that_never_changes_the_draft_ends_the_loop_under_manual_review(self):
+        # A43-1 / D-153: two identical returns spend the retry; the seed is not a new version.
+        driver = Driver(temp_root(self), slug="writer-stuck")
+        reviewers = driver.run_until("revision_loop")
+        self._act_reviewers_with_blocker(driver, reviewers)
+        writer = None
+        for _ in range(6):
+            action = driver.next()
+            if action["kind"] == "dispatch" and action["agents"][0]["subagent_type"].endswith("memo-writer"):
+                writer = action
+                break
+            driver.act(action)
+        self.assertIsNotNone(writer)
+        slot = writer["agents"][0]["slot"]
+
+        def return_seed_untouched(step_id: str, attempt: int) -> dict:
+            machine.run_agent_log(
+                namespace(
+                    workdir=str(driver.work_dir), step=step_id, attempt=attempt, slot=slot,
+                    state="done", detail=None, mcp=None,
+                )
+            )
+            return driver.report(step_id, attempt, agent=slot)
+
+        first = return_seed_untouched(writer["step_id"], writer["attempt"])
+        self.assertIn("writer_output_identical_to_seed", first["errors"])
+        retry = driver.next()  # reason: failure, attempt 2 of the same step
+        self.assertEqual(writer["step_id"], retry["step_id"])
+        self.assertEqual(writer["attempt"] + 1, retry["attempt"])
+        second = return_seed_untouched(retry["step_id"], retry["attempt"])
+        self.assertIn("writer_output_identical_to_seed", second["errors"])
+
+        following = driver.next()
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"], following)
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("writer_failed", state["final_status_reasons"])
+        self.assertEqual("drafts/v1.md", state["current_draft_path"])
+        self.assertEqual(1, state["current_iteration"])
+        self.assertTrue(state["remaining_blocking_issues"], "the reviewers' open blockers travel to the deliverable")
+        self.assertIn("revision_incomplete", [row["banner_id"] for row in state["fallback_banners"]])
+        # No reviewer was dispatched on the unchanged bytes.
+        reviewer_steps = [
+            row for row in state["steps"]
+            if row.get("kind") == "dispatch" and row.get("phase") == "revision_loop"
+            # `steps[].agents[]` keeps the bare `agent_type`; `subagent_type` is only in the action.
+            and any(a["agent_type"].endswith("-reviewer") for a in row.get("agents") or [])
+        ]
+        self.assertEqual(1, len({row["step_id"] for row in reviewer_steps}), "only the iteration-1 reviewers ran")
+
+    def test_a_stuck_writer_on_an_unclean_v1_is_exported_and_delivered_as_v1(self):
+        # D-158: with no checked version left, `export_draft_sha` falls back to the last one — so the
+        # seed the revision rejected has to leave `draft_versions[]`, or the memo is delivered as v2.
+        driver = Driver(temp_root(self), slug="writer-stuck-unclean")
+        reviewers = driver.run_until("revision_loop")
+        self._act_reviewers_with_blocker(driver, reviewers)
+        self._spend_the_writer_on_the_seed(driver)
+        # v1 still carries a mechanical blocker after its fix budget: both deterministic reports
+        # drifted from `published[]`, so D-68 leaves `lint_clean`/`citations_clean` false everywhere.
+        for name in ("lint.json", "citations.json"):
+            report = state_io.read_json(driver.work_dir / name)
+            report["tampered"] = True
+            state_io.write_json_atomic(driver.work_dir / name, report)
+
+        driver.next()  # the writer step closes `fail` and the loop exits to `export`
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"])
+        self.assertEqual(
+            [1],
+            [int(row["version"]) for row in state["draft_versions"]],
+            "the rejected seed is not a version the export may select",
+        )
+        self.assertFalse(
+            any(row["lint_clean"] and row["citations_clean"] for row in state["draft_versions"]),
+            "the scenario is `no_checked_draft`: nothing vouches for v1 either",
+        )
+
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("writer_failed", state["final_status_reasons"])
+        self.assertIn("no_checked_draft", state["final_status_reasons"])
+        self.assertEqual(1, state["current_iteration"])
+        delivered = [
+            name for name in ("deliverable.docx", "deliverable.md") if (driver.work_dir / name).is_file()
+        ]
+        self.assertTrue(delivered, "M9: the run still delivers")
+
+    def _spend_the_writer_on_the_seed(self, driver: Driver) -> None:
+        """Both writer attempts return `drafts/v2.md` exactly as `revision next` seeded it (D-153)."""
+        writer = None
+        for _ in range(6):
+            action = driver.next()
+            if action["kind"] == "dispatch" and action["agents"][0]["subagent_type"].endswith("memo-writer"):
+                writer = action
+                break
+            driver.act(action)
+        self.assertIsNotNone(writer, "the revision loop never dispatched the writer")
+        slot = writer["agents"][0]["slot"]
+        step = {"step_id": writer["step_id"], "attempt": writer["attempt"]}
+        for index in range(2):
+            _agent_done(driver, step, slot)
+            answer = driver.report(step["step_id"], step["attempt"], agent=slot)
+            self.assertIn("writer_output_identical_to_seed", answer["errors"])
+            if index == 0:
+                retry = driver.next()  # reason: failure, attempt 2 of the same step
+                step = {"step_id": retry["step_id"], "attempt": retry["attempt"]}
+
     @staticmethod
     def _act_reviewers_with_blocker(driver: Driver, action: dict) -> None:
         """Every reviewer approves except `logic`, which raises a grounded hard-fail blocker."""

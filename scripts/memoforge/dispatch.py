@@ -221,6 +221,8 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     # D-147: filled in from `intake/preflight.json`; without one, nothing was measured.
     "source_access": "not checked",
     "followup_prompts": "none",
+    "followup_gaps": "none",  # D-154: filled only on a sufficiency re-dispatch
+    "previous_findings": "none - first pass of this layer",
     "retry_errors": "none",
     "max_questions": "10",
     "research_files": "`research/`",

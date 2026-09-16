@@ -126,6 +126,61 @@ class UnresolvedTest(unittest.TestCase):
         self.assertEqual(rendered["banners"], [])
 
 
+class UnverifiedRowsNoteTest(unittest.TestCase):
+    def test_appendix_names_a_packed_source_without_saved_text(self):
+        # A43-4 / D-156: the reader learns which citations could not be checked against the source.
+        book = fallback.SourceIndex(
+            sources={
+                "s-nosave": {
+                    "source_id": "s-nosave",
+                    "tier": "supporting",
+                    "title": "T",
+                    "citation_form": "T 2024",
+                    "url": "https://example.org/t",
+                    "layer": "statutes",
+                    "raw_sha256": None,
+                }
+            },
+            entries={
+                "s-nosave": {"source_id": "s-nosave", "tier": "supporting", "citation_form": "T 2024"}
+            },
+            snapshot_hashes={"s-nosave": None},
+        )
+        rows = book.unverified_rows()
+        self.assertEqual(["s-nosave"], [row["source_id"] for row in rows])
+        self.assertIn("no saved source text", " ".join(rows[0]["notes"]))
+
+    @staticmethod
+    def _packed(source_id: str, *, registry_sha, snapshot_sha) -> fallback.SourceIndex:
+        """One `supporting` source in the pack, with the registry and the snapshot disagreeing."""
+        return fallback.SourceIndex(
+            sources={
+                source_id: {
+                    "source_id": source_id,
+                    "tier": "supporting",
+                    "title": "T",
+                    "citation_form": "T 2024",
+                    "url": "https://example.org/t",
+                    "layer": "statutes",
+                    "raw_sha256": registry_sha,
+                }
+            },
+            entries={source_id: {"source_id": source_id, "tier": "supporting", "citation_form": "T 2024"}},
+            snapshot_hashes={source_id: snapshot_sha},
+        )
+
+    def test_a_raw_file_lost_before_the_freeze_is_named_although_the_registry_kept_its_hash(self):
+        # D-158: the raw file disappeared before `build_pack`, so the snapshot row is null while the
+        # registry still carries yesterday's hash. C-08 reads the snapshot — the appendix must too.
+        rows = self._packed("s-lost", registry_sha="a" * 64, snapshot_sha=None).unverified_rows()
+        self.assertEqual(["s-lost"], [row["source_id"] for row in rows])
+        self.assertIn("no saved source text", " ".join(rows[0]["notes"]))
+
+    def test_a_source_the_freeze_saved_is_not_named(self):
+        # The mirror image: the snapshot holds the text, so there is nothing to disclose.
+        self.assertEqual([], self._packed("s-kept", registry_sha=None, snapshot_sha="b" * 64).unverified_rows())
+
+
 class SourcesSectionTest(unittest.TestCase):
     def test_sources_section_lists_every_footnote(self):
         rendered = fallback.render("[[src:gdpr-art6]] and [[src:case-c-311-18]]", index())

@@ -16,8 +16,9 @@ First action (Bash, before any other tool call):
 - checklist (grade every id, no additions, no omissions): `{CHECKLISTS}\citations.json`
 - deterministic findings attached to this draft (empty: none attached): 
 - frozen source pack: `{WORK_DIR}/research/source-pack.json`
-- deterministic citation audit already run for you: `{WORK_DIR}/citations.json`
-- claim-to-authority pairs: `citations.json` lists every token and its source
+- deterministic citation audit already run for you (mechanical checks only — existence, verbatim text, freeze, pinpoints): `{WORK_DIR}/citations.json`
+- research findings, one file per layer — the record each claim is graded against: `research/statutes.json`, `research/case_law.json`, `research/doctrine.json`
+- claim-to-authority pairs: pair every `[[src:<id>]]` claim of the draft with the finding in the research files whose `source_id` matches — its `proposition` and `pinpoint` are the record the draft must not go beyond
 - previous attempt errors to fix: none
 
 `approved` is a normal outcome and means zero blockers. Grade `unknown` only when the draft

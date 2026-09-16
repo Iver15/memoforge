@@ -711,6 +711,54 @@ class RetrySpecTest(unittest.TestCase):
         )
         self.assertEqual(expected, retried[0]["prompt"])
 
+    def test_followup_researcher_is_told_the_gap_and_its_earlier_findings(self):
+        # A43-2 / D-154
+        work_dir, state = self._work_dir()
+        (work_dir / "research").mkdir(exist_ok=True)
+        (work_dir / "research" / "case_law.json").write_text('{"layer": "case_law", "issues": []}', encoding="utf-8")
+        state["sufficiency_followup"] = {
+            "status": "research_subset",
+            "approved_layers": ["case_law"],
+            "user_response": None,
+            "subset_r": [
+                {"gap": "No CJEU authority on joint controllership for the chat feature", "target": "case_law",
+                 "status": "missing", "why_blocking": "Issue 2 rests on it."},
+                {"gap": "German DPA guidance thin", "target": "doctrine", "status": "weak"},
+            ],
+        }
+        specs = machine.researcher_specs(work_dir, state, ["case_law"])
+        extra = specs[0]["extra"]
+        self.assertIn("No CJEU authority on joint controllership", extra["followup_gaps"])
+        self.assertIn("Issue 2 rests on it.", extra["followup_gaps"])
+        self.assertNotIn("German DPA", extra["followup_gaps"], "weak gaps and other layers stay out")
+        self.assertIn("research/case_law.json", extra["previous_findings"])
+        self.assertEqual("none", extra["followup_prompts"])
+        rendered = dispatch.render_agents(
+            work_dir, state, step_id="s-090", attempt=1, specs=specs, position=5, total=13
+        )
+        self.assertIn("No CJEU authority on joint controllership", rendered[0]["prompt"])
+        self.assertIn("research/case_law.json", rendered[0]["prompt"])
+
+    def test_first_pass_researcher_has_no_gaps_and_no_earlier_findings(self):
+        work_dir, state = self._work_dir()
+        specs = machine.researcher_specs(work_dir, state, ["statutes"])
+        self.assertEqual("none", specs[0]["extra"]["followup_gaps"])
+        self.assertEqual("none - first pass of this layer", specs[0]["extra"]["previous_findings"])
+
+    def test_citation_auditor_is_given_the_research_files(self):
+        # A43-3 / D-155
+        work_dir, state = self._work_dir()
+        state["dispatched_researchers"] = ["statutes", "case_law"]
+        state["current_draft_path"] = "drafts/v1.md"
+        specs = machine.reviewer_specs(work_dir, state, ["citations"], 1)
+        rendered = dispatch.render_agents(
+            work_dir, state, step_id="s-091", attempt=1, specs=specs, position=8, total=13
+        )
+        prompt = rendered[0]["prompt"]
+        self.assertIn("`research/statutes.json`, `research/case_law.json`", prompt)
+        self.assertNotIn("lists every token and its source", prompt)
+        self.assertIn("proposition", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

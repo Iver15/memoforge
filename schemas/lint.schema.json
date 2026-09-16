@@ -25,7 +25,7 @@
       "additionalProperties": false,
       "properties": {
         "rule": {
-          "description": "L-01..L-15 for lint, C-01..C-07 for the citation audit.",
+          "description": "L-01..L-15 for lint, C-01..C-08 for the citation audit.",
           "type": "string",
           "pattern": "^[LC]-[0-9]{2}$"
         },

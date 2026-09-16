@@ -18,6 +18,7 @@ SEVERITY: dict[str, str] = {
     "C-05": "blocker",
     "C-06": "major",
     "C-07": "major",
+    "C-08": "major",
 }
 
 BRIEF_MODE = "brief"
@@ -36,6 +37,9 @@ BARE_PINPOINT = re.compile(r"^\d+[\w().,\-/ ]*$")
 RISK_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?Risk:", re.IGNORECASE)
 
 MANUAL_CHECK_STATUSES: tuple[str, ...] = ("manual_check",)
+
+RAW_TEXT_TIERS: tuple[str, ...] = ("critical", "supporting")
+"""Tiers whose text must be saved before they are cited directly (A43-4 / D-156; `background` is exempt)."""
 
 
 def finding(
@@ -132,7 +136,7 @@ def read_frozen_pack(work_dir: str | Path) -> dict | None:
 
 
 def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[dict]:
-    """Apply C-01..C-07 to one draft against the registry, the quote store and the snapshot."""
+    """Apply C-01..C-08 to one draft against the registry, the quote store and the snapshot."""
     document = lint.parse_draft(text)
     run_mode = resolve_mode(work_dir, mode)
     registry = sources.read_registry(work_dir)
@@ -269,7 +273,7 @@ def _check_source(
     *,
     via_quote: bool,
 ) -> list[dict]:
-    """C-01/C-03/C-04/C-05 for one source, whether cited directly or reached through `[[q:]]`."""
+    """C-01/C-03/C-04/C-05/C-08 for one source, whether cited directly or reached through `[[q:]]`."""
     out: list[dict] = []
     record = registry["sources"].get(source_id)
     if record is None:
@@ -294,6 +298,20 @@ def _check_source(
             )
         )
         return out
+
+    if not via_quote and str(record.get("tier") or "") in RAW_TEXT_TIERS and snapshot.get(source_id) is None:
+        # D-156: the freeze kept the source but has no text for it — the claim cannot be checked
+        # against the source. A caveat (major), not a refusal: the memo still ships with the note.
+        out.append(
+            finding(
+                "C-08",
+                token["line"],
+                token["section_id"],
+                token["text"],
+                f"Source {source_id} ({record.get('tier')}) has no saved text in the freeze snapshot; the citation "
+                "cannot be checked against the source and the appendix says so.",
+            )
+        )
 
     entry = entries.get(source_id, {})
     use = (entry.get("pack") or {}).get("use_in_memo")

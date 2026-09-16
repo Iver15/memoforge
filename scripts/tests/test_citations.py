@@ -27,6 +27,16 @@ RAW_ART_6 = (
     "Consent must be freely given, specific, informed and unambiguous.\n"
 )
 
+RAW_ART_7 = (
+    "# Article 7 - Conditions for consent\n"
+    "\n"
+    "1. The controller shall be able to demonstrate that the data subject has consented.\n"
+    "\n"
+    "3. The data subject shall have the right to withdraw his or her consent at any time.\n"
+    "\n"
+    "Withdrawal must be as easy as giving consent.\n"
+)
+
 QUOTE_LINE = "> [[q:q-gdpr-art-6-1]] Consent must be freely given, specific, informed and unambiguous."
 
 
@@ -72,6 +82,8 @@ class CitationsTestCase(unittest.TestCase):
             raw_file=raw,
             source_id="gdpr-art-6",
         )
+        art7 = self.root / "art7.md"
+        art7.write_bytes(RAW_ART_7.encode("utf-8"))
         sources.register_source(
             self.work_dir,
             layer="statutes",
@@ -80,6 +92,7 @@ class CitationsTestCase(unittest.TestCase):
             url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art7",
             tool="mcp__ldh__get_document",
             tier="supporting",
+            raw_file=art7,
             source_id="gdpr-art-7",
         )
         quotes.extract_quote(
@@ -385,16 +398,14 @@ class C05Test(CitationsTestCase):
 class C06Test(CitationsTestCase):
     def test_missing_pinpoint_is_a_major_finding(self):
         self.freeze()
-        text = fixture("classical-clean").replace("[[src:gdpr-art-7 Art. 7(3)]]", "[[src:gdpr-art-7]]")
+        text = "Consent is a lawful basis. [[src:gdpr-art-6]]\n"
         findings = self.only(self.audit(text), "C-06")
         self.assertEqual(1, len(findings))
         self.assertEqual("major", findings[0]["severity"])
 
     def test_malformed_pinpoint_is_a_major_finding(self):
         self.freeze()
-        text = fixture("classical-clean").replace(
-            "[[src:gdpr-art-7 Art. 7(3)]]", "[[src:gdpr-art-7 somewhere near the end]]"
-        )
+        text = "Consent is a lawful basis. [[src:gdpr-art-6 somewhere near the end]]\n"
         self.assertIn("C-06", self.rules(self.audit(text)))
 
     def test_recognised_pinpoint_forms(self):
@@ -460,6 +471,41 @@ class C07Test(CitationsTestCase):
         self.freeze()
         text = self.uncited_rule_source("see gdpr-art-60 instead")
         self.assertIsNone(self.only(self.audit(text), "C-07")[0]["line"])
+
+
+class C08Test(CitationsTestCase):
+    def _drop_saved_text(self) -> None:
+        """Re-register `gdpr-art-7` the way a run without `--raw-file` leaves it (A43-4)."""
+        registry = sources.read_registry(self.work_dir)
+        record = registry["sources"]["gdpr-art-7"]
+        record["raw_path"] = None
+        record["raw_sha256"] = None
+        record["raw_chars"] = 0
+        raw = self.work_dir / "research" / "raw" / "statutes" / "gdpr-art-7.md"
+        if raw.is_file():
+            raw.unlink()
+        with sources.sources_lock(self.work_dir):
+            sources.write_registry(self.work_dir, registry)
+
+    def test_c08_direct_citation_of_a_source_without_saved_text_is_a_major(self):
+        # A43-4 / D-156
+        self._drop_saved_text()
+        self.freeze()
+        findings = citations.audit(fixture("classical-clean"), work_dir=self.work_dir)
+        c08 = [row for row in findings if row["rule"] == "C-08"]
+        self.assertEqual(1, len(c08), findings)
+        self.assertEqual("major", c08[0]["severity"])
+        self.assertIn("gdpr-art-7", c08[0]["hint"])
+        self.assertNotIn("blocker", {row["severity"] for row in findings}, "a caveat, not a refusal (M9)")
+
+    def test_c08_is_silent_for_a_source_with_saved_text_and_for_background(self):
+        sources.register_source(self.work_dir, layer="doctrine", title="Commentary", citation="Commentary 2024",
+                                url="https://example.org/commentary", tool="WebFetch example.org",
+                                tier="background", source_id="commentary-1")
+        self.freeze()
+        text = fixture("classical-clean") + "\nBackground reading [[src:commentary-1 p 2]].\n"
+        findings = citations.audit(text, work_dir=self.work_dir)
+        self.assertEqual([], [row for row in findings if row["rule"] == "C-08"], findings)
 
 
 class MergedSourceTest(CitationsTestCase):

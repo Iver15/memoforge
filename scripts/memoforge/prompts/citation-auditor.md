@@ -16,7 +16,8 @@ First action (Bash, before any other tool call):
 - checklist (grade every id, no additions, no omissions): `${paths_checklist}`
 - deterministic findings attached to this draft (empty: none attached): ${lint_attachment}
 - frozen source pack: `${work_dir}/research/source-pack.json`
-- deterministic citation audit already run for you: `${work_dir}/citations.json`
+- deterministic citation audit already run for you (mechanical checks only — existence, verbatim text, freeze, pinpoints): `${work_dir}/citations.json`
+- research findings, one file per layer — the record each claim is graded against: ${research_files}
 - claim-to-authority pairs: ${claim_pairs}
 - previous attempt errors to fix: ${retry_errors}
 

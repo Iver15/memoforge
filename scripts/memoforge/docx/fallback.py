@@ -306,6 +306,7 @@ class SourceIndex:
         self,
         *,
         snapshot_ids: list[str] | None = None,
+        snapshot_hashes: dict | None = None,
         entries: dict | None = None,
         sources: dict | None = None,
         quotes: dict | None = None,
@@ -314,6 +315,8 @@ class SourceIndex:
         currency_unavailable: bool = False,
     ) -> None:
         self.snapshot_ids = list(snapshot_ids or [])
+        self.snapshot_hashes = dict(snapshot_hashes or {})
+        """D-158: `snapshot[].raw_sha256` of the freeze — the text C-08 checked the citation against."""
         self.entries = dict(entries or {})
         self.sources = dict(sources or {})
         self.quotes = dict(quotes or {})
@@ -332,11 +335,13 @@ class SourceIndex:
         registry = _read_object(research / "sources.json")
         quote_file = _read_object(research / "quotes.json")
 
-        snapshot_ids = [
-            row.get("source_id")
+        snapshot_rows = [
+            row
             for row in (pack.get("snapshot") or [])
             if isinstance(row, dict) and isinstance(row.get("source_id"), str)
         ]
+        snapshot_ids = [row["source_id"] for row in snapshot_rows]
+        snapshot_hashes = {row["source_id"]: row.get("raw_sha256") for row in snapshot_rows}
         entries = {
             row["source_id"]: row
             for row in (pack.get("entries") or [])
@@ -350,6 +355,7 @@ class SourceIndex:
         frozen = pack_path.is_file() or bool((state or {}).get("sources_frozen"))
         return cls(
             snapshot_ids=snapshot_ids,
+            snapshot_hashes=snapshot_hashes,
             entries=entries,
             sources=sources if isinstance(sources, dict) else {},
             quotes=quotes if isinstance(quotes, dict) else {},
@@ -422,6 +428,14 @@ class SourceIndex:
                 self.currency_unavailable and status == "unchecked"
             ):
                 notes.append(f"currency {status}")
+            # D-158: the frozen snapshot decides, exactly as it does for C-08 — the registry may
+            # still carry the hash of a raw file that was gone by the time the freeze ran.
+            if (
+                source_id in self.entries
+                and str(record.get("tier") or "") in ("critical", "supporting")
+                and self.snapshot_hashes.get(source_id) is None
+            ):
+                notes.append("no saved source text — the citation could not be checked against the source")
             liveness = record.get("liveness")
             if isinstance(liveness, dict) and liveness.get("status") in UNVERIFIED_LIVENESS:
                 notes.append(f"link {liveness['status']}")

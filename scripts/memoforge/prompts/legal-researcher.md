@@ -19,6 +19,8 @@ First action (Bash, before any other tool call):
 - tool order and preferred domains: ${routing}
 - source access today (portals probed before this dispatch; use the alternative, do not retry): ${source_access}
 - follow-up prompts from an earlier pass: ${followup_prompts}
+- your earlier findings for this layer: ${previous_findings}
+- research gaps to close in this pass (from the sufficiency review): ${followup_gaps}
 - your share of the run MCP budget: `${mcp_budget_share}` calls
 - previous attempt errors to fix: ${retry_errors}
 

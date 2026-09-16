@@ -20,7 +20,7 @@ Cover every issue. An issue with nothing in your layer is a finding too — say 
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `layer`, `layer_rules` (your row of the citability table — the only one that applies to you), `issues`, `jurisdictions`, `mcp_namespaces`, `routing` (tool order and preferred domains), `followup_prompts` from an earlier pass, `mcp_budget_share`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `layer`, `layer_rules` (your row of the citability table — the only one that applies to you), `issues`, `jurisdictions`, `mcp_namespaces`, `routing` (tool order and preferred domains), `followup_prompts` from an earlier pass, `followup_gaps` (the sufficiency reviewer's missing items for your layer) and `previous_findings` (your earlier `research/<layer>.json` to extend, or none), `mcp_budget_share`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 

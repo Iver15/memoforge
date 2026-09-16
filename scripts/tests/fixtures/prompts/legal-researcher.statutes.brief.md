@@ -19,6 +19,8 @@ First action (Bash, before any other tool call):
 - tool order and preferred domains: EU: legalviz_resolve > legalviz_get_law_part > ldh_resolve_reference > ldh_search > WebFetch (domains: publications.europa.eu, eur-lex.europa.eu)
 - source access today (portals probed before this dispatch; use the alternative, do not retry): not checked
 - follow-up prompts from an earlier pass: none
+- your earlier findings for this layer: none - first pass of this layer
+- research gaps to close in this pass (from the sufficiency review): none
 - your share of the run MCP budget: `courtlistener 10, justicelibre 10, ldh 8, legalviz 10, opencaselaw 10, uklegal 10` calls
 - previous attempt errors to fix: none
 

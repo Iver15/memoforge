@@ -22,6 +22,7 @@ from . import (
     phases,
     preflight,
     review,
+    revision,
     routing,
     schema,
     sources,
@@ -2283,7 +2284,18 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
         f"{issue.get('issue_id')}: {issue.get('question')}" for issue in (plan.get("issues") or [])
     ) or "see plan.json"
     jurisdictions = ", ".join(plan.get("jurisdictions") or []) or "unspecified"
-    followup = (state.get("sufficiency_followup") or {}).get("user_response") or "none"
+    followup = state.get("sufficiency_followup") or {}
+    user_response = followup.get("user_response") or "none"
+    # A43-2 / D-154: the gaps the sufficiency reviewer named for THIS layer, and the earlier pass to
+    # extend — without them the re-dispatch is a blind repeat that replaces the first pass's file.
+    gaps_by_layer: dict[str, list[str]] = {}
+    for gap in followup.get("subset_r") or []:
+        if not isinstance(gap, dict) or gap.get("status") != "missing" or not gap.get("gap"):
+            continue
+        line = f"- {gap['gap']}"
+        if gap.get("why_blocking"):
+            line += f" — why it blocks: {gap['why_blocking']}"
+        gaps_by_layer.setdefault(str(gap.get("target")), []).append(line)
     # D-147: the researcher is told which routed portal did not answer today, before it tries.
     source_access = preflight.source_access_line(work_dir, state)
     specs = []
@@ -2293,6 +2305,14 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
             f"{row['jurisdiction'] or 'any'}: {' > '.join(row['tools'])}"
             + (f" (domains: {', '.join(row['domains'])})" if row["domains"] else "")
             for row in rows
+        )
+        gaps = gaps_by_layer.get(layer) or []
+        previous = f"research/{layer}.json"
+        previous_findings = (
+            f"`{previous}` — your earlier pass. Read it first; keep every finding and registered source that "
+            "still stands, add what the gaps below ask for, and write the complete document (it replaces the file)."
+            if (work_dir / previous).is_file()
+            else "none - first pass of this layer"
         )
         specs.append(
             dispatch.spec(
@@ -2307,7 +2327,9 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
                 routing=table,
                 mcp_namespaces=_mcp_namespaces(work_dir),
                 source_access=source_access,
-                followup_prompts=followup,
+                followup_prompts=user_response,
+                followup_gaps=("\n" + "\n".join(gaps)) if gaps else "none",
+                previous_findings=previous_findings,
                 retry_errors="none",
             )
         )
@@ -2338,7 +2360,11 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
                 draft_version=iteration,
                 draft_sha=draft_sha,
                 lint_attachment=attachment,
-                claim_pairs="`citations.json` lists every token and its source",
+                claim_pairs=(
+                    "pair every `[[src:<id>]]` claim of the draft with the finding in the research files "
+                    "whose `source_id` matches — its `proposition` and `pinpoint` are the record the draft "
+                    "must not go beyond"
+                ),
                 research_files=research_files,
                 retry_errors="none",
             )
@@ -3379,6 +3405,10 @@ def plan_revision_loop(work_dir: Path, state: dict) -> dict:
     if last.get("kind") == KIND_SCRIPT and last.get("status") == "fail":
         # §2.2: the loop is driven by the results of its script steps, and a CLI error is not one.
         return retry_failed_script(work_dir, state, last)
+    if purpose(last) == "dispatch:memo-writer" and last.get("status") == "fail":
+        # A43-1 / D-153: the retry budget is spent and the draft never changed — the seed v<N+1>
+        # is a byte copy of v<N>, so reviewing it again would only re-grade the version they saw.
+        return _writer_failed_exit(work_dir, state, iteration)
     key = purpose(last)
     if _is_reviewer_dispatch(last):
         step = script_step(
@@ -3536,6 +3566,43 @@ def _readiness_degraded(work_dir: Path, state: dict, version: int) -> dict:
         mutate=lambda current: _manual_review(current, "incomplete_review", version),
         banners=[("client_readiness_reviewer_failed", {})],
     )
+
+
+def _writer_failed_exit(work_dir: Path, state: dict, iteration: int) -> dict:
+    """A43-1 / D-153: leave the loop on the last reviewed version when the writer could not change it.
+
+    `revision next` published `drafts/v<N+1>.md` as a copy of v<N> and moved `current_*` to it; both
+    writer attempts returned that copy untouched. The copy is not a version anyone wrote, so the run
+    goes to `export` on v<N> — the version the reviewers actually judged — under manual review, with
+    their open blockers recorded for the deliverable's Status section.
+    """
+    previous = max(int(iteration) - 1, 1)
+    row = next(
+        (r for r in (state.get("draft_versions") or []) if int(r.get("version") or 0) == previous),
+        None,
+    )
+    record = review.iteration_record(state, previous)
+
+    def mutate(current: dict) -> None:
+        current["current_iteration"] = previous
+        if row is not None:
+            current["current_draft_path"] = str(row["path"])
+            current["current_draft_sha"] = str(row["sha256"])
+        if int(iteration) > previous:
+            # D-158: the seed is not a version anyone wrote, so it must not stay eligible for the
+            # export — `export_draft_sha` falls back to the *last* row when none is checked, and
+            # would deliver the rejected copy under `manual_review_required_on_v<N+1>`. Its
+            # `published[]` entry stays: that is history, not eligibility.
+            current["draft_versions"] = [
+                item
+                for item in (current.get("draft_versions") or [])
+                if int(item.get("version") or 0) != int(iteration)
+            ]
+        if record is not None:
+            current["remaining_blocking_issues"] = revision._blockers(record)  # noqa: SLF001 - same rule as the loop exit
+        _manual_review(current, "writer_failed", previous)
+
+    return transition(work_dir, state, "export", mutate=mutate, banners=[("revision_writer_failed", {})])
 
 
 def _manual_review(current: dict, reason: str, version: int) -> None:

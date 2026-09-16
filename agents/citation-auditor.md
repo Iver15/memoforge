@@ -24,7 +24,7 @@ Three kinds of finding, and every issue carries one as `issue_category`:
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `iteration`, `lint_attachment`, the frozen source pack path, the deterministic `citations.json`, `claim_pairs` (each claim in the draft against the finding it rests on), `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `iteration`, `lint_attachment`, the frozen source pack path, the deterministic `citations.json` (mechanical results only), `research_files` (the `research/<layer>.json` findings you pair each claim with) and `claim_pairs` (how to pair them), `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 
@@ -77,7 +77,7 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "citat
 
 ## Failure modes
 
-- The claim pairs are incomplete: audit what you can from the draft and the pack, and say in your final response which sections had no pairing.
+- A claim's source has no finding in the research files: audit what you can from the draft and the pack, and say in your final response which sections had no pairing.
 - The pack has no entry for a cited source: that is `source_pack_mismatch` against the section that cites it.
 - The draft is unreadable: write nothing and say so, so the pipeline can retry.
 

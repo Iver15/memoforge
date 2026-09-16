@@ -179,6 +179,20 @@ FALLBACKS: list[dict] = [
         "banner_params": [],
     },
     {
+        "condition_key": "revision_writer_failed",
+        "phase": "revision_loop",
+        "action": (
+            "The writer returned the pre-seeded draft unchanged on both attempts: the copy is not a new version. "
+            "Leave the loop on the last reviewed version under manual review, with its open blockers recorded (D-153)."
+        ),
+        "banner_id": "revision_incomplete",
+        "banner_text": (
+            "Revision incomplete — the writer could not produce a changed draft; the last reviewed version is "
+            "delivered for manual review with its open blockers listed."
+        ),
+        "banner_params": [],
+    },
+    {
         "condition_key": "lint_not_converged",
         "phase": "drafting",
         "action": (
