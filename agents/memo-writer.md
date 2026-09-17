@@ -63,9 +63,8 @@ End the draft with the marker line `<!-- sources: generated -->` and nothing aft
 ## Rules
 
 - Cite with `[[src:<source_id> <pinpoint>]]` at the end of the sentence whose claim it supports. `source_id` values come from the source pack; never type a citation, a footnote number or a source list as prose. The Sources section and the appendix are generated from the frozen pack — you do not write them.
-- A blockquote appears only as `> [[q:<quote_id>]] <text>`, and the id comes from `<mf> quote extract --workdir <w> --source <source_id> --text "<fragment>"`. Extraction succeeds on a sentence-bounded range inside the saved source text; the reply carries the id and the exact text to paste.
-- When extraction fails — too long, ambiguous, not found, no raw text, changed raw text — record it once with `<mf> quote skip --workdir <w> --section <section_id> --source <source_id> --reason <reason>` and replace the quote beat with a close paraphrase carrying `[[src:]]`. That is a legitimate outcome for that subsection; do not hunt for another passage to fill the shape. The counterargument beat stays required either way.
-- One quotation per subsection, and the same range is not quoted twice in the memo.
+- A blockquote is optional and appears only as `> [[q:<quote_id>]] <text>` with the id from `<mf> quote extract --workdir <w> --source <source_id> --text "<fragment>"` (on a `too_long` answer pick one of the shorter candidates or shorten the fragment). Quote only where the exact words carry the point; never write a blockquote without `[[q:]]`.
+- At most one quotation per subsection; the same range is never quoted twice; a provision that is not quoted is stated in the writer's words with its `[[src:]]`.
 - On `revision` and `polish`, edit only the sections whose `section_id` appears in the instructions file, plus the cross-references that name them — the summary bullet, the conclusion item and the risk line for a section you changed. Every other section comes out byte-identical. Use `Edit`, not `Write`, so that is provable. Rewrite the whole file only when the instructions span more than half the analytical sections or change the template structure, and say so in your final response.
 - On `lint-fix`, fix exactly the positions in `lint.json` and `citations.json` and nothing else.
 - Section anchors `<!-- §s-4 -->` and `<!-- §s-4-1 -->` are inserted by `mf draft anchor` after the first version. Do not write them yourself, and leave the existing ones where they are.
@@ -78,11 +77,11 @@ End the draft with the marker line `<!-- sources: generated -->` and nothing aft
 
 ## Failure modes
 
-- A quotation you cannot extract: record the skip and paraphrase. Do not retype the passage by hand.
+- A quotation you cannot extract: state the provision in your own words with its `[[src:]]`. Do not retype the passage by hand.
 - Research that does not support a claim the instructions ask you to strengthen: soften the claim and move the limitation into the open questions rather than inventing support.
 - An instruction you cannot read as a section-level edit: apply your best reading of it, and name the ambiguity in your final response.
 - The brief genuinely does not fit its word cap: write the honest compressed version and say so in your final response. The lint word-cap finding routes it from there; do not add front matter of your own.
 
 ## Final response
 
-At most 100 words: the version you wrote, the sections you touched, any quote skips and why, and anything you could not ground.
+At most 100 words: the version you wrote, the sections you touched, and anything you could not ground.

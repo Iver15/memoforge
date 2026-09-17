@@ -37,6 +37,7 @@ from memoforge import (  # noqa: E402
     task,
 )
 from memoforge.docx import fallback as md_fallback  # noqa: E402
+from memoforge.docx import slug_of  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -1462,17 +1463,19 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         self.assertNotIn("manual_review_required_on_v1", body)
 
     def test_no_banner_is_raised_after_the_deliverable_is_chosen(self):
-        """D-144: `run_finalize` fixes its banner list before `choose_deliverable`.
+        """D-144 + fix wave (D-166): only copy/telemetry rows arrive after `choose_deliverable`.
 
-        `choose_deliverable` writes the `## Status` section out of that list and a docx cannot be
-        rewritten afterwards, so a row appended later either never reaches the reader or makes a
-        current export stale. Everything that does arrive late comes from `publish`, and that is a
-        `COPY_BANNERS` row the section leaves out by design — there is no third late banner.
+        `choose_deliverable` writes the `## Status` section out of the banner list and a docx
+        cannot be rewritten afterwards, so a row appended later either never reaches the reader
+        or makes a current export stale. The soft-cap banner is MCP telemetry, so since the fix
+        wave it takes the `publish_failed` route: raised after the choice, a `COPY_BANNERS` row
+        the section leaves out by design — there is no fourth late banner.
         """
         tail = inspect.getsource(finalize.run_finalize).partition("choose_deliverable(")
         self.assertTrue(tail[1], "run_finalize must still call choose_deliverable")
         self.assertEqual(
-            [], [line.strip() for line in tail[2].splitlines() if "fallbacks.banner(" in line]
+            ["banners = collect_banners(state, list(deliverable[\"banners\"]) + soft_cap_banners(state))"],
+            [line.strip() for line in tail[2].splitlines() if "soft_cap_banners(" in line],
         )
         published = inspect.getsource(finalize.publish) + inspect.getsource(
             finalize._publish_failed_banner
@@ -1482,14 +1485,16 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
             [line.strip() for line in published.splitlines() if "fallbacks.banner(" in line],
         )
         self.assertIn("publish_failed", md_fallback.COPY_BANNERS)
+        self.assertIn("mcp_soft_cap_exceeded", md_fallback.COPY_BANNERS)
 
     def test_a_copy_banner_is_never_a_status_input(self):
-        """D-144: the rows about the copy stay in `summary.md`, which is re-rendered after it."""
+        """D-144 + fix wave (D-166): copy/telemetry rows stay in `summary.md`, re-rendered after."""
         state = {
             "final_status": "forced_exit_on_v1_with_remaining_issues",
             "fallback_banners": [
                 fallbacks.banner("publish_failed"),
                 fallbacks.banner("output_folder_write_failed", work_dir="/tmp/work"),
+                fallbacks.banner("mcp_soft_cap_exceeded", server="legalviz", count=120),
             ],
         }
         inputs = md_fallback.status_inputs(state)
@@ -1508,6 +1513,262 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
 
         self.assertEqual(first, self.deliverable(work_dir))
         self.assertIn(md_fallback.STATUS_HEADING, first)
+
+
+class McpSoftCapTest(_WorkDirMixin, unittest.TestCase):
+    """D-166: a free server past the soft cap raises a banner and a summary section."""
+
+    def test_a_valid_docx_export_survives_a_soft_cap_finalize(self):
+        """Fix wave: the soft-cap banner is telemetry about MCP calls, not the memorandum.
+
+        It must not change `status_signature` — otherwise `_existing_docx` rejects the
+        current export and finalize delivers markdown with a `docx_render_failed` banner.
+        """
+        work_dir = self.make_task(final_status=SIGNED_OFF)
+        render_export(work_dir)
+        state_io.write_state(
+            work_dir, lambda state: state["progress"].update(mcp_calls={"legalviz": 120})
+        )
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(result["deliverable_kind"], "docx")
+        banner_ids = [row["banner_id"] for row in result["banners"]]
+        self.assertIn("mcp_soft_cap_exceeded", banner_ids)
+        self.assertNotIn("docx_render_failed", banner_ids)
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("mcp_soft_cap_exceeded", summary)
+
+    def test_a_free_server_past_the_soft_cap_raises_the_banner(self):
+        def mutate(state: dict) -> None:
+            state["progress"]["mcp_calls"] = {"legalviz": 120}
+
+        work_dir = self.make_task(mutate=mutate)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertIn("mcp_soft_cap_exceeded", [row["banner_id"] for row in result["banners"]])
+        self.assertIn(
+            "mcp_soft_cap_exceeded",
+            [row["banner_id"] for row in state_io.read_state(work_dir)["fallback_banners"]],
+        )
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("## MCP calls", summary)
+        self.assertIn("- legalviz: 120", summary)
+
+    def test_a_second_finalize_does_not_double_the_soft_cap_banner(self):
+        def mutate(state: dict) -> None:
+            state["progress"]["mcp_calls"] = {"legalviz": 120}
+
+        work_dir = self.make_task(mutate=mutate)
+        finalize.run_finalize(finalize_args(work_dir))
+        finalize.run_finalize(finalize_args(work_dir, step="s-export-again"))
+        banners = state_io.read_state(work_dir)["fallback_banners"]
+        self.assertEqual(
+            1, [row["banner_id"] for row in banners].count("mcp_soft_cap_exceeded")
+        )
+
+    def test_two_servers_past_the_soft_cap_keep_one_banner_each(self):
+        def mutate(state: dict) -> None:
+            state["progress"]["mcp_calls"] = {"legalviz": 120, "justicelibre": 130}
+
+        work_dir = self.make_task(mutate=mutate)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        stored = state_io.read_state(work_dir)["fallback_banners"]
+        for rows in (result["banners"], stored):
+            soft = [row for row in rows if row["banner_id"] == "mcp_soft_cap_exceeded"]
+            self.assertEqual(2, len(soft))
+            self.assertEqual(
+                {"legalviz", "justicelibre"},
+                {row["params"]["server"] for row in soft},
+            )
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("- justicelibre: 130", summary)
+        self.assertIn("- legalviz: 120", summary)
+
+
+class RootCopiesTest(PublishTest):
+    """D-167: `publish` also drops `memo-<slug>.<ext>` and `memo-<slug>.summary.md`
+    at the root of the outputs area, next to `memoforge/`."""
+
+    def root_names(self, work_dir: Path, ext: str = "md") -> tuple[str, str]:
+        slug = slug_of(None, work_dir)
+        return f"memo-{slug}.{ext}", f"memo-{slug}.summary.md"
+
+    def test_root_copies_exist_and_match_the_folder_copies(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        memo_name, summary_name = self.root_names(work_dir)
+        memo_copy = root / memo_name
+        summary_copy = root / summary_name
+        self.assertTrue(memo_copy.is_file(), f"missing {memo_name}")
+        self.assertTrue(summary_copy.is_file(), f"missing {summary_name}")
+        target = self.published_dir(root, work_dir)
+        self.assertEqual(memo_copy.read_bytes(), (target / finalize.DELIVERABLE_MD).read_bytes())
+        self.assertEqual(summary_copy.read_bytes(), (target / finalize.SUMMARY_MD).read_bytes())
+        self.assertIn(memo_name, result["published_files"])
+        self.assertIn(summary_name, result["published_files"])
+
+    def test_root_memo_copy_is_docx_for_a_docx_deliverable(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root, final_status=SIGNED_OFF)
+        render_export(work_dir)
+        result = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(result["deliverable_kind"], "docx")
+        memo_name, _ = self.root_names(work_dir, ext="docx")
+        memo_copy = root / memo_name
+        self.assertTrue(memo_copy.is_file(), f"missing {memo_name}")
+        target = self.published_dir(root, work_dir)
+        self.assertEqual(memo_copy.read_bytes(), (target / finalize.DELIVERABLE_DOCX).read_bytes())
+        self.assertIn(memo_name, result["published_files"])
+
+    def test_published_memo_reaches_the_result_and_state(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        memo_name, _ = self.root_names(work_dir)
+        self.assertEqual(result["published_memo"], str(root / memo_name))
+        state = state_io.read_state(work_dir)
+        self.assertEqual(state["progress"]["published_memo"], result["published_memo"])
+        published = [row for row in events.read_events(work_dir) if row["event"] == "result_published"]
+        self.assertEqual(published[0]["data"].get("memo"), result["published_memo"])
+
+    def test_a_relative_publish_folder_still_records_absolute_paths(self):
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, base, True)
+        work_dir = self.make_published_task(base / "placeholder")
+
+        def use_relative(state: dict) -> None:
+            state["config"]["publish_folder"] = "rel-outputs"
+
+        state_io.write_state(work_dir, use_relative)
+        previous_cwd = os.getcwd()
+        os.chdir(base)
+        try:
+            result = finalize.run_finalize(finalize_args(work_dir))
+        finally:
+            os.chdir(previous_cwd)
+        self.assertTrue(os.path.isabs(result["published_to"]), result["published_to"])
+        self.assertTrue(os.path.isabs(result["published_memo"]), result["published_memo"])
+        memo_name, _ = self.root_names(work_dir)
+        self.assertTrue((base / "rel-outputs" / memo_name).is_file(), f"missing {memo_name}")
+        state = state_io.read_state(work_dir)
+        self.assertEqual(state["progress"]["published_memo"], result["published_memo"])
+
+    def test_no_publish_root_means_no_published_memo(self):
+        work_dir = self.make_task()
+        with mock.patch.object(finalize, "HOST_OUTPUTS_DIR", str(Path(work_dir) / "absent")):
+            result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertIsNone(result["published_to"])
+        self.assertIsNone(result["published_memo"])
+        self.assertIsNone(state_io.read_state(work_dir)["progress"]["published_memo"])
+
+    def test_a_republish_replaces_the_root_copies(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        memo_name, summary_name = self.root_names(work_dir)
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nA later revision.\n", encoding="utf-8")
+        second = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(second["published_to"], first["published_to"])
+        self.assertEqual(second["published_memo"], first["published_memo"])
+        self.assertIn("A later revision.", (root / memo_name).read_text(encoding="utf-8"))
+        target = self.published_dir(root, work_dir)
+        self.assertEqual((root / memo_name).read_bytes(), (target / finalize.DELIVERABLE_MD).read_bytes())
+        self.assertEqual((root / summary_name).read_bytes(), (target / finalize.SUMMARY_MD).read_bytes())
+        self.assertNotIn(finalize.DELIVERABLE_DOCX, [p.name for p in root.iterdir()])
+
+    def test_a_docx_to_md_republish_leaves_no_stale_docx_at_the_root(self):
+        """D-111 at the root: yesterday's `memo-<slug>.docx` does not survive a markdown run."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root, final_status=SIGNED_OFF)
+        render_export(work_dir)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(first["deliverable_kind"], "docx")
+        docx_name, _ = self.root_names(work_dir, ext="docx")
+        self.assertTrue((root / docx_name).is_file())
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nA later revision.\n", encoding="utf-8")
+        second = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(second["deliverable_kind"], "md")
+        memo_name, _ = self.root_names(work_dir)
+        self.assertTrue((root / memo_name).is_file())
+        self.assertFalse((root / docx_name).exists(), "stale root docx mixed with the new md run")
+
+    def test_a_failed_publish_leaves_the_previous_root_copies_intact(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        finalize.run_finalize(finalize_args(work_dir, step=None))
+        memo_name, _ = self.root_names(work_dir)
+        kept = (root / memo_name).read_bytes()
+        with mock.patch("memoforge.finalize.shutil.copyfile", side_effect=OSError("disk full")):
+            second = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertIsNone(second["published_to"])
+        self.assertIsNone(second["published_memo"])
+        self.assertEqual(kept, (root / memo_name).read_bytes())
+        self.assertIsNone(state_io.read_state(work_dir)["progress"]["published_memo"])
+
+    def publish_slug(self, root: Path, slug: str) -> Path:
+        """A published task renamed to the memo id for `slug`, finalized once."""
+        work_dir = self.make_published_task(root)
+        renamed = work_dir.parent / f"memo-20260908T120000Z-{slug}"
+        work_dir.rename(renamed)
+        state_io.write_state(renamed, lambda state: state.update(task_id=renamed.name))
+        finalize.run_finalize(finalize_args(renamed, step=None))
+        return renamed
+
+    def assert_all_four_root_files(self, root: Path) -> None:
+        """Both slugs keep a memo copy and a summary copy: four files, no collision.
+
+        Names are built from the slug on purpose: spelling the colliding pair out
+        literally would trip the old-root-name check of the fix wave.
+        """
+        for slug in ("privacy", "privacy-summary"):
+            for name in (f"memo-{slug}.md", f"memo-{slug}.summary.md"):
+                self.assertTrue((root / name).is_file(), f"missing {name}")
+
+    def test_colliding_slugs_keep_their_own_root_copies(self):
+        """Fix wave: `memo-privacy.summary.md` must not collide with slug `privacy-summary`."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.publish_slug(root, "privacy-summary")
+        self.publish_slug(root, "privacy")
+        self.assert_all_four_root_files(root)
+
+    def test_colliding_slugs_keep_their_own_root_copies_in_reverse_order(self):
+        """Same collision, the other publish order."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.publish_slug(root, "privacy")
+        self.publish_slug(root, "privacy-summary")
+        self.assert_all_four_root_files(root)
+
+    def test_a_swap_failure_restores_the_previous_root_copies(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        target = Path(first["published_to"])
+        memo_name, _ = self.root_names(work_dir)
+        kept = (root / memo_name).read_bytes()
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nA later revision.\n", encoding="utf-8")
+        real_replace = os.replace
+
+        def break_second_swap(src, dst, *args, **kwargs):
+            if Path(dst).parent == target:
+                raise PermissionError("the folder is held by another program")
+            return real_replace(src, dst, *args, **kwargs)
+
+        with mock.patch("memoforge.finalize.os.replace", break_second_swap):
+            second = finalize.run_finalize(finalize_args(work_dir, step=None))
+        # The failure hits the very first swap into the folder here; loosen to the
+        # rollback guarantee: the previous publication — folder and root copies — is back.
+        self.assertIsNone(second["published_to"])
+        self.assertEqual(kept, (root / memo_name).read_bytes())
+        leftover = sorted(p.name for p in root.iterdir() if p.name.startswith("memo-"))
+        self.assertEqual(sorted([memo_name, self.root_names(work_dir)[1]]), leftover)
 
 
 class CliSurfaceTest(_WorkDirMixin, unittest.TestCase):

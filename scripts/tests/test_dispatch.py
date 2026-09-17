@@ -61,7 +61,6 @@ def _specs(work_dir: Path, state: dict) -> list[dict]:
             max_questions=str(config["intake_max_questions"]),
             mcp_namespaces="ldh, courtlistener, fedregs, lex",
             routing_digest=routing.routing_digest(PROBED_NAMESPACES),
-            mcp_budget_share=dispatch.mcp_budget_share(config, ["intake"]),
             retry_errors="none",
         )
     ]
@@ -86,7 +85,6 @@ def _specs(work_dir: Path, state: dict) -> list[dict]:
             verify_report="`research/sources.json` carries `liveness` and `verification` per source",
             sources_list="src-1, src-2",
             mcp_namespaces="ldh, courtlistener",
-            mcp_budget_share=dispatch.mcp_budget_share(config, ["currency"]),
             retry_errors="none",
         )
     )
@@ -469,16 +467,42 @@ class DescriptionTest(unittest.TestCase):
             for agent in action["agents"]:
                 self.assertTrue(agent["description"].startswith(f"P5/{total} · "))
 
-    def test_mcp_budget_share_is_divided_between_the_researchers(self):
-        # D-106: every bundled server of the run budget reaches the researcher's share line.
-        # D-148: six servers now, and `ldh` 10 // 3 = 3.
-        # D-160: `fedregs` (US federal regulations) is the seventh.
-        # D-161: `lex` (UK legislation by i.AI) is the eighth.
-        config = modes.resolve_config("full")
+    def test_mcp_spent_counts_calls_per_server(self):
+        # D-166: the quota servers carry `of <limit>`, the free ones a bare total.
+        state = {"progress": {"mcp_calls": {
+            "ldh": 7, "courtlistener": 1, "legalviz": 54, "justicelibre": 19, "fedregs": 0,
+        }}}
         self.assertEqual(
-            "courtlistener 13, fedregs 13, justicelibre 13, ldh 3, legalviz 13, lex 13, opencaselaw 13, uklegal 13",
-            dispatch.mcp_budget_share(config, ["a", "b", "c"]),
+            "ldh 7 of 10 (daily quota), courtlistener 1 of 125 (daily quota); "
+            "legalviz 54, justicelibre 19, fedregs 0 (no quota, soft cap 100 per run)",
+            dispatch.mcp_spent(state),
         )
+
+    def test_mcp_spent_is_none_yet_when_nothing_was_called(self):
+        self.assertEqual("none yet", dispatch.mcp_spent({"progress": {"mcp_calls": {}}}))
+        self.assertEqual("none yet", dispatch.mcp_spent({}))
+
+    def test_build_context_carries_mcp_spent_and_no_budget_share(self):
+        root = temp_root(self)
+        work_dir = root / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        state["progress"]["mcp_calls"] = {"ldh": 7, "legalviz": 54}
+        context = dispatch.build_context(
+            work_dir,
+            state,
+            step_id="s-099",
+            attempt=1,
+            slot="statutes",
+            agent="legal-researcher",
+            outputs=[],
+            extra={"layer": "statutes"},
+        )
+        self.assertEqual(
+            "ldh 7 of 10 (daily quota); legalviz 54 (no quota, soft cap 100 per run)",
+            context["mcp_spent"],
+        )
+        self.assertNotIn("mcp_budget_share", context)
 
 
 class ModelsTest(unittest.TestCase):

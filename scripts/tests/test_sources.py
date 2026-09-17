@@ -148,6 +148,17 @@ RIS_JSON = (
 D-145 made `data.bka.gv.at` the **only** route into Austrian law, and the size rule rejected it.
 """
 
+CELLAR_SNIPPET = (
+    b'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head>'
+    b'<title>Regulation</title><style>p{margin:0}</style><script>var x=1;</script></head><body>'
+    b'<div class="eli-container"><p class="oj-ti-art">Article 9</p>'
+    b'<p class="oj-sti-art">Processing of special categories of personal data</p>'
+    b'<p class="oj-normal">1.&#160;&#160;&#160;Processing of personal data revealing racial or ethnic origin '
+    b'shall be prohibited.</p><p class="oj-ti-art">Article 10</p><p class="oj-normal">Processing of personal '
+    b'data relating to criminal convictions.</p></div></body></html>'
+)
+"""D-163: Cellar/EUR-Lex answer XHTML, so a shortened GDPR shape for the markup-to-text tests."""
+
 
 # --- helpers shared with the spawned children ------------------------------
 
@@ -545,6 +556,19 @@ class RegisterTest(SourcesTestCase):
         self.assertTrue(again["idempotent"])
         self.assertEqual(first["raw_sha256"], again["raw_sha256"])
         self.assertEqual(1, len(sources.read_registry(self.work_dir)["sources"]))
+
+    def test_reregistering_identical_html_under_the_same_id_is_a_no_op(self):
+        """D-163: the explicit-id check hashes the converted text, like `store_raw` does."""
+        first_raw = self.root / "gdpr.html"
+        first_raw.write_bytes(CELLAR_SNIPPET)
+        first = self.register(source_id="gdpr-art9", raw_file=first_raw, url="https://example.org/gdpr")
+        second_raw = self.root / "gdpr-copy.html"
+        second_raw.write_bytes(CELLAR_SNIPPET)
+        again = self.register(source_id="gdpr-art9", raw_file=second_raw, url="https://example.org/gdpr")
+        self.assertNotIn("errors", again)
+        self.assertFalse(again["created"])
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(first["raw_sha256"], again["raw_sha256"])
 
     def test_an_explicit_source_id_is_never_suffixed(self):
         """D34-04: `<id>-2` is what put Art. 113 text under an `article-5` id in the audited run."""
@@ -1003,15 +1027,36 @@ class DigestTest(SourcesTestCase):
         result = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
         self.assertIn("drafting_warning", {row["kind"] for row in result["exceptions"]})
 
-    def test_exhausted_mcp_budget_is_an_exception(self):
+    def test_exhausted_quota_server_is_an_exception(self):
+        # D-166: a quota server at its daily limit fires (against the provider quota, not the
+        # legacy per-run share); a free server at 85 — over its legacy share — does not.
         self._freeze_with()
 
         def mutate(state: dict) -> None:
-            state["progress"]["mcp_calls"] = {"ldh": 8}
+            state["config"]["mcp_budget"] = {"ldh": 40, "legalviz": 40}
+            state["progress"]["mcp_calls"] = {"ldh": 10, "legalviz": 85}
 
         state_io.write_state(self.work_dir, mutate)
         result = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
-        self.assertIn("mcp_budget_exhausted", {row["kind"] for row in result["exceptions"]})
+        kinds = {row["kind"] for row in result["exceptions"]}
+        self.assertIn("mcp_budget_exhausted", kinds)
+        details = " ".join(row["detail"] for row in result["exceptions"] if row["kind"] == "mcp_budget_exhausted")
+        self.assertIn("ldh", details)
+        self.assertIn("10/10", details)
+        self.assertNotIn("legalviz", details)
+
+    def test_a_free_server_below_the_quota_servers_never_fires(self):
+        # D-166: LegalViz at 85 is over its legacy `mcp_budget` share of 40 — the old code
+        # path fires here, the quota-only path stays quiet.
+        self._freeze_with()
+
+        def mutate(state: dict) -> None:
+            state["config"]["mcp_budget"] = {"ldh": 40, "legalviz": 40}
+            state["progress"]["mcp_calls"] = {"legalviz": 85}
+
+        state_io.write_state(self.work_dir, mutate)
+        result = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
+        self.assertNotIn("mcp_budget_exhausted", {row["kind"] for row in result["exceptions"]})
 
     def test_full_digest_lists_every_source(self):
         self._freeze_with()
@@ -2209,6 +2254,115 @@ class SliceTest(SourcesTestCase):
     def test_slice_of_an_unknown_source_errors(self):
         args = argparse.Namespace(workdir=str(self.work_dir), source="nope", article="6")
         self.assertTrue(sources.run_slice(args)["errors"])
+
+
+class MarkupToTextTest(unittest.TestCase):
+    """D-163: HTML/XHTML bodies are stored as plain text, at the storage boundary."""
+
+    def test_markup_to_text_keeps_article_headings_on_their_own_line(self):
+        text = sources.markup_to_text(CELLAR_SNIPPET, "application/xhtml+xml").decode("utf-8")
+        self.assertNotIn("<", text)
+        self.assertNotIn("var x=1", text)
+        self.assertNotIn("margin:0", text)
+        self.assertRegex(text, r"(?m)^Article 9$")
+        self.assertRegex(text, r"(?m)^Article 10$")
+        self.assertIn("1.   Processing of personal data revealing", text.replace("\xa0", " "))
+        self.assertEqual(1, len(sources.article_spans(text, "9")), "slice finds the converted heading")
+
+    def test_markup_to_text_leaves_non_markup_alone(self):
+        self.assertIsNone(sources.markup_to_text(b'{"a": 1}', "application/json"))
+        self.assertIsNone(sources.markup_to_text(b"<DIV8 N=\"312.3\"><HEAD>x</HEAD></DIV8>", "text/xml"))
+        self.assertIsNotNone(sources.markup_to_text(CELLAR_SNIPPET, ""), "no content type: sniffed as html")
+
+    def test_nbsp_article_headings_convert_to_spaces_and_slice(self):
+        """Archived AI Act pages write `Article&#160;N`; the heading must still slice (fix wave)."""
+        for number in ("3", "5", "6", "9", "113"):
+            payload = f"<p>Article&#160;{number}</p>".encode("ascii")
+            text = sources.markup_to_text(payload, "text/html").decode("utf-8")
+            self.assertNotIn("\xa0", text)
+            self.assertRegex(text, rf"(?m)^Article {number}$")
+            self.assertTrue(sources.article_spans(text, number), f"slice finds Article {number}")
+
+    def test_nbsp_paragraph_spacing_survives_as_plain_spaces(self):
+        """`1.` + three nbsp keeps three spaces, one character for one (fix wave)."""
+        text = sources.markup_to_text(b"<p>1.&#160;&#160;&#160;Text</p>", "text/html").decode("utf-8")
+        self.assertIn("1.   Text", text)
+        self.assertNotIn("\xa0", text)
+
+
+class MarkupStorageTest(SourcesTestCase):
+    """D-163: register and fetch store the converted text; liveness hashes the same text."""
+
+    def test_register_stores_html_raw_files_as_text(self):
+        raw = self.root / "gdpr.html"
+        raw.write_bytes(CELLAR_SNIPPET)
+        record = sources.register_source(
+            self.work_dir,
+            layer="statutes",
+            title="GDPR",
+            citation="GDPR",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+            tool="WebFetch",
+            tier="critical",
+            raw_file=raw,
+            source_id="gdpr",
+        )
+        stored = (self.work_dir / record["raw_path"]).read_bytes()
+        self.assertNotIn(b"<html", stored)
+        self.assertRegex(stored.decode("utf-8"), r"(?m)^Article 9$")
+        self.assertEqual(sources.state_io.sha256_bytes(stored), record["raw_sha256"], "the hash is of the text")
+
+    def test_fetch_saves_the_text_of_an_html_body_and_liveness_hashes_the_same_text(self):
+        url = "https://publications.europa.eu/resource/celex/32016R0679"
+        body = CELLAR_SNIPPET * 4
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "application/xhtml+xml"}
+
+            def read(self, n=-1):
+                return body
+
+            def geturl(self):
+                return url
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_open(request_url, method, timeout, headers=None, **kwargs):
+            return Response()
+
+        sources._LAST_FETCH.clear()
+        self.addCleanup(sources._LAST_FETCH.clear)
+        original = sources.allowlist_hosts
+        sources.allowlist_hosts = lambda root=None: frozenset({"publications.europa.eu"})
+        self.addCleanup(setattr, sources, "allowlist_hosts", original)
+        with mock.patch("memoforge.sources._open", fake_open):
+            result = sources.run_fetch(
+                argparse.Namespace(
+                    workdir=str(self.work_dir),
+                    url=url,
+                    method="GET",
+                    json_body=None,
+                    accept=None,
+                    lang=None,
+                    out=None,
+                    layer=None,
+                    timeout=5.0,
+                )
+            )
+            probe = sources.probe_url(url, want_body=True)
+        saved = (self.work_dir / result["path"]).read_bytes()
+        self.assertNotIn(b"<html", saved)
+        self.assertEqual(state_io.sha256_bytes(saved), result["sha256"])
+        self.assertEqual("ok", probe["status"])
+        self.assertEqual(result["sha256"], probe["sha256"])
 
 
 if __name__ == "__main__":

@@ -16,11 +16,11 @@ You check whether the sources already collected are still good law. You do not r
 
 Work through the registry. The deterministic part is already done — URL liveness, identifier syntax and duplicate detection are recorded on each source in its `liveness` and `verification` fields before you start, so read the verification fields rather than re-verifying anything, and spend your effort where a judgement is needed: has the act been repealed, replaced or amended in the part relied on; has the judgment been overruled, distinguished or appealed; is the guidance still the regulator's position; does one act still cite a live provision of another.
 
-Check the sources that carry conclusions first — primary statutes, the cases the analysis turns on, anything tiered `critical`. If the budget runs out before the rest, they are `unchecked`, which is an honest answer.
+Check the sources that carry conclusions first — primary statutes, the cases the analysis turns on, anything tiered `critical`. If a quota or the soft cap stops you before the rest, they are `unchecked`, which is an honest answer.
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, the source registry path (the only place a `source_id` comes from), `verify_report` naming the deterministic pre-checks, `sources_list`, `mcp_namespaces`, `mcp_budget_share`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, the source registry path (the only place a `source_id` comes from), `verify_report` naming the deterministic pre-checks, `sources_list`, `mcp_namespaces`, `mcp_spent` (the MCP calls already made this run), `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 
@@ -70,7 +70,7 @@ One file at the path the prompt names, schema `currency`.
 
 - No MCP namespace for a jurisdiction: fetch the issuing body's portal for the sources that matter and mark the rest `unchecked`.
 - The portal answers but the status is ambiguous: `manual_check` with the ambiguity in the note.
-- Budget or time gone: everything untouched is `unchecked` with a one-line note. Do not thin out the checks you did make to cover more sources.
+- Quota, soft cap or time gone: everything untouched is `unchecked` with a one-line note. Do not thin out the checks you did make to cover more sources.
 
 ## Final response
 

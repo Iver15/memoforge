@@ -314,6 +314,14 @@ class TerminalCopyTest(unittest.TestCase):
                 self.assertIn("device file tools", text)
                 self.assertRegex(text, r"(?i)(without such tools|with no such tools)")
 
+    def test_both_routers_present_the_memo_copy_first(self):
+        """D-167: the terminal step shows the `Memo:` file via `present_files` (Cowork)."""
+        for path in self.FILES:
+            text = read(path)
+            with self.subTest(file=path.name):
+                self.assertIn("present_files", text)
+                self.assertIn("`Memo:`", text)
+
 
 class NoLegacyTest(unittest.TestCase):
     def test_no_legacy_identifier_in_skills(self):

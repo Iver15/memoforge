@@ -14,7 +14,7 @@ import os
 import shutil
 from pathlib import Path
 
-from . import events, fallbacks, hooks_common, phases, render, sources, state_io, stepctx
+from . import events, fallbacks, hooks_common, limits, phases, render, sources, state_io, stepctx
 from .docx import fallback as md_fallback
 from .docx import (
     memo_docx_path,
@@ -42,6 +42,25 @@ PUBLISH_RUN_DIRNAME = "_run"
 
 PUBLICATION_FILES: tuple[str, ...] = (DELIVERABLE_DOCX, DELIVERABLE_MD, SUMMARY_MD)
 """What a publish owns inside `<root>/memoforge/<slug>/`, next to the `sources/` directory (D-111)."""
+
+
+def root_memo_name(slug: str, deliverable: str) -> str:
+    """`<root>/memo-<slug>.<ext>` — the chat-visible copy, next to `memoforge/` (D-167).
+
+    Files at the root of the host outputs area are listed in the Cowork sidebar; nested
+    folders are not — so the memo lands there under its own name, not inside the folder.
+    """
+    ext = ".docx" if deliverable == DELIVERABLE_DOCX else ".md"
+    return f"memo-{slug}{ext}"
+
+
+def root_summary_name(slug: str) -> str:
+    """`<root>/memo-<slug>.summary.md` — the summary next to the root memo copy (D-167, fix wave).
+
+    The dot keeps the two root families disjoint: `memo-privacy.summary.md` can never equal
+    `memo-<slug>.<ext>` for slug `privacy-summary` (slugs never contain a dot).
+    """
+    return f"memo-{slug}.summary.md"
 
 HOST_OUTPUTS_DIR = "/mnt/user-data/outputs"
 """The host's outputs area when there is one: present inside the Cowork container, absent elsewhere
@@ -368,6 +387,11 @@ def build_summary(
     lines.extend([f"- {row}" for row in rows] or ["- none"])
     lines.append("")
 
+    lines.append("## MCP calls")
+    lines.append("")
+    lines.extend([f"- {row}" for row in mcp_call_lines(state)] or ["- none yet"])
+    lines.append("")
+
     # D34-11: the deliverable prints at most `STATUS_ISSUE_LIMIT` of these and points here for the
     # rest, so this list is the complete one.
     blockers = [
@@ -408,12 +432,51 @@ def _banner_text(banner: object) -> str:
     return str(banner)
 
 
+def mcp_call_lines(state: dict) -> list[str]:
+    """One `## MCP calls` line per server of `progress.mcp_calls` (D-166, telemetry)."""
+    calls = (state.get("progress") or {}).get("mcp_calls") or {}
+    rows = []
+    for server in sorted(calls):
+        used = calls[server]
+        used = used if isinstance(used, int) else 0
+        if server in limits.MCP_QUOTA_SERVERS:
+            rows.append(f"{server}: {used} of {limits.MCP_PROVIDER_DAILY_LIMITS[server]}")
+        else:
+            rows.append(f"{server}: {used}")
+    return rows
+
+
+def soft_cap_banners(state: dict) -> list[dict]:
+    """One `mcp_soft_cap_exceeded` banner per free server past the per-run soft cap (D-166)."""
+    calls = (state.get("progress") or {}).get("mcp_calls") or {}
+    raised = []
+    for server in sorted(calls):
+        used = calls[server]
+        used = used if isinstance(used, int) else 0
+        if server not in limits.MCP_QUOTA_SERVERS and used > limits.MCP_SOFT_CAP_PER_RUN:
+            banner = fallbacks.banner("mcp_soft_cap_exceeded", server=server, count=used)
+            if banner is not None:
+                raised.append(banner)
+    return raised
+
+
+def _banner_key(banner: object) -> str:
+    """Dedup key: `banner_id`, plus the server for the per-server soft-cap banners (D-166)."""
+    if isinstance(banner, dict):
+        key = str(banner.get("banner_id"))
+        if key == "mcp_soft_cap_exceeded":
+            params = banner.get("params") if isinstance(banner.get("params"), dict) else {}
+            return f"{key}:{params.get('server')}"
+        return key
+    return str(banner)
+
+
 def collect_banners(state: dict, extra: list) -> list:
     """Merge the banners already in state with the ones this finalize raised, keeping order."""
     out: list = []
     seen: set[str] = set()
     for banner in list(state.get("fallback_banners") or []) + list(extra):
-        key = str(banner.get("banner_id")) if isinstance(banner, dict) else str(banner)
+        key = _banner_key(banner)
         payload = banner if isinstance(banner, dict) else str(banner)
         if key in seen:
             continue
@@ -431,13 +494,17 @@ def publish_root(state: dict) -> Path | None:
     The work dir stays private — dozens of protocol files nobody asked for. What the user gets is
     this folder: the deliverable, `summary.md` and the frozen source texts. A host with neither an
     option nor an outputs area publishes nothing, which is not a failure (§2.5, D-109).
+
+    Always absolute (D-167): a relative `publish_folder` is resolved against the current directory
+    here, once, so `published_to`, `published_memo` and every staging path derive from one root
+    no matter where the router later runs from.
     """
     configured = str((state.get("config") or {}).get("publish_folder") or "").strip()
     if configured and not hooks_common.is_placeholder(configured):
-        return Path(configured)
+        return Path(os.path.abspath(configured))
     host = Path(HOST_OUTPUTS_DIR)
     if host.is_dir() and os.access(host, os.W_OK):
-        return host
+        return Path(os.path.abspath(str(host)))
     return None
 
 
@@ -535,11 +602,12 @@ def copy_run_diagnostics(work_dir: Path, target: Path) -> list[str]:
 def clear_publication(target: Path) -> None:
     """Remove what a previous publish wrote into `target`, and nothing else (D-111, §2.5).
 
-    A re-run of the same task publishes into the same `<root>/memoforge/<slug>/`. Overlaying the
-    new files on the old ones leaves a mixture — yesterday's `deliverable.docx` next to today's
-    `deliverable.md`, raw texts of sources this run dropped — and the router copies that mixture to
-    the user whole. So the publication-owned set goes first and is then rewritten; anything else in
-    the folder belongs to the user and is left alone.
+    Kept for the unit contract only — `publish` itself moves the old set aside since D-158 and
+    never calls this. A re-run of the same task publishes into the same `<root>/memoforge/<slug>/`.
+    Overlaying the new files on the old ones leaves a mixture — yesterday's `deliverable.docx`
+    next to today's `deliverable.md`, raw texts of sources this run dropped — and the router
+    copies that mixture to the user whole. So the publication-owned set goes first and is then
+    rewritten; anything else in the folder belongs to the user and is left alone.
     """
     if not target.is_dir():
         return
@@ -562,12 +630,15 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
     reading a corrupt registry, every write — so the guard is one broad `except` (D-111): a
     `TypeError` out of a malformed `sources.json` must end this run exactly like a read-only disk.
     """
-    result: dict = {"published_to": None, "files": [], "banners": [], "error": None}
+    result: dict = {"published_to": None, "published_memo": None, "files": [], "banners": [], "error": None}
     try:
         root = publish_root(state)
         if root is None:
             return result
-        target = root / PUBLISH_DIRNAME / slug_of(state, work_dir)
+        slug = slug_of(state, work_dir)
+        target = root / PUBLISH_DIRNAME / slug
+        memo_name = root_memo_name(slug, deliverable)
+        summary_name = root_summary_name(slug)
         # A43-5 / D-157: build the new publication next to the old one; the old set is cleared only
         # once every file of the new one exists, so a failed copy leaves yesterday's result in place.
         staging = target.parent / f"{target.name}.publishing"
@@ -591,16 +662,36 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
             # D-113: `_run/` travels with the result — the state as it stood before the terminal write,
             # the journal, the plan, the intake facts, the sufficiency verdict and the reviews.
             result["files"].extend(copy_run_diagnostics(work_dir, staging))
+            # D-167: the root copies land in `<root>/`, next to `memoforge/` — they are the files
+            # the chat sidebar lists. They are staged outside the folder so the same swap moves them.
+            staged_root = staging.parent / f"{target.name}.root"
+            if staged_root.exists():
+                shutil.rmtree(staged_root)
+            staged_root.mkdir(parents=True, exist_ok=True)
+            staged_memo = work_dir / deliverable if (work_dir / deliverable).is_file() else None
+            staged_summary = work_dir / summary if (work_dir / summary).is_file() else None
+            if staged_memo is not None:
+                shutil.copyfile(staged_memo, staged_root / memo_name)
+                result["files"].append(memo_name)
+            if staged_summary is not None:
+                shutil.copyfile(staged_summary, staged_root / summary_name)
+                result["files"].append(summary_name)
             # D-158: the old set is renamed aside, never deleted, so a replacement that fails half
             # way — a docx open in Word, a read-only volume — is undone instead of leaving a
             # mixture of two runs. `<slug>.previous` is a rename on the same volume, like staging.
             previous = target.parent / f"{target.name}.previous"
+            previous_root = target.parent / f"{target.name}.previous-root"
             shutil.rmtree(previous, ignore_errors=True)
+            shutil.rmtree(previous_root, ignore_errors=True)
             target.mkdir(parents=True, exist_ok=True)
             owned = [target / name for name in PUBLICATION_FILES] + [
                 target / PUBLISH_SOURCES_DIRNAME,
                 target / PUBLISH_RUN_DIRNAME,
             ]
+            # D-111 at the root level too: a docx yesterday and markdown today must not
+            # stand side by side, so the owned set covers both extensions, not just this ext.
+            other = DELIVERABLE_DOCX if deliverable != DELIVERABLE_DOCX else DELIVERABLE_MD
+            owned_root = [root / name for name in (memo_name, summary_name, root_memo_name(slug, other))]
             moved: list[tuple[Path, Path]] = []
             landed: list[Path] = []
             try:
@@ -610,8 +701,18 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
                         aside = previous / path.name
                         os.replace(path, aside)
                         moved.append((aside, path))
+                for path in owned_root:
+                    if path.exists() and path.is_file():
+                        previous_root.mkdir(parents=True, exist_ok=True)
+                        aside = previous_root / path.name
+                        os.replace(path, aside)
+                        moved.append((aside, path))
                 for item in sorted(staging.iterdir()):
                     destination = target / item.name
+                    os.replace(item, destination)
+                    landed.append(destination)
+                for item in sorted(staged_root.iterdir()):
+                    destination = root / item.name
                     os.replace(item, destination)
                     landed.append(destination)
             except Exception:
@@ -630,11 +731,15 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
                 raise
             finally:
                 shutil.rmtree(previous, ignore_errors=True)
+                shutil.rmtree(previous_root, ignore_errors=True)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
+            shutil.rmtree(staging.parent / f"{target.name}.root", ignore_errors=True)
         result["published_to"] = str(target)
+        result["published_memo"] = str(root / memo_name) if staged_memo is not None else None
     except Exception as exc:  # noqa: BLE001 - M9: nothing here may stop a delivered run (D-111)
         result["published_to"] = None
+        result["published_memo"] = None
         result["files"] = []
         result["error"] = f"{type(exc).__name__}: {exc}"
         result["banners"] = [_publish_failed_banner(exc)]
@@ -661,7 +766,11 @@ def _log_published(work_dir: Path, state: dict, result: dict) -> None:
             work_dir,
             "result_published",
             "cli",
-            {"path": result["published_to"], "files": result["files"]},
+            {
+                "path": result["published_to"],
+                "files": result["files"],
+                "memo": result.get("published_memo"),
+            },
             phase=str(state.get("current_phase") or "") or None,
         )
     except Exception:  # noqa: BLE001 - the journal is best effort (§7.2)
@@ -753,12 +862,12 @@ def run_finalize(args: argparse.Namespace) -> dict:
     terminal_status = default_final_status(phase, state)
     deliverable = choose_deliverable(work_dir, state, args.reason, final_status=terminal_status)
 
-    # D-144: no banner is raised past this point. `choose_deliverable` already wrote the `## Status`
-    # section of the deliverable out of exactly these rows, and a docx cannot be rewritten — so a
-    # banner appended here would either go unsaid or make a current export look stale.
-    # `salvage_state_corrupt` reaches this through `_salvaged_state`, `publish` through
-    # `COPY_BANNERS`; there is no third late banner.
-    banners = collect_banners(state, list(deliverable["banners"]))
+    # Fix wave (D-166): the only banners raised past the choice above are the copy/telemetry
+    # ones — `mcp_soft_cap_exceeded` here and `publish_failed` in `publish` — both
+    # `docx.fallback.COPY_BANNERS` rows, both out of the `## Status` section (a docx cannot be
+    # rewritten) and out of `status_signature`, both landing in `summary.md` only.
+    # `salvage_state_corrupt` reaches this through `_salvaged_state`; there is no fourth late banner.
+    banners = collect_banners(state, list(deliverable["banners"]) + soft_cap_banners(state))
 
     final_status = deliverable["final_status_reason"] or terminal_status
     reasons = [str(row) for row in (state.get("final_status_reasons") or [])]
@@ -809,6 +918,7 @@ def run_finalize(args: argparse.Namespace) -> dict:
         "deliverable_kind": deliverable["kind"],
         "summary": SUMMARY_MD,
         "published_to": published["published_to"],
+        "published_memo": published["published_memo"],
         "published_files": published["files"],
         "banners": banners,
         "salvage": bool(args.salvage),
@@ -925,9 +1035,11 @@ def _write_terminal(
         # D-111: the field describes *this* finalize, so a failed (or absent) publish clears it.
         # Left at the previous run's path it would send the router off to copy a stale result, and
         # the terminal text would keep printing a `Published:` line for a folder nothing refreshed.
+        # D-167: the same holds for the root-level memo copy and its `Memo:` line.
         progress = state.get("progress")
         if isinstance(progress, dict):
             progress["published_to"] = result.get("published_to") or None
+            progress["published_memo"] = result.get("published_memo") or None
 
     # D-13: salvage is the one caller allowed to skip the schema check; the step protocol itself
     # stays `stepctx.close_step` (D-40 — one publication/close implementation).

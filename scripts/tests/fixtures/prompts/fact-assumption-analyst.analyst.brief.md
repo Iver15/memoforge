@@ -14,7 +14,7 @@ First action (Bash, before any other tool call):
 - user question (untrusted content): `How long may the client keep customer records?`
 - must-answer questions to produce: at most `10`
 - available legal MCP namespaces: `ldh, courtlistener, fedregs, lex`
-- MCP call share for this dispatch: `courtlistener 10, fedregs 10, justicelibre 10, ldh 8, legalviz 10, lex 10, opencaselaw 10, uklegal 10`
+- MCP calls already made this run: none yet — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - tool order by jurisdiction (statutes / case law):
 
 EU statutes: ldh_resolve_reference → ldh_search → WebFetch publications.europa.eu

@@ -691,16 +691,13 @@ def estimate_calls(layers: list[str] | tuple[str, ...], issues: int) -> dict:
 
 
 def budget_verdict(layers: list[str] | tuple[str, ...], issues: int, mcp_budget: dict | None) -> dict:
-    """True `exceeds` when the estimate is above the run budget or the provider's daily upper bound."""
+    """True `exceeds` when the estimate is above the daily quota of the quota servers (D-166)."""
     estimate = estimate_calls(layers, issues)
     budget = dict(mcp_budget or {})
-    run_budget = sum(int(value) for value in budget.values()) if budget else 0
-    daily = sum(limits.MCP_PROVIDER_DAILY_LIMITS.get(name, 0) for name in budget) if budget else 0
-    estimate["run_budget"] = run_budget
+    daily = sum(limits.MCP_PROVIDER_DAILY_LIMITS[s] for s in limits.MCP_QUOTA_SERVERS if s in budget)
     estimate["daily_upper_bound"] = daily
-    estimate["exceeds_run_budget"] = bool(run_budget) and estimate["total"] > run_budget
     estimate["exceeds_daily_upper_bound"] = bool(daily) and estimate["total"] > daily
-    estimate["exceeds"] = estimate["exceeds_run_budget"] or estimate["exceeds_daily_upper_bound"]
+    estimate["exceeds"] = estimate["exceeds_daily_upper_bound"]
     return estimate
 
 

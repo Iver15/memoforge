@@ -21,7 +21,7 @@ Same rhetorical surface as `classical-memo` — the four beats from `lib/prose-s
 ## The four beats, compressed
 
 1. **Issue and conclusion.** One sentence: the answer, the issue, and the controlling authority as `[[src:<source_id> <pinpoint>]]`.
-2. **The source.** `> [[q:<quote_id>]] <text>` from `mf quote extract`, introduced by its locator. Where a `quote skip` is recorded for this section and source, one sentence paraphrasing the provision with `[[src:]]` takes its place. A brief without either has no audit trail.
+2. **The source.** State the controlling text with its locator and citation; quote it verbatim only where the exact words carry the point, as `> [[q:<quote_id>]] <text>` from `mf quote extract`.
 3. **Rule explanation and application.** One or two sentences on what the authority establishes and what it means here, including the sentence that names the strongest counterargument and resolves it. Compressed, but present — a brief is not an excuse to skip the other side.
 4. **Risk line.** The last paragraph of the subsection opens with the verdict written literally, then carries a one-sentence justification and one concrete recommendation with its action, trigger and owner:
    `Risk: medium. The basis holds while the opt-in stays unticked. Product must keep it unticked before launch.`
@@ -37,7 +37,7 @@ Direct, plain English for a reader who is not a lawyer; define an unavoidable le
 
 ## Rules
 
-- All four beats appear in every subsection, with the quote beat replaced by a paraphrase only where a `quote skip` is recorded.
+- All four beats appear in every subsection.
 - Prose for the beats; bullets only for key assumptions and recommendations.
 - Three analytical subsections at most. Extra questions from the plan become one-line entries under recommendations, or the task belongs in `classical-memo`.
 - Cite with `[[src:]]` and `[[q:]]` tokens only; do not write citations, footnote numbers or a sources list as prose.

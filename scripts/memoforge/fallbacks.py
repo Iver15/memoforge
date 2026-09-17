@@ -67,6 +67,20 @@ FALLBACKS: list[dict] = [
         "banner_params": [],
     },
     {
+        "condition_key": "mcp_soft_cap_exceeded",
+        "phase": "research",
+        "action": (
+            "A free MCP server passed its per-run soft cap (telemetry only): note it and write from "
+            "what was gathered (§4.3, D-166)."
+        ),
+        "banner_id": "mcp_soft_cap_exceeded",
+        "banner_text": (
+            "MCP soft cap exceeded: {server} made {count} calls this run, past the soft cap. "
+            "Verify against primary sources before client use."
+        ),
+        "banner_params": ["server", "count"],
+    },
+    {
         "condition_key": "research_layers_partial",
         "phase": "research",
         "action": (
@@ -376,6 +390,9 @@ BY_BANNER: dict[str, dict] = {
 
 DASHBOARD_LABELS: dict[str, str] = {
     "mcp_partial": "Partial MCP coverage; the gap is noted in the research files.",
+    "mcp_soft_cap_exceeded": (
+        "An MCP server passed its per-run soft cap."
+    ),
     "currency_blocking": (
         "Currency check raised blocking issues; affected sources are flagged in the source pack."
     ),
@@ -418,11 +435,16 @@ def banner(condition_key: str, **params: object) -> dict | None:
     if missing:
         raise ValueError(f"missing_banner_params: {missing}")
     text = row["banner_text"].format(**params) if row["banner_params"] else row["banner_text"]
-    return {
+    rendered: dict = {
         "banner_id": row["banner_id"],
         "condition_key": condition_key,
         "text": text,
     }
+    if row["banner_params"]:
+        # D-166: the per-server soft-cap banners share one `banner_id`, so the params travel
+        # with the banner — `finalize.collect_banners` dedups them by server.
+        rendered["params"] = {name: str(params[name]) for name in row["banner_params"]}
+    return rendered
 
 
 def dashboard_label(banner_id: str) -> str:

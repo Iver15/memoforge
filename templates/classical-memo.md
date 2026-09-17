@@ -27,7 +27,7 @@ The rhetorical surface is the four-beat analytical subsection from `lib/prose-st
 Every numbered analytical subsection carries these, in order:
 
 1. **Issue and conclusion.** Open with the answer for this issue, then the question and the controlling authority, cited as `[[src:<source_id> <pinpoint>]]`.
-2. **The source.** `> [[q:<quote_id>]] <text>` from `mf quote extract`, introduced by its locator. When a `quote skip` is recorded for this section and source — for any reason — replace the quote with a close paraphrase of the provision carrying `[[src:]]`. That is a legitimate outcome; do not go looking for another passage to fill the shape.
+2. **The source.** State the controlling text with its locator and citation; quote it verbatim only where the exact words carry the point, as `> [[q:<quote_id>]] <text>` from `mf quote extract`.
 3. **Rule explanation and application.** What the authority establishes, then what it means for the user's facts. This beat also carries the counterargument: one sentence giving the strongest contrary reading or contrary authority, and one resolving it — why the conclusion holds and what would have to change for it not to. This pair is required in every subsection, whatever the risk verdict.
 4. **Risk line.** The last paragraph of the subsection opens with the verdict written literally, then carries the justification and the recommendation with its action, trigger and owner in the same paragraph:
    `Risk: medium. The basis holds only while the affirmative action stays in the flow. Product must keep the opt-in unticked before launch.`
@@ -43,7 +43,7 @@ Formal, analytical, precise; English regardless of the query language. See `lib/
 
 ## Rules
 
-- The four beats appear in every numbered analytical subsection, with the quote beat replaced by a paraphrase only where a `quote skip` is recorded.
+- The four beats appear in every numbered analytical subsection.
 - IRAC and CREAC are the underlying logic, never visible sub-headings: no heading reading `Rule`, `Application` or `Conclusion` inside a subsection.
 - The facts section is required. Facts merged into the Context paragraphs or the executive summary is a structural defect.
 - Cite with `[[src:]]` and `[[q:]]` tokens only; do not write citations, footnote numbers or a sources list as prose.

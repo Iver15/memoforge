@@ -168,12 +168,10 @@ class CleanFixtureTest(LintTestCase):
         self.assertEqual([], findings, [f"{row['rule']}: {row['hint']}" for row in findings])
 
     def test_two_subsections_one_raw_source_pass_l08_and_l09_with_a_skip(self):
-        # The §5.4 fixture: the only quotable range is used once, the second subsection skips.
+        # D-164: a quotation is optional — the second subsection needs no skip.
         text = fixture("two-subsections-one-source")
         findings = self.lint(text)
-        self.assertIn("L-08", self.rules(findings), "without a skip the second subsection is a finding")
-        quotes.record_skip(self.work_dir, "s-3-2", "gdpr-art-6", "already_used")
-        findings = self.lint(text)
+        self.assertEqual([], self.only(findings, "L-08"), "a subsection without a quote is not a finding")
         self.assertEqual([], findings, [f"{row['rule']}: {row['hint']}" for row in findings])
 
 
@@ -390,6 +388,8 @@ class BlockquoteTest(LintTestCase):
         findings = self.only(self.lint(text), "L-08")
         self.assertTrue(any("no `[[q:]]` marker" in row["hint"] for row in findings))
         self.assertTrue(all(row["severity"] == "blocker" for row in findings))
+        self.assertNotIn("quote skip", findings[0]["hint"])
+        self.assertIn("quote extract", findings[0]["hint"])
 
     def test_l08_rejects_an_unmarked_blockquote_in_every_section_of_the_document(self):
         # §5.4 L-08 / G5: «каждая с `[[q:]]`» is a rule about every blockquote, not only the ones
@@ -416,8 +416,7 @@ class BlockquoteTest(LintTestCase):
                 self.assertEqual(section_id, findings[0]["section_id"])
 
     def test_l08_counts_quotes_only_inside_the_analytical_subsections(self):
-        # The «<=1 per subsection» cap and the «>=1 when a raw source is cited» requirement are the
-        # two halves of L-08 that stay scoped to the analytical subsections (§5.4).
+        # The «<=1 per subsection» cap stays scoped to the analytical subsections (§5.4, D-164).
         quote = "> [[q:q-gdpr-art-6-1]] Consent must be freely given, specific, informed and unambiguous."
         facts = "The company collects contact data from users located in the EU."
         text = fixture("classical-clean").replace(facts, f"{facts}\n\n{quote}\n\n{quote}\n\n", 1)
@@ -426,9 +425,9 @@ class BlockquoteTest(LintTestCase):
         text = fixture("classical-clean").replace(
             facts, f"{facts} The basis is stated in [[src:gdpr-art-6 Art. 6(1)(a)]].", 1
         )
-        self.assertEqual([], self.only(self.lint(text), "L-08"), "nor does the «>=1» requirement")
+        self.assertEqual([], self.only(self.lint(text), "L-08"), "no quote is required in a named section")
 
-    def test_l08_missing_quote_for_a_raw_source_is_major_and_a_drafting_warning(self):
+    def test_a_subsection_without_a_quote_is_not_a_finding_and_raises_no_warning(self):
         text = fixture("classical-clean").replace(
             "> [[q:q-gdpr-art-6-1]] Consent must be freely given, specific, informed and unambiguous.\n\n",
             "",
@@ -439,23 +438,20 @@ class BlockquoteTest(LintTestCase):
             state=state_io.read_state(self.work_dir),
             template=self.template,
         )
-        rows = self.only(findings, "L-08")
-        self.assertEqual(1, len(rows))
-        self.assertEqual("major", rows[0]["severity"])
-        self.assertEqual("s-3-1", rows[0]["section_id"])
-        self.assertTrue(warnings)
-        self.assertIn("gdpr-art-6", warnings[0])
+        self.assertEqual([], self.only(findings, "L-08"))
+        self.assertEqual([], warnings)
 
     def test_l08_needs_no_quote_for_a_source_without_raw(self):
         # s-3-2 cites gdpr-art-7, which was registered without a raw file.
         self.assertNotIn("L-08", self.rules(self.lint(fixture("classical-clean"))))
 
     def test_l08_is_satisfied_by_a_recorded_skip(self):
+        # D-164: kept for the «record_skip stays a valid command» half — a skip no longer changes L-08.
         text = fixture("classical-clean").replace(
             "> [[q:q-gdpr-art-6-1]] Consent must be freely given, specific, informed and unambiguous.\n\n",
             "",
         )
-        self.assertIn("L-08", self.rules(self.lint(text)))
+        self.assertNotIn("L-08", self.rules(self.lint(text)))
         quotes.record_skip(self.work_dir, "s-3-1", "gdpr-art-6", "too_long")
         self.assertNotIn("L-08", self.rules(self.lint(text)))
 
@@ -859,7 +855,8 @@ class DraftCommandTest(LintTestCase):
         result = self.run_lint(draft="drafts/v2.md")
         self.assertEqual(["identity_mismatch"], result["errors"])
 
-    def test_lint_records_the_l08_drafting_warning_in_state(self):
+    def test_lint_records_no_l08_drafting_warning_for_a_missing_quote(self):
+        # D-164: a quotation is optional — a missing quote leaves drafting_warnings alone.
         path = self.work_dir / "drafts" / "v1.md"
         text = fixture("classical-clean").replace(
             "> [[q:q-gdpr-art-6-1]] Consent must be freely given, specific, informed and unambiguous.\n\n",
@@ -867,9 +864,9 @@ class DraftCommandTest(LintTestCase):
         )
         path.write_text(text, encoding="utf-8")
         result = self.run_lint()
-        self.assertTrue(result["clean"], "a missing quote is major, not a blocker")
+        self.assertTrue(result["clean"], "a missing quote is not a finding at all")
         warnings = state_io.read_state(self.work_dir)["drafting_warnings"]
-        self.assertTrue(any("L-08" in warning for warning in warnings))
+        self.assertEqual([], warnings)
 
     def test_lint_clean_is_false_only_for_a_blocker(self):
         path = self.work_dir / "drafts" / "v1.md"

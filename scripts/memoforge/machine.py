@@ -271,6 +271,8 @@ def build_progress(work_dir: Path, state: dict) -> dict:
         "artifact_url": previous.get("artifact_url"),
         # D-109: written once by `mf finalize`; the recompute must carry it, not drop it.
         "published_to": previous.get("published_to"),
+        # D-167: the same carry-over for the root-level memo copy beside it.
+        "published_memo": previous.get("published_memo"),
         "mcp_calls": mcp_call_counts(work_dir),
     }
 
@@ -440,6 +442,11 @@ def published_to(state: dict) -> str:
     return str((state.get("progress") or {}).get("published_to") or "").strip()
 
 
+def published_memo(state: dict) -> str:
+    """The root-level memo copy (`<root>/memo-<slug>.<ext>`), or "" when there is none (D-167)."""
+    return str((state.get("progress") or {}).get("published_memo") or "").strip()
+
+
 def _dashboard_banners(state: dict) -> list[dict]:
     """Known banner ids of `state` with their static label (D-88).
 
@@ -448,12 +455,15 @@ def _dashboard_banners(state: dict) -> list[dict]:
     either. Ids outside `fallbacks.BANNER_IDS` are dropped rather than passed through.
     """
     published: list[dict] = []
+    seen: set[str] = set()
     for banner in state.get("fallback_banners") or []:
         if not isinstance(banner, dict):
             continue
         banner_id = str(banner.get("banner_id") or "")
-        if banner_id in fallbacks.BANNER_IDS:
-            published.append({"id": banner_id, "text": fallbacks.dashboard_label(banner_id)})
+        if banner_id not in fallbacks.BANNER_IDS or banner_id in seen:
+            continue
+        seen.add(banner_id)
+        published.append({"id": banner_id, "text": fallbacks.dashboard_label(banner_id)})
     return published
 
 
@@ -2788,7 +2798,6 @@ def plan_intake_preliminary_research(work_dir: Path, state: dict) -> dict:
             routing_digest=routing.routing_digest(
                 _mcp_probe_namespaces(work_dir), exhausted=mcp_exhausted_today(state)
             ),
-            mcp_budget_share=dispatch.mcp_budget_share(config, ["intake"]),
             retry_errors="none",
         )
         return issue_dispatch(work_dir, state, [spec], chat=_chat(state, "analysing facts and assumptions"))
@@ -3154,7 +3163,6 @@ def plan_currency_check(work_dir: Path, state: dict) -> dict:
     if row is None:
         registry = sources.read_registry(work_dir)
         listing = ", ".join(sorted(registry.get("sources") or {})) or "none registered"
-        config = state.get("config") or {}
         spec = dispatch.spec(
             "currency",
             "currency-checker",
@@ -3164,7 +3172,6 @@ def plan_currency_check(work_dir: Path, state: dict) -> dict:
             verify_report="`research/sources.json` carries `liveness` and `verification` per source",
             sources_list=listing,
             mcp_namespaces=_mcp_namespaces(work_dir),
-            mcp_budget_share=dispatch.mcp_budget_share(config, ["currency"]),
             retry_errors="none",
         )
         return issue_dispatch(work_dir, state, [spec], chat=_chat(state, "checking source currency"))
@@ -3394,11 +3401,27 @@ def _enter_revision_loop(current: dict) -> None:
 
 
 def _reviewer_kinds(state: dict) -> list[str]:
-    return [
-        kind
-        for kind in ((state.get("config") or {}).get("reviewer_list") or [])
-        if kind in dispatch.REVIEWER_AGENTS
+    # D-165: the iteration a targeted citation pass produced is re-checked by its own reviewer set,
+    # not by `config.reviewer_list` — `review aggregate` expects exactly the same set.
+    targeted = review.targeted_reviewers(state, int(state.get("current_iteration") or 0))
+    configured = (state.get("config") or {}).get("reviewer_list") or []
+    return [kind for kind in (targeted or configured) if kind in dispatch.REVIEWER_AGENTS]
+
+
+def _last_revision_next(state: dict) -> dict | None:
+    """The most recent closed `revision next` of this revision-loop episode.
+
+    `script_done` answers with the *first* closed step of a command key, which is the right answer
+    everywhere a phase runs a script once. D-165 puts a second `revision next` -> mediator -> writer
+    round inside one episode, and the writer must be routed by the branch that was just chosen, not
+    by the one that opened the loop.
+    """
+    rows = [
+        row
+        for row in episode(state)
+        if purpose(row) == "script:revision.next" and row.get("status") in SCRIPT_DONE_STATUSES
     ]
+    return rows[-1] if rows else None
 
 
 def _is_reviewer_dispatch(row: dict) -> bool:
@@ -3453,7 +3476,7 @@ def plan_revision_loop(work_dir: Path, state: dict) -> dict:
         return _after_revision_next(work_dir, state, last, iteration)
     if key == "script:render.mediator":
         # The mediator view was rendered for the branch `revision next` already chose (D-57).
-        routed = script_done(state, "revision.next")
+        routed = _last_revision_next(state)
         if routed is not None:
             return _after_revision_next(work_dir, state, routed, iteration)
     if key in ("dispatch:memo-writer", "script:draft.finish"):
@@ -3536,13 +3559,20 @@ def _after_revision_next(work_dir: Path, state: dict, row: dict, iteration: int)
         )
         if step is not None:
             return step
+        instructions = f"`{view_path(review.mediator_path(iteration))}` - edit only the named sections"
+        if result.get("targeted"):
+            # D-165: branch 9 bought one pass for the missing `[[src:]]` tokens, nothing wider.
+            instructions += (
+                ". Targeted pass: add the missing source tokens named in the instructions; "
+                "change nothing else."
+            )
         spec = writer_spec(
             work_dir,
             state,
             task="revision",
             version=version,
             canonical=canonical,
-            instructions=f"`{view_path(review.mediator_path(iteration))}` - edit only the named sections",
+            instructions=instructions,
             seed=True,
         )
         return issue_dispatch(
@@ -3922,6 +3952,9 @@ def terminal_response(work_dir: Path, state: dict) -> dict:
             lines.append(f"Deliverable: {candidate}")
             break
     summary = Path(work_dir) / "summary.md"
+    memo = published_memo(state)
+    if memo:
+        lines.append(f"Memo: {memo}")
     if summary.is_file():
         lines.append(f"Summary: {summary}")
     published = published_to(state)

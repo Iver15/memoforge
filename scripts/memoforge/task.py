@@ -357,6 +357,7 @@ def build_initial_state(
             "last_line": None,
             "artifact_url": None,
             "published_to": None,
+            "published_memo": None,
             "mcp_calls": {},
         },
         "sources_frozen": False,

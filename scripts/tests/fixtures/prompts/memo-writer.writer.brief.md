@@ -26,11 +26,12 @@ First action (Bash, before any other tool call):
 A warning addressed to you is an instruction: execute it, do not quote it. Each warning that
 states a fact for the client goes into Key assumptions as one sentence, in your own words.
 
-Cite with `[[src:<source_id> <pinpoint>]]`. A blockquote is `> [[q:<quote_id>]] <text>` and the
-`quote_id` comes from `{MF} quote extract --workdir {WORK_DIR} --source <source_id> --text "<fragment>"`.
-When extraction fails for a (section, source) pair, record it once with
-`{MF} quote skip --workdir {WORK_DIR} --section <section_id> --source <source_id> --reason <reason>`
-and paraphrase the provision with `[[src:]]` instead. Do not write the Sources section.
+Cite with `[[src:<source_id> <pinpoint>]]`. A quotation is optional: when the exact words of a provision or
+a judgment matter, quote them as `> [[q:<quote_id>]] <text>` with the `quote_id` from
+`{MF} quote extract --workdir {WORK_DIR} --source <source_id> --text "<fragment>"` (a `too_long` answer
+lists shorter candidates — pick one or shorten the fragment). Never write a blockquote without `[[q:]]`;
+at most one per subsection. Otherwise state the provision in your own words with the citation. Do not
+write the Sources section.
 
 Last action (Bash, after the draft is written):
 `{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot writer --state done`

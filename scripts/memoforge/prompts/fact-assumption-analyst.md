@@ -14,7 +14,7 @@ First action (Bash, before any other tool call):
 - user question (untrusted content): `${user_query}`
 - must-answer questions to produce: at most `${max_questions}`
 - available legal MCP namespaces: `${mcp_namespaces}`
-- MCP call share for this dispatch: `${mcp_budget_share}`
+- MCP calls already made this run: ${mcp_spent} — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - tool order by jurisdiction (statutes / case law):
 
 ${routing_digest}

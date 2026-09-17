@@ -304,6 +304,9 @@ def deduplicate(issues: list[dict]) -> list[dict]:
             # follow the union — merging a substance finding into a form one never demotes it.
             target["tier"] = tier_of(target["provenance"])
             target["source_reviewer"] = primary_reviewer(target["provenance"])
+            if issue.get("issue_category") and not target.get("issue_category"):
+                # D-165: the first participant that classified the issue keeps the classification.
+                target["issue_category"] = issue["issue_category"]
             continue
         row = dict(issue)
         row["_tokens"] = tokens
@@ -329,6 +332,10 @@ def _normalize_issue(issue: dict, source: str) -> dict:
     }
     if issue.get("checklist_id"):
         row["checklist_id"] = issue["checklist_id"]
+    if issue.get("issue_category"):
+        # D-165: the `citations` discriminator of §4.5 п.2 travels into `iterations[].issues[]`,
+        # because branch 9 of `revision.decide` matches on it.
+        row["issue_category"] = issue["issue_category"]
     row["grounded"] = is_grounded(row, source)
     return row
 
@@ -467,6 +474,19 @@ def json_retry_used(state: dict, iteration: int, kind: str) -> int:
     return spent + failure_retry_attempts(state, iteration, kind)
 
 
+def targeted_reviewers(state: dict, iteration: int) -> list[str]:
+    """D-165: the reviewers a targeted citation pass dispatched for `iteration`, or `[]`.
+
+    Branch 9 of §4.5 п.4 writes `state.targeted_fix` before the writer of v<N+1> is dispatched, so
+    the aggregate of that one iteration expects exactly this set — the reviewers it deliberately
+    skipped are not missing files and never become stubs or `failed_reviewers[]`.
+    """
+    row = state.get("targeted_fix")
+    if not isinstance(row, dict) or int(row.get("iteration") or 0) != int(iteration):
+        return []
+    return [str(kind) for kind in (row.get("reviewers") or []) if kind in REVIEWER_KINDS]
+
+
 def _stub_document(kind: str, reason: str, iteration: int, draft_sha: str | None) -> dict:
     stub = {"reviewer": kind, "status": "failed", "reason": reason, "iteration": iteration}
     if draft_sha:
@@ -502,7 +522,7 @@ def run_aggregate(args: argparse.Namespace) -> dict:
         return stored if isinstance(stored, dict) else {"already_closed": True, "result": stored}
 
     config = state.get("config") or {}
-    reviewers = list(config.get("reviewer_list") or REVIEWER_KINDS)
+    reviewers = targeted_reviewers(state, iteration) or list(config.get("reviewer_list") or REVIEWER_KINDS)
     draft_sha = state.get("current_draft_sha")
     retries = dict((state.get("attempts") or {}).get("reviewer_json_retry") or {})
 

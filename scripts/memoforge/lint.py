@@ -677,12 +677,13 @@ def check_l07(document: dict) -> list[dict]:
 
 
 def check_l08(document: dict, quote_registry: dict, registry: dict) -> tuple[list[dict], list[str]]:
-    """L-08: one quote per subsection, always with `[[q:]]`, required when a raw source is cited."""
+    """L-08: every blockquote carries `[[q:]]`; at most one per analytical subsection (D-164: optional)."""
     out: list[dict] = []
     warnings: list[str] = []
     # §5.4 L-08 / G5: «каждая с `[[q:]]`» is a rule about every blockquote of the document — Context,
-    # Executive summary, Facts and Conclusion included. Only the counts («≤1», «≥1») are per
-    # analytical subsection. Without this, an unmarked quote escapes both L-08 and the C-rules.
+    # Executive summary, Facts and Conclusion included. Only the «≤1» cap is per
+    # analytical subsection (D-164: a quotation is optional). Without this, an unmarked quote
+    # escapes both L-08 and the C-rules.
     for quote in document["blockquotes"]:
         if not Q_TOKEN.search(quote["text"]):
             out.append(
@@ -691,7 +692,8 @@ def check_l08(document: dict, quote_registry: dict, registry: dict) -> tuple[lis
                     quote["start_line"],
                     quote["section_id"],
                     quote["text"],
-                    "Blockquote has no `[[q:]]` marker; run `mf quote extract` or record `mf quote skip`.",
+                    "Blockquote has no `[[q:]]` marker: extract it with `mf quote extract`, or turn it "
+                    "into ordinary prose that states the provision with its `[[src:]]` token.",
                 )
             )
     for section in analytical_sections(document):
@@ -713,28 +715,6 @@ def check_l08(document: dict, quote_registry: dict, registry: dict) -> tuple[lis
             )
         if block:
             continue
-        cited = [
-            token["id"]
-            for token in document["src_tokens"]
-            if token["section_id"] == section["section_id"]
-        ]
-        with_raw = [
-            source_id
-            for source_id in dict.fromkeys(cited)
-            if (registry["sources"].get(source_id) or {}).get("raw_path")
-        ]
-        missing = [
-            source_id
-            for source_id in with_raw
-            if quotes.skip_for(quote_registry, section["section_id"], source_id) is None
-        ]
-        if missing:
-            hint = (
-                f"Subsection cites {', '.join(missing)} with saved raw text and has no quote; "
-                "extract one or record `mf quote skip`."
-            )
-            out.append(finding("L-08", section["line"], section["section_id"], section["raw"], hint, severity="major"))
-            warnings.append(f"L-08 {section['section_id']}: no quote for {', '.join(missing)}")
     return out, warnings
 
 
@@ -944,7 +924,7 @@ def resolve_template(state: dict, explicit: str | None) -> str:
 
 
 def lint_text(text: str, *, work_dir: str | Path, state: dict, template: str) -> tuple[list[dict], list[str]]:
-    """Run all 15 L-rules over one draft; returns findings and the L-08 drafting warnings."""
+    """Run all 15 L-rules over one draft; returns findings and an empty warning list (kept for call shape)."""
     document = parse_draft(text)
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)

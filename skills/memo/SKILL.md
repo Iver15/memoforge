@@ -77,7 +77,7 @@ Never execute a step that did not come from `mf next`. Never re-run a step "to b
 
 `router.md` says what to do with each of them. In short: `dispatch` → `Agent` per slot; `script` → `Bash` with `command[]` verbatim; `gate-auq` → print `text`, then `AskUserQuestion`; `gate-text` → print `text` and END; `inline-llm` → `Write` to `write_to`; `terminal` → print `text` and END.
 
-The `terminal` step has one extra duty. Its `text` may carry a `Published:` folder — the deliverable, the summary and the frozen source texts, copied out of the private work dir by the CLI. If this host gives you device file tools and the user has a connected folder, copy that folder into `<connected folder>/memoforge/<slug>/` before printing, the same way you save any file for the user, and say once where it landed; with no such tools, print `text` and nothing more (`router.md` §2, `kind: terminal`).
+The `terminal` step has one extra duty. Its `text` carries a `Memo:` copy of the memorandum — if this host has a `present_files` tool (Cowork), present it (and the summary) with it first so they appear in the chat. Otherwise, if this host gives you device file tools and the user has a connected folder, copy the `Published:` folder into `<connected folder>/memoforge/<slug>/` before printing, the same way you save any file for the user, and say once where it landed; without such tools, print `text` and nothing more (`router.md` §2, `kind: terminal`).
 
 ## Optional dashboard (ТЗ §7.5)
 

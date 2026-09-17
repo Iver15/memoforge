@@ -85,7 +85,7 @@ Picked once, at the plan gate. Source of truth: `scripts/memoforge/modes.py`, re
 | Client-readiness polish | no | yes |
 | Template | executive brief (≤1200 words) | classical memo |
 | Source-review gate | off | on exceptions only |
-| MCP budget (LDH / CourtListener / LegalViz / UK Legal / JusticeLibre / OpenCaseLaw / Federal Regulations / Lex) | 8 / 10 / 10 / 10 / 10 / 10 / 10 / 10 | 10 / 40 / 40 / 40 / 40 / 40 / 40 / 40 |
+| MCP quotas tracked: LDH 10/day, CourtListener 125/day; free servers soft-capped at 100 calls per run (telemetry only) | LDH 10/day, CourtListener 125/day; soft cap 100 | LDH 10/day, CourtListener 125/day; soft cap 100 |
 | Best for | a quick check, low stakes | client-facing, contested or novel issues |
 
 ## Where it stops to ask you
@@ -93,8 +93,8 @@ Picked once, at the plan gate. Source of truth: `scripts/memoforge/modes.py`, re
 Everything between these pauses runs on its own.
 
 1. **Intake** — up to ten must-answer questions about facts the analyst could not infer. Answer `1A 2C 3: we only process EU users`, or `proceed` to accept the stated defaults, or `cancel`.
-2. **Plan + mode** — one card carrying the research plan (jurisdictions, issues, source types), the mode, your style profile if you have one, and a reduced-coverage question if the MCP budget will not stretch. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
-3. **Source review — conditional.** In Full mode it fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP budget. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
+2. **Plan + mode** — one card carrying the research plan (jurisdictions, issues, source types), the mode, your style profile if you have one, and a reduced-coverage question if the estimate will not fit the MCP quotas. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
+3. **Source review — conditional.** In Full mode it fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP quota. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
 
 Two more gates appear only when research came back thin: a targeted follow-up question, and a continue-or-cancel when coverage is too weak to draft from.
 
@@ -222,7 +222,7 @@ The work dir goes to the first writable of: the `output_folder` option (host set
 The published copy goes to `<publish folder>/memoforge/<slug>/`, and where that is depends on the host:
 
 - **Claude Code, project folder.** The work dir is already inside the folder you attached, so unless you set `publish_folder` nothing is copied — the deliverable is where you are working. The final message prints its absolute path.
-- **Cowork.** The plugin runs in a container that cannot see your connected folder. The result is copied into the session's outputs area (`/mnt/user-data/outputs`), which is what the files sidebar shows, and the skill then copies that same folder into your connected folder through the session's own file tools. Both paths are printed when the run ends.
+- **Cowork.** The plugin runs in a container that cannot see your connected folder. The result is copied into the session's outputs area (`/mnt/user-data/outputs`), and the memo plus its summary are also written to the root of that area as `memo-<slug>.<docx|md>` / `memo-<slug>.summary.md`, which the skill presents in the chat through `present_files`; only when that tool is absent does the skill copy the folder into your connected folder through the session's own file tools. Both paths are printed when the run ends.
 - **Anywhere else** (a hosted VM with neither): set `publish_folder` to a directory you can reach and the result lands there; with nothing set and no outputs area, nothing is copied and the work dir stays the single source.
 
 Everything stays on your machine: no backend, no telemetry. MCP calls go to the providers you authenticated, with your credentials; the plugin never proxies or stores them.

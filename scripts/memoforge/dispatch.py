@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from string import Template
 
-from . import pylauncher, routing, schema, state_io
+from . import limits, pylauncher, routing, schema, state_io
 
 SUBAGENT_PREFIX = "memoforge:"
 """Plugin-qualified subagent type of every `Agent` call issued by `next` (§3.1)."""
@@ -135,13 +135,22 @@ def layer_rules_line(layer: str) -> str:
     )
 
 
-def mcp_budget_share(config: dict, layers: list[str] | tuple[str, ...]) -> str:
-    """This researcher's share of `config.mcp_budget` (§4.3: «в промпт подставляется его доля»)."""
-    budget = dict((config or {}).get("mcp_budget") or {})
-    count = max(len(list(layers)), 1)
-    if not budget:
-        return "not budgeted"
-    return ", ".join(f"{name} {int(value) // count}" for name, value in sorted(budget.items()))
+def mcp_spent(state: dict) -> str:
+    """MCP calls already made this run, per server (§4.3, D-166: quota tracking plus telemetry)."""
+    calls = dict((state.get("progress") or {}).get("mcp_calls") or {})
+    if not calls:
+        return "none yet"
+    quota = [f"{name} {int(calls[name])} of {limits.MCP_PROVIDER_DAILY_LIMITS[name]} (daily quota)"
+             for name in limits.MCP_QUOTA_SERVERS if name in calls]
+    free = [f"{name} {int(value)}"
+            for name, value in calls.items() if name not in limits.MCP_QUOTA_SERVERS]
+    quota_part = ", ".join(quota)
+    free_part = ", ".join(free)
+    if free_part:
+        free_part += f" (no quota, soft cap {limits.MCP_SOFT_CAP_PER_RUN} per run)"
+    if quota_part and free_part:
+        return f"{quota_part}; {free_part}"
+    return quota_part or free_part
 
 
 def _template_path(config: dict) -> str:
@@ -218,6 +227,7 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     # the web fallbacks alone. The analyst dispatch replaces it with the probed one.
     "routing_digest": routing.routing_digest({}),
     "mcp_namespaces": "see `intake/mcp-probe.json`",
+    "mcp_spent": "none yet",
     # D-147: filled in from `intake/preflight.json`; without one, nothing was measured.
     "source_access": "not checked",
     "followup_prompts": "none",
@@ -283,7 +293,7 @@ def build_context(
         "prose_style_path": _prose_style_path(config),
         "layer": layer,
         "layer_rules": layer_rules_line(layer) if layer in routing.LAYER_RULES else "",
-        "mcp_budget_share": mcp_budget_share(config, layers or [layer or "statutes"]),
+        "mcp_spent": mcp_spent(state),
         "iteration": str(iteration),
         "draft_path": str((extra or {}).get("draft_path") or state.get("current_draft_path") or ""),
         "draft_version": str((extra or {}).get("draft_version") or iteration),

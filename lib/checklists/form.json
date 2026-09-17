@@ -7,7 +7,7 @@
   },
   {
     "id": "FRM-02",
-    "text": "Each subsection either quotes its controlling source or the draft paraphrases it with a source token because a quote skip was recorded for that section and source. Evidence: quote the blockquote, or name the section with neither a quote nor a paraphrase of its cited provision.",
+    "text": "Every blockquote carries a [[q:]] marker and no analytical subsection has more than one; a subsection with no quotation states its controlling provision in the writer's words with a source token. Evidence: quote the unmarked or second blockquote, or confirm the subsection's rule sentence carries a token.",
     "tier": "form",
     "hard_fail": true
   },

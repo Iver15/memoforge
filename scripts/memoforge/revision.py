@@ -1,4 +1,4 @@
-"""`mf revision next` — branches 1..8 of the revision loop; the only owner of `current_iteration` (ТЗ §4.5 п.4)."""
+"""`mf revision next` — branches 1..9 of the revision loop; the only owner of `current_iteration` (ТЗ §4.5 п.4)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,12 @@ NEXT_RERUN = "rerun_reviewers"
 NEXT_CLIENT_READINESS = "client_readiness"
 NEXT_MEDIATOR = "dispatch_mediator"
 NEXT_WRITER = "dispatch_writer"
+
+TARGETED_FIX_REVIEWERS: tuple[str, ...] = ("citations",)
+"""D-165: branch 9 re-checks the targeted draft with this reviewer set and no other."""
+
+TARGETED_FIX_CATEGORY = "unsupported_claim"
+"""D-165: the only `citations` `issue_category` a targeted pass may be asked to close (D-08)."""
 
 
 def draft_path(version: int) -> str:
@@ -66,6 +72,29 @@ def mediator_needed(record: dict) -> bool:
     return len(strong) >= review.MEDIATOR_MIN_ISSUES and len(reviewers) >= review.MEDIATOR_MIN_REVIEWERS
 
 
+def _targeted_fix_applies(record: dict, substance: int, form: int, targeted_fix_used: int) -> bool:
+    """D-165: is everything still open one of at most two missing `[[src:]]` tokens?
+
+    The 2026-09-16 run left `forced_exit_on_v2_with_remaining_issues` on a single rule statement
+    without a token. A third full iteration is what the budget forbids; one writer pass and a
+    `citations`-only re-check is cheap, so branch 9 buys exactly one of them per run.
+    """
+    if targeted_fix_used >= limits.MAX_TARGETED_FIX_PASSES:
+        return False
+    if form:
+        return False
+    if not 0 < substance <= limits.MAX_TARGETED_FIX_BLOCKERS:
+        return False
+    blockers = [issue for issue in _blockers(record) if issue.get("tier") == "substance"]
+    if not blockers:
+        return False
+    sources = set(TARGETED_FIX_REVIEWERS)
+    return all(
+        sources & _participants(issue) and issue.get("issue_category") == TARGETED_FIX_CATEGORY
+        for issue in blockers
+    )
+
+
 def decide(
     *,
     iteration: int,
@@ -74,6 +103,7 @@ def decide(
     max_iterations: int,
     reviewer_rerun_used: int,
     mediator_exists: bool,
+    targeted_fix_used: int = 0,
 ) -> dict:
     """Pure branch selection of §4.5 п.4 — first matching branch wins."""
     failed = list(record.get("failed_reviewers") or [])
@@ -178,6 +208,21 @@ def decide(
             "banner": ("max_iterations_with_blockers", {"count": len(_blockers(record))}),
         }
 
+    # 9. D-165: the budget is spent and the only thing left is missing source tokens — one writer
+    # pass with a `citations`-only re-check, once per run, before branch 8 closes the memo.
+    if _targeted_fix_applies(record, substance, form, targeted_fix_used):
+        return {
+            "branch": 9,
+            "next": NEXT_WRITER,
+            "final_status": None,
+            "reasons": [],
+            "banner": None,
+            "targeted": True,
+            "reviewers": list(TARGETED_FIX_REVIEWERS),
+            "preseed_version": iteration + 1,
+            "mediator_needed": False,
+        }
+
     # 8. budget of iterations exhausted.
     return {
         "branch": 8,
@@ -257,6 +302,7 @@ def run_next(args: argparse.Namespace) -> dict:
     max_iterations = int(config.get("max_iterations") or 1)
     attempts = state.get("attempts") or {}
     rerun_used = int((attempts.get("reviewer_rerun") or {}).get(str(iteration), 0))
+    targeted_used = int(attempts.get("targeted_fix") or 0)
     mediator_exists = (work_dir / review.mediator_path(iteration)).is_file()
 
     decision = decide(
@@ -266,6 +312,7 @@ def run_next(args: argparse.Namespace) -> dict:
         max_iterations=max_iterations,
         reviewer_rerun_used=rerun_used,
         mediator_exists=mediator_exists,
+        targeted_fix_used=targeted_used,
     )
 
     banners = [decision["banner"]] if decision.get("banner") else []
@@ -335,6 +382,13 @@ def run_next(args: argparse.Namespace) -> dict:
             current["current_iteration"] = draft_row["version"]
             current["current_draft_path"] = draft_row["path"]
             current["current_draft_sha"] = draft_row["sha256"]
+        if decision.get("targeted"):
+            # D-165: one pass per run, and the iteration it produced knows its own reviewer set.
+            current.setdefault("attempts", {})["targeted_fix"] = targeted_used + 1
+            current["targeted_fix"] = {
+                "iteration": decision["preseed_version"],
+                "reviewers": list(decision["reviewers"]),
+            }
 
     result = {
         "next": decision["next"],
@@ -349,6 +403,8 @@ def run_next(args: argparse.Namespace) -> dict:
         "mediator_needed": decision.get("mediator_needed", False),
         "length_overflow": bool(decision.get("length_overflow")),
     }
+    if decision.get("targeted"):
+        result["targeted"] = True
     if decision.get("rerun_reviewers"):
         result["rerun_reviewers"] = decision["rerun_reviewers"]
     if decision.get("regression_to"):
@@ -376,7 +432,7 @@ def register(subparsers) -> None:
 
     group = cli.group_subparsers(subparsers, "revision", "revision loop routing (§4.5 п.4)")
 
-    parser = group.add_parser("next", help="pick branch 1..8 of the revision loop")
+    parser = group.add_parser("next", help="pick branch 1..9 of the revision loop")
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--iteration", type=int, default=None)
     parser.add_argument("--step", required=True)  # D-40: identity is checked, never skipped

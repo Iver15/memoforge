@@ -20,7 +20,7 @@ Cover every issue. An issue with nothing in your layer is a finding too — say 
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `layer`, `layer_rules` (your row of the citability table — the only one that applies to you), `issues`, `jurisdictions`, `mcp_namespaces`, `routing` (tool order and preferred domains), `followup_prompts` from an earlier pass, `followup_gaps` (the sufficiency reviewer's missing items for your layer) and `previous_findings` (your earlier `research/<layer>.json` to extend, or none), `mcp_budget_share`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `layer`, `layer_rules` (your row of the citability table — the only one that applies to you), `issues`, `jurisdictions`, `mcp_namespaces`, `routing` (tool order and preferred domains), `followup_prompts` from an earlier pass, `followup_gaps` (the sufficiency reviewer's missing items for your layer) and `previous_findings` (your earlier `research/<layer>.json` to extend, or none), `mcp_spent` (the MCP calls already made this run), `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf` — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 
@@ -86,7 +86,7 @@ One file at the path the prompt names — your attempt's working directory; the 
 
 - MCP unavailable or empty after a refined query: fall back to the portal in your routing line, and record what you tried in `methodology.queried_sources`.
 - Primary source unreachable on every path: record the gap in the affected issue's findings as a `background` note saying "primary source unreachable, manual research required". Do not fill it from memory.
-- Budget spent before the issues are covered: stop calling, write what you have, and say in your final response which issues stayed uncovered.
+- Quota or soft cap reached before the issues are covered: stop calling that server, write what you have, and say in your final response which issues stayed uncovered.
 - Registration fails: retry once with a shorter title, and if it still fails, leave that source out of the findings rather than citing an id you made up.
 
 ## Final response

@@ -93,6 +93,18 @@ class BannerTextTest(unittest.TestCase):
             fallbacks.get("no_such_condition")
 
 
+class SoftCapRowTest(unittest.TestCase):
+    """D-166: the soft cap of the free servers has a row with the server and the count."""
+
+    def test_the_soft_cap_row_carries_the_server_and_the_count(self):
+        row = fallbacks.get("mcp_soft_cap_exceeded")
+        self.assertEqual("mcp_soft_cap_exceeded", row["banner_id"])
+        self.assertEqual(["server", "count"], row["banner_params"])
+        banner = fallbacks.banner("mcp_soft_cap_exceeded", server="legalviz", count=120)
+        self.assertIn("legalviz", banner["text"])
+        self.assertIn("120", banner["text"])
+
+
 class CoverageTest(unittest.TestCase):
     def test_the_always_deliver_rows_of_the_spec_are_present(self):
         """M9 anchors: the export branches and the two salvage rows must exist."""

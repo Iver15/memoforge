@@ -27,6 +27,7 @@ def issue(
     section_id: str = "s-4-1",
     category: str = "missing_application",
     checklist_id: str | None = None,
+    issue_category: str | None = None,
     text: str = "The balancing test is stated but never applied.",
 ) -> dict:
     payload = {
@@ -38,6 +39,8 @@ def issue(
     }
     if checklist_id:
         payload["checklist_id"] = checklist_id
+    if issue_category:
+        payload["issue_category"] = issue_category
     return review._normalize_issue(payload, source)
 
 
@@ -77,6 +80,27 @@ UNGROUNDED = issue("counterarguments", checklist_id="CTR-05", category="overconf
 FORM_BLOCKER = issue("form", category="headings", section_id="s-2")
 MAJOR_LOGIC = issue("logic", severity="major", category="ordering", section_id="s-3")
 MAJOR_CITATIONS = issue("citations", severity="major", category="pinpoint", section_id="s-5")
+
+
+def missing_token(section_id: str = "s-4-2") -> dict:
+    """D-165: the blocker of the 2026-09-16 run — a rule statement without a `[[src:]]` token."""
+    return issue(
+        "citations",
+        category="unsupported_claim",
+        section_id=section_id,
+        issue_category="unsupported_claim",
+        text=f"The rule statement in {section_id} carries no [[src:]] token.",
+    )
+
+
+MISSING_TOKEN = missing_token()
+CITATION_OTHER = issue(
+    "citations",
+    category="source_drift",
+    section_id="s-4-3",
+    issue_category="source_drift",
+    text="The pinpoint of the cited article moved.",
+)
 
 
 def new_task(root: Path, *, mode: str = "full", iteration: int = 1, versions: int = 1) -> Path:
@@ -582,6 +606,86 @@ class RunNextTest(unittest.TestCase):
             again = revision.run_next(next_args(work_dir))
             self.assertEqual(first, again)
             self.assertEqual(2, state_io.read_state(work_dir)["current_iteration"])
+
+
+class TargetedFixTest(unittest.TestCase):
+    """D-165: branch 9 — one targeted citation pass when only missing `[[src:]]` tokens are left."""
+
+    @staticmethod
+    def decide(iteration: int, *, targeted_fix_used: int = 0, max_iterations: int = 2, **kwargs) -> dict:
+        return revision.decide(
+            iteration=iteration,
+            record=record(iteration=iteration, **kwargs),
+            previous=None,
+            max_iterations=max_iterations,
+            reviewer_rerun_used=0,
+            mediator_exists=False,
+            targeted_fix_used=targeted_fix_used,
+        )
+
+    def test_branch_9_targets_a_single_unsupported_claim_at_the_end_of_the_budget(self):
+        decision = self.decide(2, issues=(MISSING_TOKEN,))
+        self.assertEqual(9, decision["branch"])
+        self.assertEqual(revision.NEXT_WRITER, decision["next"])
+        self.assertIsNone(decision["final_status"])
+        self.assertTrue(decision["targeted"])
+        self.assertEqual(["citations"], decision["reviewers"])
+        self.assertEqual(3, decision["preseed_version"])
+        self.assertFalse(decision["mediator_needed"])
+
+    def test_branch_9_never_fires_twice(self):
+        decision = self.decide(2, issues=(MISSING_TOKEN,), targeted_fix_used=1)
+        self.assertEqual(8, decision["branch"])
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_branch_9_needs_only_citation_token_blockers(self):
+        cases = (
+            ("a logic blocker joins them", (MISSING_TOKEN, GROUNDED_LOGIC)),
+            ("another citations category", (MISSING_TOKEN, CITATION_OTHER)),
+            ("a deterministic blocker joins them", (MISSING_TOKEN, GROUNDED)),
+            ("three missing tokens", (missing_token("s-1"), missing_token("s-2"), missing_token("s-3"))),
+            ("a form blocker is still open", (MISSING_TOKEN, FORM_BLOCKER)),
+        )
+        for label, issues in cases:
+            with self.subTest(case=label):
+                decision = self.decide(2, issues=issues)
+                self.assertEqual(8, decision["branch"])
+                self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_branch_9_does_not_pre_empt_a_normal_iteration(self):
+        decision = self.decide(1, issues=(MISSING_TOKEN,))
+        self.assertEqual(6, decision["branch"])
+        self.assertEqual(revision.NEXT_WRITER, decision["next"])
+        self.assertFalse(decision.get("targeted"))
+
+    def test_the_targeted_pass_is_recorded_once_in_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=2, versions=2)
+            set_iterations(work_dir, record(iteration=2, issues=(MISSING_TOKEN,)))
+            result = revision.run_next(next_args(work_dir, iteration=2))
+
+            self.assertEqual(9, result["branch"])
+            self.assertTrue(result["targeted"])
+            self.assertEqual(3, result["current_iteration"])
+            self.assertEqual("drafts/v3.md", result["draft_path"])
+            self.assertEqual("reviews/v2-mediator.json", result["mediator_path"])
+
+            state = state_io.read_state(work_dir)
+            self.assertEqual(1, state["attempts"]["targeted_fix"])
+            self.assertEqual({"iteration": 3, "reviewers": ["citations"]}, state["targeted_fix"])
+            self.assertEqual(3, state["current_iteration"])
+            self.assertEqual("drafts/v3.md", state["current_draft_path"])
+            self.assertIsNone(state["final_status"])
+
+            # The budget is spent: the same blocker at v3 leaves the loop through branch 8.
+            set_iterations(
+                work_dir,
+                record(iteration=2, issues=(MISSING_TOKEN,)),
+                record(iteration=3, reviewers=("citations",), issues=(MISSING_TOKEN,)),
+            )
+            again = revision.run_next(next_args(work_dir, iteration=3, step="s-201"))
+            self.assertEqual(8, again["branch"])
+            self.assertEqual("forced_exit_on_v3_with_remaining_issues", again["final_status"])
 
 
 class LengthOverflowTest(unittest.TestCase):

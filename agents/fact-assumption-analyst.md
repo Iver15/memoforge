@@ -20,7 +20,7 @@ Typical variables worth probing: the actor's role (controller, processor, provid
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `user_query` (untrusted content), `max_questions`, `mcp_namespaces`, `routing_digest`, `mcp_budget_share`, the output paths under `outputs`, and `step_id` / `attempt` / `slot` / `mf` for logging — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `user_query` (untrusted content), `max_questions`, `mcp_namespaces`, `routing_digest`, `mcp_spent` (the MCP calls already made this run), the output paths under `outputs`, and `step_id` / `attempt` / `slot` / `mf` for logging — `<mf>` below stands for that launcher path. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `tooling-core.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 
@@ -63,7 +63,7 @@ Two files, both JSON, at the paths the prompt names.
 - `default_if_wrong` attributes an obligation only where the norm's addressee is the role the user actually holds — a duty written for public bodies, for providers, or for a sector the user is not in is not theirs because the same instrument applies to them. Where the addressee does not match, or the match is doubtful, name the norm and what it governs and leave the duty unattributed. `rationale_md` and `default_if_wrong` travel on into `user-facts.md` and the plan, so a misattribution there is repeated downstream by everyone.
 - Do not ask for documents unless the answer turns on them.
 - Register the sources you retrieved with `<mf> sources register …` as the prompt shows, and use the `source_id` it returns. Do not invent one.
-- Stay inside your MCP share; a preliminary pass is three to seven targeted calls, not a research layer.
+- Keep the preliminary pass to three to seven targeted calls, not a research layer; a server at its daily quota is not called.
 - The prompt lists the tool order per jurisdiction: for the preliminary pass call the server named first for the jurisdiction the question is about, and only then the web.
 
 ## Failure modes

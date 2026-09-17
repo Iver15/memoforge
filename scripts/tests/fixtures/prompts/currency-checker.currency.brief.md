@@ -15,7 +15,7 @@ First action (Bash, before any other tool call):
 - deterministic pre-checks already done for you: `research/sources.json` carries `liveness` and `verification` per source
 - sources to judge: src-1, src-2
 - available legal MCP namespaces: `ldh, courtlistener`
-- your share of the run MCP budget: `courtlistener 10, fedregs 10, justicelibre 10, ldh 8, legalviz 10, lex 10, opencaselaw 10, uklegal 10` calls
+- MCP calls already made this run: none yet — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - previous attempt errors to fix: none
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:

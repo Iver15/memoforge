@@ -44,7 +44,7 @@ One file at the path the prompt names, schema `mediator`. It is your only output
       "source_reviewer": "deterministic",
       "category": "quote_missing",
       "severity": "blocker",
-      "instruction": "Add the quote beat for the retention provision, or record a quote skip for this section and source and paraphrase it with a source token."
+      "instruction": "State the retention provision with its source token in the rule sentence; quote it only if the exact words matter."
     },
     {
       "section_id": "s-5-1",

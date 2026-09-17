@@ -674,10 +674,11 @@ class EstimateTest(unittest.TestCase):
         self.assertEqual(0, estimate["research"])
         self.assertGreater(estimate["total"], 0)
 
-    def test_budget_verdict_flags_a_full_run_over_the_brief_budget(self):
-        verdict = routing.budget_verdict(["statutes", "case_law", "doctrine"], 6, {"ldh": 8, "courtlistener": 10})
-        self.assertTrue(verdict["exceeds_run_budget"])
+    def test_budget_verdict_flags_a_full_run_over_the_quota_servers(self):
+        verdict = routing.budget_verdict(["statutes", "case_law", "doctrine"], 30, {"ldh": 8, "courtlistener": 10})
         self.assertTrue(verdict["exceeds"])
+        self.assertNotIn("exceeds_run_budget", verdict)
+        self.assertNotIn("run_budget", verdict)
 
     def test_budget_verdict_is_quiet_for_a_small_brief_run(self):
         verdict = routing.budget_verdict(["statutes"], 1, {"ldh": 8, "courtlistener": 10})
@@ -699,13 +700,13 @@ class EstimateTest(unittest.TestCase):
         self.assertEqual(60, estimate["provider_daily_limits"]["fedregs"])
         self.assertEqual(60, estimate["provider_daily_limits"]["lex"])
 
-    def test_a_new_server_run_budget_is_bounded_by_its_daily_ceiling(self):
+    def test_a_free_server_does_not_move_the_quota_verdict(self):
+        # D-166: only the quota servers count — a free server never trips `exceeds`.
         for name in ("legalviz", "uklegal", "fedregs", "lex"):
             with self.subTest(server=name):
-                verdict = routing.budget_verdict(["statutes"], 1, {name: 8})
-                self.assertEqual(
-                    limits.MCP_PROVIDER_DAILY_LIMITS[name], verdict["daily_upper_bound"]
-                )
+                verdict = routing.budget_verdict(["statutes", "case_law", "doctrine"], 30, {name: 8})
+                self.assertEqual(0, verdict["daily_upper_bound"])
+                self.assertFalse(verdict["exceeds"])
 
 
 class DiscoverCacheTest(unittest.TestCase):

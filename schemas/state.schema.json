@@ -141,6 +141,34 @@
         "$ref": "#/$defs/iteration"
       }
     },
+    "targeted_fix": {
+      "description": "D-165: the one targeted citation pass of a run (§4.5 п.4 branch 9) — the iteration it produced and the reviewers dispatched for it. Absent or null when no such pass was issued; `mf task new` does not write it.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "iteration",
+            "reviewers"
+          ],
+          "properties": {
+            "iteration": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "reviewers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
     "client_readiness": {
       "type": [
         "object",
@@ -438,6 +466,11 @@
         },
         "reviewer_rerun": {
           "$ref": "#/$defs/counter_map"
+        },
+        "targeted_fix": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "D-165: targeted citation passes spent by branch 9 of §4.5 п.4; optional, so states written before D-165 stay valid."
         },
         "single_dispatch_retry": {
           "$ref": "#/$defs/counter_map"
@@ -1014,6 +1047,12 @@
           ]
         },
         "published_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "published_memo": {
           "type": [
             "string",
             "null"

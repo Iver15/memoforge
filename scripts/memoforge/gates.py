@@ -634,7 +634,7 @@ def coverage_gaps(
 
 def sources_question_needed(work_dir: Path, state: dict, plan: dict | None, mode: str) -> dict:
     """§2.4: ask about the source budget when a research row lost its databases, or the estimate
-    exceeds the run budget.
+    exceeds the daily quotas of the quota servers.
 
     `plan` is the view of D-99: `None` (no usable plan) is estimated as zero issues and names no
     jurisdiction, so the question does not fire on coverage — a plan that cannot be read cannot be
@@ -723,8 +723,9 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     if budget["needed"]:
         estimate = budget["estimates"][mode]
         detail = (
-            f"Estimated {estimate['total']} legal-source calls against a run budget of "
-            f"{estimate['run_budget']} (provider daily caps are an upper bound, not a remaining count)."
+            f"Estimated {estimate['total']} legal-source calls against the daily quotas of "
+            f"{', '.join(limits.MCP_QUOTA_SERVERS)} "
+            f"({estimate['daily_upper_bound']} in total; a quota is an upper bound, not a remaining count)."
         )
         for row in budget["missing"]:
             if row.get("servers"):

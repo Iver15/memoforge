@@ -14,6 +14,7 @@ a corrupt `state.json`.
 | `mcp_partial` | `research` | Continue with the reachable MCP server and note the gap in each research file. | `mcp_partial` |
 | `portal_unreachable` | `research` | Continue with what is reachable; the researcher writes an explicit `gap:` entry per missing portal. | `sources_unreachable` |
 | `mcp_rate_limited` | `research` | Stop calling the throttled MCP, fall back to WebSearch + WebFetch on canonical URLs and tag each fallback item `[rate-limited fallback]`. | `mcp_ratelimit_fallback` |
+| `mcp_soft_cap_exceeded` | `research` | A free MCP server passed its per-run soft cap (telemetry only): note it and write from what was gathered (§4.3, D-166). | `mcp_soft_cap_exceeded` |
 | `research_layers_partial` | `research` | After the re-dispatch budget is spent, continue with the valid layers and push the missing ones to `drafting_warnings[]` (§2.1 row 5). | `research_partial` |
 | `research_insufficient_budget_consumed` | `research_sufficiency` | Proceed to drafting; the memo must carry an 'Open questions / unverified facts' section. | `research_insufficient` |
 | `sufficiency_reviewer_failed` | `research_sufficiency` | Re-dispatch once with error context; on a second failure treat the verdict as `insufficient`. | `sufficiency_unavailable` |
@@ -50,6 +51,7 @@ a corrupt `state.json`.
 - **`mcp_partial`** — Partial MCP coverage — only {available} was reachable.
 - **`sources_unreachable`** — Some primary sources were unreachable; gaps disclosed in research files.
 - **`mcp_ratelimit_fallback`** — Some research sources were retrieved via web-search fallback due to MCP service rate limits. Items tagged `[rate-limited fallback]` in research files; verify the canonical URLs in the source pack.
+- **`mcp_soft_cap_exceeded`** — MCP soft cap exceeded: {server} made {count} calls this run, past the soft cap. Verify against primary sources before client use.
 - **`research_partial`** — Some research layers did not complete; the memo rests on the layers that succeeded.
 - **`research_insufficient`** — Research sufficiency: insufficient. Open questions disclosed in the memo — do not act on it without further investigation.
 - **`sufficiency_unavailable`** — Research sufficiency review unavailable; defaulting to insufficient status.

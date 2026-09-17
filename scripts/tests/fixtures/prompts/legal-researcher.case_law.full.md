@@ -21,7 +21,7 @@ First action (Bash, before any other tool call):
 - follow-up prompts from an earlier pass: none
 - your earlier findings for this layer: none - first pass of this layer
 - research gaps to close in this pass (from the sufficiency review): none
-- your share of the run MCP budget: `courtlistener 13, fedregs 13, justicelibre 13, ldh 3, legalviz 13, lex 13, opencaselaw 13, uklegal 13` calls
+- MCP calls already made this run: none yet — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - previous attempt errors to fix: none
 
 A jurisdiction that appears in the tool order without a preferred domain is off-table: no route is
@@ -34,7 +34,7 @@ After each MCP call, count it — on a host without the `PostToolUse` hook this 
 ## Register before you cite
 
 Every `critical` and `supporting` source, before it appears in a finding:
-`{MF} sources register --workdir {WORK_DIR} --layer case_law --title "<t>" --citation "<c>" --url "<u>" --tool "<tool>" --tier <critical|supporting> --raw-file "<tmp file with the full tool text>"`
+`{MF} sources register --workdir {WORK_DIR} --layer case_law --title "<t>" --citation "<c>" --url "<u>" --tool "<tool>" --tier <critical|supporting> --raw-file "<a real file you wrote with the full tool text — not a process substitution such as /dev/fd/N; HTML is converted to text for you>"`
 Add `--meta '{"court": …, "year": …, "issuing_body": …, "date": …, "short_name": …}'` with the keys the tool's answer gives you — the OSCOLA footnotes are built from them — and drop the ones it does not.
 Use the `source_id` the command returns; never invent one. `background` sources need no raw file.
 
@@ -53,7 +53,7 @@ WP248 rev.01 (DPIA guidelines) at
 the server labels it `Content-Type: application/`. Commercial re-uploads of the same file are not
 the citation.
 
-A call that needs headers goes through `{MF} sources fetch --workdir {WORK_DIR} --url <U> [--accept <mime>] [--lang <code>] [--out <path under research/raw/>]`: WebFetch sends only a URL and curl is not auto-allowed, so the Cellar contract, the BOE block endpoint, the NL manifest and the RIS JSON are read with this command — it sends the plugin's headers, refuses hosts outside the allowlist, saves the body and answers `{status, code, content_type, bytes, sha256, path, interstitial}`; register that file with `--tool "mf-fetch <host>"`, and never cite a body whose `status` is `unchecked`.
+A call that needs headers goes through `{MF} sources fetch --workdir {WORK_DIR} --url <U> [--accept <mime>] [--lang <code>] [--out <path under research/raw/>]`: WebFetch sends only a URL and curl is not auto-allowed, so the Cellar contract, the BOE block endpoint, the NL manifest and the RIS JSON are read with this command — it sends the plugin's headers, refuses hosts outside the allowlist, saves the body and answers `{status, code, content_type, bytes, sha256, path, interstitial}`; an HTML page is saved as plain text (`.txt`); register that file with `--tool "mf-fetch <host>"`, and never cite a body whose `status` is `unchecked`.
 
 To read one provision back out of a raw file you already saved:
 `{MF} sources slice --workdir {WORK_DIR} --source <source_id> --article <N>`

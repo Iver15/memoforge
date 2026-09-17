@@ -48,6 +48,11 @@ P1 (plugin workflows), P2 (exec-form hooks with `${CLAUDE_PLUGIN_ROOT}` on Windo
 - mf sources fetch: gzip; ecfr.gov / federalregister.gov APIs reachable as the US fallback (D-162).
 - Bundled MCP server `federal-regulations`: US CFR (eCFR) and Federal Register, keyless (D-160).
 - Bundled MCP server `lex` (i.AI): UK legislation sections, explanatory notes and amendments, keyless (D-161).
+- mf sources: HTML/XHTML bodies stored as plain text via `markup_to_text` (D-163).
+- Quotations are optional: L-08 no longer requires a blockquote in a subsection citing a raw source and emits no `no quote for` warning; any blockquote still carries `[[q:]]` (blocker) with at most one per subsection, C-02 unchanged; writer prompts, prose-style and templates rewritten, `quote skip` removed from prompts (command stays) (D-164).
+- Revision loop branch 9: when the iteration budget is spent and the only blockers left are at most two `citations` / `unsupported_claim` findings with no form blockers, the run buys one targeted writer pass (`attempts.targeted_fix`, once per run) on a pre-seeded `drafts/v<N+1>.md` and re-checks it with the `citations` reviewer alone (`state.targeted_fix`) — `approved_on_v<N+1>` or `forced_exit_on_v<N+1>_with_remaining_issues` (D-165).
+- MCP budget is quota tracking plus telemetry (D-166): the per-agent `mcp_budget_share` is replaced by `mcp_spent` (calls already made, quota servers with `of <limit>`); quota servers (`ldh`, `courtlistener`) are compared against `MCP_PROVIDER_DAILY_LIMITS`, free servers get a soft cap of 100 calls per run (`MCP_SOFT_CAP_PER_RUN`) with a `mcp_soft_cap_exceeded` banner and an `## MCP calls` section in `summary.md`; the plan-gate estimate compares against the quota servers only; the digest `mcp_budget_exhausted` exception fires only for quota servers.
+- The memo reaches the chat (D-167): `finalize.publish` also writes `memo-<slug>.<docx|md>` and `memo-<slug>.summary.md` at the root of the outputs area (same staging/rollback as the folder; `progress.published_memo`), `terminal_response` prints a `Memo:` line, and the router's terminal step presents that file via `present_files` (Cowork), falling back to the device-tools folder copy only without it.
 
 ---
 

@@ -124,15 +124,15 @@ STATUS_ISSUE_LIMIT = 12
 STATUS_ISSUE_SEPARATOR = " · "
 """`severity · section_id · issue` — the shape of one blocker line (D34-11)."""
 
-COPY_BANNERS: frozenset = frozenset({"publish_failed", "output_folder_unavailable"})
-"""Banners about the *copy* of the finished result, not about the memorandum itself (D-144).
+COPY_BANNERS: frozenset = frozenset({"publish_failed", "output_folder_unavailable", "mcp_soft_cap_exceeded"})
+"""Banners kept out of the `## Status` section and `status_signature` (D-144, D-166 fix wave).
 
-`finalize` fixes its banner list before `choose_deliverable` picks the deliverable — every other row
-is therefore already in the `## Status` section the export carries. These two are the exception:
-they are raised by the copy that runs *after* the deliverable exists, so a Status section that
-listed them could never be written into a docx that was already exported, and comparing them would
-make a perfectly current export stale over one sentence about a folder the memo never describes.
-They stay in `summary.md`, which is re-rendered after the copy (D-109, D-111)."""
+`publish_failed` and `output_folder_unavailable` are about the *copy* of the finished result,
+not about the memorandum itself. `mcp_soft_cap_exceeded` is telemetry about MCP calls, likewise
+not about the memorandum — and it is raised after the deliverable is chosen, so listing it in
+the section (or the signature) could never be written into an already exported docx and would
+make a perfectly current export stale. All three stay in `summary.md`, which is re-rendered
+after the copy (D-109, D-111)."""
 
 _WARNING_ID_TAG = re.compile(r"\s*\((?:`[^`()]+`|[a-z0-9]+(?:_[a-z0-9]+)+)\)")
 """The `(warning_id)` tag `warning_text` appends — machine talk, not client text."""

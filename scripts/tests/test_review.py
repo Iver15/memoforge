@@ -469,6 +469,51 @@ class AggregateTest(unittest.TestCase):
             self.assertEqual(["form"], result["failed_reviewers"])
             self.assertEqual(["logic"], result["coverage"])
 
+    def test_a_targeted_iteration_expects_only_the_reviewers_it_dispatched(self):
+        # D-165: the targeted citation pass dispatches `citations` alone, so the three reviewers it
+        # deliberately skipped are not missing files — no stub, no `failed_reviewers`.
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=3)
+            state_io.write_state(
+                work_dir,
+                lambda state: state.update(
+                    {"targeted_fix": {"iteration": 3, "reviewers": ["citations"]}}
+                ),
+            )
+            put_review(work_dir, 3, "citations", "v1-citations")
+
+            result = review.run_aggregate(aggregate_args(work_dir, iteration=3))
+            self.assertEqual([], result.get("errors", []))
+            self.assertEqual(["citations"], result["coverage"])
+            self.assertEqual([], result["failed_reviewers"])
+            self.assertEqual([], result["stubs_written"])
+            record = review.iteration_record(state_io.read_state(work_dir), 3)
+            self.assertEqual(["citations"], record["reviewers"])
+
+    def test_the_aggregated_issue_keeps_the_reviewer_s_issue_category(self):
+        # D-165: branch 9 matches on `issue_category`, so the aggregate must carry it.
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), reviewers=["citations"])
+            document = fixture("v1-citations")
+            document["issues"] = [
+                {
+                    "severity": "blocker",
+                    "category": "unsupported_claim",
+                    "section_id": "s-4-2",
+                    "issue": "The rule statement carries no [[src:]] token.",
+                    "suggestion": "Add the token of the provision the sentence states.",
+                    "issue_category": "unsupported_claim",
+                }
+            ]
+            document["verdict"] = "needs_revision"
+            state_io.write_json_atomic(work_dir / review.review_path(1, "citations"), document)
+
+            review.run_aggregate(aggregate_args(work_dir))
+            record = review.iteration_record(state_io.read_state(work_dir), 1)
+            self.assertEqual(1, len(record["issues"]))
+            self.assertEqual("unsupported_claim", record["issues"][0]["issue_category"])
+            self.assertEqual("citations", record["issues"][0]["source_reviewer"])
+
     def test_repeat_of_a_closed_step_is_a_no_op(self):
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = new_task(Path(tmp), reviewers=["logic"])

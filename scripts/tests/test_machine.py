@@ -165,6 +165,23 @@ class PhaseTableTest(unittest.TestCase):
         self.assertIn("Published: /mnt/user-data/outputs/memoforge/published", text)
         self.assertLess(text.index("Summary:"), text.index("Published:"))
 
+    def test_the_terminal_text_names_the_memo_copy_only_when_there_is_one(self):
+        """D-167: the `Memo:` line is the root-level copy the router presents, skipped otherwise."""
+        driver = Driver(temp_root(self), slug="memo-line")
+        action = driver.run_to_end()
+        self.assertNotIn("Memo:", action["text"])
+
+        def mutator(current: dict) -> None:
+            current["progress"]["published_memo"] = "/mnt/user-data/outputs/memo-memo-line.md"
+
+        state_io.write_state(driver.work_dir, mutator)
+        text = machine.terminal_response(driver.work_dir, driver.state())["text"]
+        self.assertIn("Memo: /mnt/user-data/outputs/memo-memo-line.md", text)
+        lines = text.splitlines()
+        deliverable_idx = next(i for i, line in enumerate(lines) if line.startswith("Deliverable:"))
+        memo_idx = next(i for i, line in enumerate(lines) if line.startswith("Memo:"))
+        self.assertEqual(memo_idx, deliverable_idx + 1)
+
 
 class IdempotenceTest(unittest.TestCase):
     """M3: `next` and `report` are idempotent (§3.1)."""
@@ -523,6 +540,107 @@ class CompletionTest(unittest.TestCase):
                     )
                 )
             driver.report(action["step_id"], action["attempt"], agent=slot)
+
+
+MISSING_TOKEN_ISSUE = {
+    "severity": "blocker",
+    "category": "unsupported_claim",
+    "section_id": "s-4-2",
+    "issue": "The rule statement carries no [[src:]] token.",
+    "suggestion": "Add the token of the provision the sentence states.",
+    "issue_category": "unsupported_claim",
+}
+"""D-165: the single blocker the 2026-09-16 run could not close inside its iteration budget."""
+
+
+def _next_reviewer_dispatch(driver: Driver, *, limit: int = 12) -> dict:
+    """Advance until `next` dispatches the reviewers of an iteration; the action is not acted on."""
+    for _ in range(limit):
+        action = driver.next()
+        if action.get("errors"):
+            raise AssertionError(f"next failed: {action['errors']}")
+        if action["kind"] == "dispatch" and all(
+            agent["slot"] in review.REVIEWER_KINDS for agent in action["agents"]
+        ):
+            return action
+        driver.act(action)
+    raise AssertionError("the revision loop never dispatched reviewers again")
+
+
+def _next_writer_dispatch(driver: Driver, *, limit: int = 8) -> dict:
+    for _ in range(limit):
+        action = driver.next()
+        if action.get("errors"):
+            raise AssertionError(f"next failed: {action['errors']}")
+        if action["kind"] == "dispatch" and action["agents"][0]["subagent_type"].endswith("memo-writer"):
+            return action
+        driver.act(action)
+    raise AssertionError("the revision loop never dispatched the writer")
+
+
+class TargetedCitationFixTest(unittest.TestCase):
+    """D-165: the budget ends on one missing `[[src:]]` token, so one writer pass + `citations` runs."""
+
+    @staticmethod
+    def _act_reviewers_with_a_missing_token(driver: Driver, action: dict) -> None:
+        """Every reviewer approves except `citations`, which reports one `unsupported_claim`."""
+        step = {"step_id": action["step_id"], "attempt": action["attempt"]}
+        for agent in action["agents"]:
+            slot = agent["slot"]
+            probe.run_fixture_agent(driver.work_dir, driver.state(), step, agent)
+            if slot == "citations":
+                target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+                document = state_io.read_json(target)
+                document["issues"] = [dict(MISSING_TOKEN_ISSUE)]
+                document["verdict"] = "needs_revision"
+                state_io.write_json_atomic(target, document)
+                _agent_done(driver, action, slot)
+            driver.report(action["step_id"], action["attempt"], agent=slot)
+
+    def _run_to_the_targeted_reviewer(self, driver: Driver) -> dict:
+        """Drive iterations 1–2, then branch 9's writer, and stop on the citations-only dispatch."""
+        first = driver.run_until("revision_loop")
+        CompletionTest._act_reviewers_with_blocker(driver, first)
+        second = _next_reviewer_dispatch(driver)
+        self.assertEqual(2, driver.state()["current_iteration"])
+        self._act_reviewers_with_a_missing_token(driver, second)
+
+        writer = _next_writer_dispatch(driver)
+        self.assertEqual("drafts/v3.md", writer["agents"][0]["expected_outputs"][0]["canonical"])
+        state = driver.state()
+        self.assertEqual(1, state["attempts"]["targeted_fix"])
+        self.assertEqual({"iteration": 3, "reviewers": ["citations"]}, state["targeted_fix"])
+        self.assertEqual(3, state["current_iteration"])
+        driver.act(writer)
+
+        third = _next_reviewer_dispatch(driver)
+        self.assertEqual(["citations"], [agent["slot"] for agent in third["agents"]])
+        return third
+
+    def test_the_targeted_pass_closes_the_memo_when_the_token_is_added(self):
+        driver = Driver(temp_root(self), slug="targeted-fix")
+        third = self._run_to_the_targeted_reviewer(driver)
+        driver.act(third)  # the citations reviewer approves v3
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("approved_on_v3", state["final_status"])
+        self.assertEqual(1, state["attempts"]["targeted_fix"])
+        record = review.iteration_record(state, 3)
+        self.assertEqual(["citations"], record["reviewers"])
+        self.assertEqual(["citations"], record["coverage"])
+        self.assertEqual([], record["failed_reviewers"])
+
+    def test_a_token_still_missing_after_the_targeted_pass_forces_the_exit(self):
+        driver = Driver(temp_root(self), slug="targeted-fix-open")
+        third = self._run_to_the_targeted_reviewer(driver)
+        self._act_reviewers_with_a_missing_token(driver, third)
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", state["final_status"])
+        self.assertEqual(1, state["attempts"]["targeted_fix"])
+        self.assertTrue(state["remaining_blocking_issues"])
 
 
 class DeclaredInputTest(unittest.TestCase):

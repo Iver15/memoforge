@@ -15,7 +15,7 @@ First action (Bash, before any other tool call):
 - deterministic pre-checks already done for you: ${verify_report}
 - sources to judge: ${sources_list}
 - available legal MCP namespaces: `${mcp_namespaces}`
-- your share of the run MCP budget: `${mcp_budget_share}` calls
+- MCP calls already made this run: ${mcp_spent} — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - previous attempt errors to fix: ${retry_errors}
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:

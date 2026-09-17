@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import gzip
 import json
 import os
@@ -14,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
+from html.parser import HTMLParser
 from pathlib import Path
 
 from . import events, limits, schema, state_io, stepctx
@@ -403,6 +405,8 @@ def store_raw(work_dir: str | os.PathLike, layer: str, source_id: str, raw_file:
     if not src.is_file():
         raise ValueError(f"raw_file_not_found: {src}")
     payload = src.read_bytes()
+    converted = markup_to_text(payload)
+    payload = converted if converted is not None else payload
     target = Path(work_dir) / RAW_DIR / layer / f"{source_id}.md"
     state_io.write_bytes_atomic(target, payload)
     if src.absolute() != target.absolute():
@@ -477,7 +481,11 @@ def register_source(
             held = sources[explicit_id]
             incoming_sha = None
             if raw_file and Path(raw_file).is_file():
-                incoming_sha = state_io.sha256_file(Path(raw_file))
+                # D-163: `store_raw` records the converted text, so the repeat check hashes the
+                # same normalised bytes — identical HTML re-registered under its id is a no-op.
+                incoming = Path(raw_file).read_bytes()
+                converted = markup_to_text(incoming)
+                incoming_sha = state_io.sha256_bytes(converted if converted is not None else incoming)
             if (held.get("raw_sha256") or None) != incoming_sha:
                 return {
                     "errors": [f"source_id_collision: {explicit_id} already holds {held['title']!r}"],
@@ -895,9 +903,9 @@ def collect_exceptions(work_dir: str | os.PathLike, state: dict) -> list[dict]:
         message = warning if isinstance(warning, str) else warning.get("message", "")
         exceptions.append({"kind": "drafting_warning", "source_id": None, "detail": message})
 
-    budget = (state.get("config") or {}).get("mcp_budget") or {}
     calls = ((state.get("progress") or {}).get("mcp_calls")) or {}
-    for server, allowed in sorted(budget.items()):
+    for server in limits.MCP_QUOTA_SERVERS:
+        allowed = limits.MCP_PROVIDER_DAILY_LIMITS.get(server, 0)
         used = calls.get(server)
         used = used if isinstance(used, int) else 0
         if allowed and used >= allowed:
@@ -1162,6 +1170,80 @@ def is_markup(payload: bytes, content_type: str = "") -> bool:
     return bool(_HTML_SNIFF_RE.search(payload[:1024]))
 
 
+_BLOCK_TAGS = frozenset(
+    "p div br li ul ol h1 h2 h3 h4 h5 h6 tr table section article blockquote pre dt dd dl header footer "
+    "main nav aside figure figcaption hr title".split()
+)
+_SKIP_TAGS = frozenset("script style head noscript template svg".split())
+
+_WS_RUN_RE = re.compile(r"[ \t\r\f\v]+")
+_CHARSET_RE = re.compile(rb"(?:charset|encoding)\s*=\s*[\"']?\s*([A-Za-z0-9_.\-:]+)", re.IGNORECASE)
+
+
+class _TextExtractor(HTMLParser):
+    """Block tags become line breaks, `script`/`style`/`head` vanish, entities are decoded (D-163)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):  # noqa: D102 - HTMLParser contract
+        if tag in _SKIP_TAGS:
+            self._skip += 1
+        elif tag in _BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):  # noqa: D102
+        if tag in _SKIP_TAGS:
+            self._skip = max(self._skip - 1, 0)
+        elif tag in _BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data):  # noqa: D102
+        if not self._skip:
+            self.parts.append(data)
+
+
+def _declared_charset(payload: bytes) -> str | None:
+    """Charset named in the first 2 KB (`<meta charset>`, XML declaration), or None (D-163)."""
+    match = _CHARSET_RE.search(payload[:2048])
+    if not match:
+        return None
+    try:
+        return codecs.lookup(match.group(1).decode("ascii")).name
+    except (LookupError, UnicodeDecodeError):
+        return None
+
+
+def markup_to_text(payload: bytes, content_type: str = "") -> bytes | None:
+    """Plain text of an HTML/XHTML body, or None when the body is not markup (D-163).
+
+    Article headings (`<p class="oj-ti-art">Article 9</p>` on Cellar, `<h2>Article 9</h2>` elsewhere)
+    end up on a line of their own, which is what `article_spans` and `quote extract` need; the
+    delivered `sources/*.txt` become readable for the same reason.
+    """
+    if not is_markup(payload, content_type):
+        return None
+    text = payload.decode(_declared_charset(payload) or "utf-8", errors="replace")
+    parser = _TextExtractor()
+    parser.feed(text)
+    parser.close()
+    joined = "".join(parser.parts)
+    # Collapse ASCII whitespace runs only, then turn every nbsp into one plain space: archived
+    # AI Act pages write `Article&#160;N` and Cellar writes `1.` + three nbsp, while the
+    # article-heading expressions accept only spaces/tabs — so `&#160;` must become spaces here,
+    # one character for one, keeping paragraph spacing and character offsets intact (fix wave).
+    lines = [_WS_RUN_RE.sub(" ", line).replace(" ", " ").strip(" \t\r\f\v") for line in joined.splitlines()]
+    out: list[str] = []
+    for line in lines:
+        if line:
+            out.append(line)
+        elif out and out[-1] != "":
+            out.append("")
+    return ("\n".join(out).strip() + "\n").encode("utf-8")
+
+
 def is_redirect_shell(payload: bytes) -> bool:
     """True for a small markup body whose only content is a redirect (D-149, analysis/39 §9.2).
 
@@ -1296,6 +1378,8 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
             "redirects": hops,
         }
 
+    text = markup_to_text(payload, content_type)
+    payload = text if text is not None else payload
     status = "redirect" if normalize_url(final_url) != normalize_url(url) else "ok"
     return {
         "status": status,
@@ -1724,6 +1808,11 @@ def run_fetch(args: argparse.Namespace) -> dict:
     _LAST_FETCH[host] = time.monotonic()
 
     payload = answer.pop("payload")
+    if payload and answer["status"] in ("ok", "redirect"):
+        text = markup_to_text(payload, answer["content_type"])
+        if text is not None:
+            payload = text
+            answer = {**answer, "content_type": "text/plain", "converted": "text"}
     result = {
         "url": url,
         "host": host,

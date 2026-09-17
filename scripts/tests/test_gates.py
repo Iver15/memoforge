@@ -924,6 +924,20 @@ class SourcesCoverageTest(unittest.TestCase):
         )
         self.assertIn("case_law in EU", text)
 
+    def test_the_question_compares_the_estimate_to_the_quota_servers_only(self):
+        root = self.work_dir({"ldh": "mcp__x", "courtlistener": "mcp__y"})
+        plan = dict(
+            probe.fixture_plan(),
+            doctrine_required=True,
+            issues=[dict(probe.fixture_plan()["issues"][0]) for _ in range(30)],
+        )
+        state_io.write_json_atomic(root / "plan.json", plan)
+        questions = gates.build_auq(root, {})["questions"]
+        rows = [q for q in questions if q["header"] == "Sources"]
+        self.assertTrue(rows, "a 30-issue plan must trip the estimate against the quotas")
+        self.assertIn("daily quotas of", rows[0]["question"])
+        self.assertNotIn("run budget", rows[0]["question"])
+
 
 class ParseCommandTest(unittest.TestCase):
     """§2.4 (b): one state write records the answer, the files, the event and the closed step."""

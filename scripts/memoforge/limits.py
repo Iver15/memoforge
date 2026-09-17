@@ -42,6 +42,16 @@ MAX_REVIEWER_JSON_RETRY = 1
 MAX_REVIEWER_RERUN = 1
 """`attempts.reviewer_rerun{iteration}` before `manual_review_required` (§2.2)."""
 
+MAX_TARGETED_FIX_PASSES = 1
+"""`attempts.targeted_fix`: targeted citation passes of §4.5 п.4 branch 9 per run (D-165)."""
+
+MAX_TARGETED_FIX_BLOCKERS = 2
+"""Most `citations`/`unsupported_claim` blockers one targeted pass may be asked to close (D-165).
+
+The 2026-09-16 run ended with exactly one; beyond a couple of missing tokens the draft needs a
+whole iteration, which the budget already refused.
+"""
+
 MAX_SINGLE_DISPATCH_RETRY = 1
 """`attempts.single_dispatch_retry{step_id}` for dispatch(1) steps (§2.2)."""
 
@@ -180,6 +190,12 @@ MCP_INTAKE_CALLS = 2  # S3
 
 MCP_CURRENCY_CALLS_PER_LAYER = 2  # S3
 """Share of the estimate spent by `currency-checker` per research layer (§4.3)."""
+
+MCP_QUOTA_SERVERS: tuple[str, ...] = ("ldh", "courtlistener")
+"""Servers with a published daily quota — the only ones the plan-gate estimate is compared to (D-166)."""
+
+MCP_SOFT_CAP_PER_RUN = 100
+"""Calls to one free server per run before `finalize` raises `mcp_soft_cap_exceeded` (D-166)."""
 
 # --- Stop-guard (§8.3) ---------------------------------------------------
 STOP_GUARD_MAX_BLOCKS = 2
