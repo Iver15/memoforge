@@ -42,7 +42,8 @@
       "párr",
       "arts",
       "apdos",
-      "pp"
+      "pp",
+      "regl"
     ],
     "lint_off": [],
     "ai_tells": [],
@@ -108,6 +109,8 @@
       "annexes": "anexos",
       "s": "sección",
       "ss": "secciones",
+      "reg": "regl.",
+      "regs": "regl.",
       "p": "p.",
       "pp": "pp.",
       "cited_at": "citado en ",
@@ -160,7 +163,7 @@
       "docx_invalid": "El docx generado no pasó la validación; el entregable markdown es autoritativo.",
       "unresolved_reference": "Algunas referencias no pudieron resolverse y están marcadas [unresolved: …] en el entregable.",
       "output_folder_unavailable": "Falló la escritura en la carpeta de salida; el artefacto final queda en el directorio de trabajo en {work_dir}.",
-      "publish_failed": "El resultado terminado no pudo copiarse a la carpeta de publicación; queda en el directorio de trabajo, en la ruta que imprime el mensaje final.",
+      "publish_failed": "El resultado terminado no pudo copiarse a la carpeta de publicación; queda en el directorio de trabajo, en la ruta que imprime el mensaje final.{failure}",
       "dashboard_unavailable": "El panel en vivo no pudo publicarse ({reason}); la ejecución continuó e informó el progreso mediante las líneas de paso ordinarias.",
       "state_corrupt": "state.json era ilegible; el resumen se reconstruyó a partir de los archivos en disco.",
       "fallback_summary_delivered": "El pipeline no pudo completarse; en su lugar se entrega un resumen de repliegue de todo lo recogido."

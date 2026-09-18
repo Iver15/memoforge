@@ -1497,7 +1497,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
             finalize._publish_failed_banner
         )
         self.assertEqual(
-            ['banner = fallbacks.banner("publish_failed")'],
+            ['return fallbacks.banner("publish_failed", failure=f" ({type(exc).__name__})")'],
             [line.strip() for line in published.splitlines() if "fallbacks.banner(" in line],
         )
         self.assertIn("publish_failed", md_fallback.COPY_BANNERS)
@@ -1508,7 +1508,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         state = {
             "final_status": "forced_exit_on_v1_with_remaining_issues",
             "fallback_banners": [
-                fallbacks.banner("publish_failed"),
+                fallbacks.banner("publish_failed", failure=" (OSError)"),
                 fallbacks.banner("output_folder_write_failed", work_dir="/tmp/work"),
                 fallbacks.banner("mcp_soft_cap_exceeded", server="legalviz", count=120),
             ],
@@ -2021,6 +2021,35 @@ class SalvageLocalizedExportTest(_WorkDirMixin, unittest.TestCase):
         (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
         finalize.run_finalize(finalize_args(work_dir, salvage=True))
         self.assertIn("## Статус", md_fallback_export(work_dir))
+
+    def salvaged_without_a_draft(self, work_dir: Path) -> dict:
+        """Delete the draft the export came from, break the pack and salvage (D-181)."""
+        (work_dir / "drafts" / "v1.md").unlink()
+        i18n._cache.clear()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir, salvage=True))
+        self.assertNotIn("errors", result)
+        return result
+
+    def test_salvage_with_no_draft_left_delivers_the_localized_export_whole(self):
+        """D-181: with nothing to re-render from, the export is the deliverable (M9) — and
+        `condense_appendix` must not read that Russian body back through English headings,
+        which left the export's own `## Статус` standing and appended an English one."""
+        work_dir = self.russian_export()
+        before = md_fallback_export(work_dir)
+        result = self.salvaged_without_a_draft(work_dir)
+        self.assertEqual(finalize.DELIVERABLE_MD, result["deliverable"])
+        body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
+        self.assertEqual(1, body.count("## Статус"))
+        self.assertNotIn(f"## {md_fallback.label('status_label')}", body)
+        self.assertEqual(before, md_fallback_export(work_dir), "the export stays as it is (D-50)")
+
+    def test_the_untouched_export_is_named_in_the_final_status_reasons(self):
+        result = self.salvaged_without_a_draft(self.russian_export())
+        self.assertIn("export_reused_untouched", result["final_status_reasons"])
+        self.assertIn("export_reused_untouched", (
+            (Path(result["work_dir"]) / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        ))
 
 
 class UnreadablePackFinalizeTest(_WorkDirMixin, unittest.TestCase):

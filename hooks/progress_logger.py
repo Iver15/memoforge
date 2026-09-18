@@ -41,6 +41,8 @@ MCP_ALIAS_SPELLINGS: tuple[tuple[str, str], ...] = (
     ("courtlistener", "courtlistener"),
     ("legalviz", "legalviz"),
     ("eurlex", "legalviz"),
+    # D-182: Cowork spells the UK server `claude_ai_UK_MCP`.
+    ("ukmcp", "uklegal"),
     ("uklegalmcp", "uklegal"),
     ("uklegal", "uklegal"),
     ("justicelibre", "justicelibre"),

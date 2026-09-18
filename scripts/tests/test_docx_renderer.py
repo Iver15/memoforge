@@ -715,10 +715,10 @@ class RenderErrorTest(unittest.TestCase):
         self.assertEqual("[unresolved: x]", oscola.unresolved_text("x"))
 
 
-class FallbackBranchTest(unittest.TestCase):
-    """§5.5/§5.6: a renderer failure or a missing dependency degrades `docx render` to markdown."""
+class _ExportCommandCase(unittest.TestCase):
+    """A work dir in the export phase plus the `mf docx render` call over it; no cases of its own."""
 
-    def make_task(self) -> Path:
+    def make_task(self, language: str = "en") -> Path:
         from memoforge import state_io, task
 
         tmp = tempfile.TemporaryDirectory()
@@ -728,7 +728,7 @@ class FallbackBranchTest(unittest.TestCase):
         state = task.build_initial_state(
             task_id=work_dir.name,
             user_query="q",
-            language="en",
+            language=language,
             work_dir=work_dir,
             output_folder=work_dir.parent,
             config={},
@@ -750,6 +750,10 @@ class FallbackBranchTest(unittest.TestCase):
                 workdir=str(work_dir), step="s-render", attempt=1, draft_sha=None, human=False
             )
         )
+
+
+class FallbackBranchTest(_ExportCommandCase):
+    """§5.5/§5.6: a renderer failure or a missing dependency degrades `docx render` to markdown."""
 
     def test_a_renderer_exception_falls_back_to_markdown(self):
         from unittest import mock
@@ -794,6 +798,44 @@ class FallbackBranchTest(unittest.TestCase):
         self.assertEqual("memo-gdpr.md", result["markdown_path"])
         self.assertTrue((work_dir / "memo-gdpr.docx").is_file())
         self.assertTrue((work_dir / "memo-gdpr.md").is_file())
+
+
+class UnreadablePackRenderTest(_ExportCommandCase):
+    """D-181: an unreadable memo pack is a business error of `docx render`, not an `internal_error`.
+
+    `fallback.render_workdir` raises `i18n.PackUnavailable`, which `cli.error_result` turns into
+    `internal_error: PackUnavailable: …` plus a traceback. The command answers the documented
+    `language_pack_unavailable: <code>` instead — the shape `finalize.run_finalize` already uses —
+    and writes nothing, so the run takes its ordinary `docx_export_failed` route.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        i18n._cache.clear()
+        self.addCleanup(i18n._cache.clear)
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+
+    def test_an_unreadable_pack_is_a_business_error_and_nothing_is_written(self):
+        work_dir = self.make_task(language="ru")
+        result = self.run_render(work_dir)
+        self.assertEqual(["language_pack_unavailable: ru"], result["errors"])
+        self.assertFalse((work_dir / "memo-gdpr.md").exists())
+        self.assertFalse((work_dir / "memo-gdpr.docx").exists())
+        self.assertFalse((work_dir / "memo-gdpr.invalid.docx").exists())
+
+        # Second step: the answer is about the pack and about nothing else. The step was left open
+        # and no file of it was written, so a readable pack renders the very same work dir.
+        _i18n.fake_pack(self.packs, "ru", RU_DELIVERABLE)
+        i18n._cache.clear()
+        repaired = self.run_render(work_dir)
+        self.assertNotIn("errors", repaired)
+        self.assertEqual("docx", repaired["renderer"])
+        self.assertTrue((work_dir / "memo-gdpr.docx").is_file())
 
 
 class LocalizedDocxTest(GoldenCase):

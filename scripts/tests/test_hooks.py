@@ -651,6 +651,8 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 ("mcp__eurlex__get_case_law", "legalviz"),
                 ("mcp__uk-legal__legislation_get_section", "uklegal"),
                 ("mcp__uk_legal_mcp__case_law_search", "uklegal"),
+                # D-182: Cowork spells the UK server `claude_ai_UK_MCP`.
+                ("mcp__claude_ai_UK_MCP__legislation_search", "uklegal"),
                 # D-148: justicelibre announces itself by its own name, OpenCaseLaw as
                 # `swiss-caselaw` in `serverInfo.name`.
                 ("mcp__plugin_memoforge_justicelibre__get_law_article", "justicelibre"),
@@ -682,6 +684,7 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 "ldh",
                 "legalviz",
                 "legalviz",
+                "uklegal",
                 "uklegal",
                 "uklegal",
                 "justicelibre",

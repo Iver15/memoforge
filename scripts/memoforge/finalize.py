@@ -43,6 +43,13 @@ PUBLISH_RUN_DIRNAME = "_run"
 PUBLICATION_FILES: tuple[str, ...] = (DELIVERABLE_DOCX, DELIVERABLE_MD, SUMMARY_MD)
 """What a publish owns inside `<root>/memoforge/<slug>/`, next to the `sources/` directory (D-111)."""
 
+EXPORT_REUSED_UNTOUCHED = "export_reused_untouched"
+"""`final_status_reasons[]` code of D-181: the body is an export this run did not re-render.
+
+`condense_appendix` reads a body back through the labels of the run's *current* language, so it may
+only be applied to a body this run rendered. It never happens in English — `reuse_export` is only
+false when the memo pack of another language cannot be read (D-175b)."""
+
 
 def root_memo_name(slug: str, deliverable: str) -> str:
     """`<root>/memo-<slug>.<ext>` — the chat-visible copy, next to `memoforge/` (D-167).
@@ -280,7 +287,11 @@ def choose_deliverable(
     # D-113: the appendix of the *deliverable* is the short one; the export and `summary.md` keep
     # what they carry (the export's bytes are bound to a draft sha, §2.1 row 15 / D-50).
     # D34-11: the same pass rebuilds `## Status` over the banners this finalize collected.
-    body = condense_appendix(body, work_dir, _status_view(state, final_status, banners))
+    # D-181: unless the body is an export written in another language than this run's labels — the
+    # partition would find none of its headings, so the export's own `## Status` would survive and a
+    # second one be appended. Such a body is delivered whole (M9) and the reason says so.
+    if EXPORT_REUSED_UNTOUCHED not in reasons:
+        body = condense_appendix(body, work_dir, _status_view(state, final_status, banners))
     state_io.write_bytes_atomic(work_dir / DELIVERABLE_MD, body.encode("utf-8"))
     return {
         "deliverable": DELIVERABLE_MD,
@@ -348,7 +359,9 @@ def _markdown_body(
     English one is appended. So the selected draft is rendered afresh instead, and the export is
     left exactly as it is — its bytes are bound to a draft sha and a `published[]` row (D-50), and
     a degraded run must not invalidate them. With no draft left the export is still the deliverable:
-    M9 delivers what there is, and an unrewritten localized body is whole.
+    M9 delivers what there is, and an unrewritten localized body is whole. D-181: that body then
+    carries `EXPORT_REUSED_UNTOUCHED`, which keeps `condense_appendix` off it — the rewrite reads a
+    body back through this run's labels, and these are not the ones the export was written with.
     """
     selection = select_draft(state, work_dir)
     rendered = memo_md_path(work_dir, slug)
@@ -375,6 +388,10 @@ def _markdown_body(
 
     if rendered.is_file():
         # No draft left to re-render from: the existing export is still better than nothing (M9).
+        # D-181: it was not rendered in the language this run prints in, so the caller is told to
+        # deliver it as it stands instead of rewriting its tail (`EXPORT_REUSED_UNTOUCHED`).
+        if not reuse_export:
+            reasons = reasons + [EXPORT_REUSED_UNTOUCHED]
         return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons
 
     body = build_fallback_summary(state, work_dir, reason)
@@ -827,10 +844,14 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
 
 
 def _publish_failed_banner(exc: BaseException) -> dict:
-    """The `publish_failed` row of `fallbacks.py`, naming the failure class so the run is debuggable."""
-    banner = fallbacks.banner("publish_failed")
-    banner["text"] = f"{banner['text']} ({type(exc).__name__})"
-    return banner
+    """The `publish_failed` row of `fallbacks.py`, naming the failure class so the run is debuggable.
+
+    D-181: the class is the `{failure}` parameter of the row, not a suffix glued onto the stored
+    text — `fallbacks.banner_text_for` re-renders a non-English banner from the pack, which dropped
+    a suffix the parameters knew nothing about. The whole ` (<ExceptionClass>)` travels as the
+    parameter, so the English text is the byte string it always was.
+    """
+    return fallbacks.banner("publish_failed", failure=f" ({type(exc).__name__})")
 
 
 def _log_published(work_dir: Path, state: dict, result: dict) -> None:

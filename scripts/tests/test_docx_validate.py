@@ -392,6 +392,76 @@ class LocalizedStatusTest(unittest.TestCase):
         self.assertEqual("<w:t>Статус</w:t>", validate.status_run("ru"))
 
 
+class StandaloneLanguageTest(unittest.TestCase):
+    """D-181: `mf docx validate --language <code>` tells the standalone command the memo language.
+
+    Without `--workdir` there is no `state.json` to read it from, so a localized document whose map
+    says `status_required` was validated against the English `Status` run and reported
+    `status_section_missing`. The flag is the only source: nothing is inferred from the document or
+    from the footnotes map, and without it English stands exactly as before.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        packs = self.tmp / "i18n"
+        packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        i18n._cache.clear()
+        self.addCleanup(i18n._cache.clear)
+        _i18n.fake_pack(packs, "ru", RU_DELIVERABLE)
+        self.path = self.tmp / "memo.docx"
+        result = renderer.render(
+            DRAFT,
+            sample_index(),
+            self.path,
+            citation_style=oscola.STYLE_FOOTNOTES,
+            final_status="forced_exit_on_v1_with_remaining_issues",
+            language="ru",
+        )
+        self.map_path = self.tmp / "footnotes-map.json"
+        state_io.write_json_atomic(self.map_path, renderer.footnotes_map(result))
+
+    def args(self, language: str | None) -> argparse.Namespace:
+        return argparse.Namespace(
+            workdir=None,
+            path=str(self.path),
+            map_path=str(self.map_path),
+            step=None,
+            attempt=1,
+            language=language,
+            human=False,
+        )
+
+    def test_the_flag_makes_the_localized_document_valid(self):
+        result = docx.run_validate(self.args("ru"))
+        self.assertTrue(result["valid"], result["details"])
+        self.assertNotIn(validate.E_MISSING_STATUS, result["errors"])
+
+    def test_without_the_flag_the_document_is_still_validated_as_english(self):
+        """Characterisation of the unchanged default, not a RED case: it was green before the flag
+        existed and must stay green — without `--workdir` and without `--language` the standalone
+        command keeps validating as English."""
+        result = docx.run_validate(self.args(None))
+        self.assertFalse(result["valid"])
+        self.assertIn(validate.E_MISSING_STATUS, result["errors"])
+
+    def test_an_unknown_code_is_a_business_error(self):
+        result = docx.run_validate(self.args("xx"))
+        self.assertEqual(["invalid_language: xx"], result["errors"])
+        self.assertIsNone(result["valid"])
+
+    def test_the_flag_is_registered_and_defaults_to_none(self):
+        from memoforge import cli
+
+        parser = cli.build_parser()
+        self.assertEqual("ru", parser.parse_args(["docx", "validate", "--language", "ru"]).language)
+        self.assertIsNone(parser.parse_args(["docx", "validate"]).language)
+
+
 class UnreadableTest(unittest.TestCase):
     def test_a_missing_file_is_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:

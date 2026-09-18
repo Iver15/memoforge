@@ -42,7 +42,8 @@
       "civ",
       "n",
       "paragr",
-      "pp"
+      "pp",
+      "règl"
     ],
     "lint_off": [],
     "ai_tells": [],
@@ -108,6 +109,8 @@
       "annexes": "annexes",
       "s": "section",
       "ss": "sections",
+      "reg": "règl.",
+      "regs": "règl.",
       "p": "p.",
       "pp": "pp.",
       "cited_at": "cité dans ",
@@ -160,7 +163,7 @@
       "docx_invalid": "Le docx généré a échoué à la validation ; le livrable markdown fait foi.",
       "unresolved_reference": "Certaines références n'ont pas pu être résolues et sont marquées [unresolved: …] dans le livrable.",
       "output_folder_unavailable": "Échec d'écriture dans le dossier de sortie ; l'artefact final reste dans le répertoire de travail à {work_dir}.",
-      "publish_failed": "Le résultat terminé n'a pas pu être copié dans le dossier de publication ; il reste dans le répertoire de travail, au chemin qu'imprime le message final.",
+      "publish_failed": "Le résultat terminé n'a pas pu être copié dans le dossier de publication ; il reste dans le répertoire de travail, au chemin qu'imprime le message final.{failure}",
       "dashboard_unavailable": "Le tableau de bord en direct n'a pas pu être publié ({reason}) ; le passage a continué et la progression a été signalée par les lignes d'étape ordinaires.",
       "state_corrupt": "state.json était illisible ; le résumé a été reconstruit à partir des fichiers sur disque.",
       "fallback_summary_delivered": "Le pipeline n'a pas pu aboutir ; un résumé de repli de tout ce qui a été recueilli est livré à la place."

@@ -12,7 +12,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import fallbacks, i18n, phases  # noqa: E402
+from memoforge import fallbacks, finalize, i18n, phases  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -133,6 +133,31 @@ class BannerLanguageTest(unittest.TestCase):
         self.assertEqual(legacy["text"], fallbacks.banner_text_for(legacy, "ru"))
         self.assertEqual("x", fallbacks.banner_text_for({"banner_id": "nope", "text": "x"}, "ru"))
         self.assertEqual("plain", fallbacks.banner_text_for("plain", "ru"))
+
+    def test_publish_failed_keeps_its_failure_class_in_every_language(self):
+        """D-181: `_publish_failed_banner` used to append ` (PermissionError)` to the stored
+        text, which `banner_text_for` then dropped when it re-rendered the row from the pack.
+        The class is a `{failure}` parameter of the row, so every language keeps it."""
+        _i18n.fake_pack(
+            self.packs,
+            "ru",
+            {
+                "memo.banners.publish_failed": (
+                    "Готовый результат не удалось скопировать в папку публикации.{failure}"
+                )
+            },
+        )
+        row = finalize._publish_failed_banner(PermissionError("denied"))
+        self.assertEqual(
+            "Готовый результат не удалось скопировать в папку публикации. (PermissionError)",
+            fallbacks.banner_text_for(row, "ru"),
+        )
+        self.assertEqual(
+            "The finished result could not be copied to the publish folder; it stays in the "
+            "working directory, at the path the final message prints. (PermissionError)",
+            fallbacks.banner_text_for(row, "en"),
+        )
+        self.assertEqual(fallbacks.banner_text_for(row, "en"), row["text"])
 
     def test_every_banner_id_has_an_english_pack_entry_with_the_same_text(self):
         for row in fallbacks.FALLBACKS:

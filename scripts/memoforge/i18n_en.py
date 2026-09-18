@@ -125,6 +125,8 @@ EN: dict = {
             "annexes": "annexes",
             "s": "s",
             "ss": "ss",
+            "reg": "reg",
+            "regs": "regs",
             "p": "p",
             "pp": "pp",
             "cited_at": "cited at ",
@@ -218,7 +220,7 @@ EN: dict = {
             ),
             "publish_failed": (
                 "The finished result could not be copied to the publish folder; it stays in the working directory, "
-                "at the path the final message prints."
+                "at the path the final message prints.{failure}"
             ),
             "dashboard_unavailable": (
                 "The live dashboard could not be published ({reason}); the run continued and reported progress "

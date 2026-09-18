@@ -366,6 +366,8 @@ _PINPOINT_LABELS: tuple[tuple[str, str], ...] = (
     (r"annexe?", "annex"),
     (r"recitals", "recitals"),
     (r"recital", "recital"),
+    (r"reg(?:ulation)?s", "regs"),
+    (r"reg(?:ulation)?", "reg"),
     (r"sections|secs|ss", "ss"),
     (r"section|sec|s", "s"),
     (r"pages|pp", "pp"),

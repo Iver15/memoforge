@@ -48,7 +48,8 @@
       "s",
       "lit",
       "ziff",
-      "rn"
+      "rn",
+      "reg"
     ],
     "lint_off": [],
     "ai_tells": [],
@@ -114,6 +115,8 @@
       "annexes": "Anhänge",
       "s": "Abschnitt",
       "ss": "Abschnitte",
+      "reg": "Reg.",
+      "regs": "Reg.",
       "p": "S.",
       "pp": "S.",
       "cited_at": "zitiert in ",
@@ -166,7 +169,7 @@
       "docx_invalid": "Das erzeugte docx hat die Validierung nicht bestanden; das Markdown-Ergebnis ist maßgeblich.",
       "unresolved_reference": "Einige Verweise konnten nicht aufgelöst werden und sind im Ergebnis als [unresolved: …] markiert.",
       "output_folder_unavailable": "Schreiben in den Ausgabeordner fehlgeschlagen; das fertige Artefakt bleibt im Arbeitsverzeichnis unter {work_dir}.",
-      "publish_failed": "Das fertige Ergebnis konnte nicht in den Veröffentlichungsordner kopiert werden; es bleibt im Arbeitsverzeichnis unter dem Pfad, den die Abschlussmeldung nennt.",
+      "publish_failed": "Das fertige Ergebnis konnte nicht in den Veröffentlichungsordner kopiert werden; es bleibt im Arbeitsverzeichnis unter dem Pfad, den die Abschlussmeldung nennt.{failure}",
       "dashboard_unavailable": "Das Live-Dashboard konnte nicht veröffentlicht werden ({reason}); der Durchlauf wurde fortgesetzt und der Fortschritt über die üblichen Schrittzeilen gemeldet.",
       "state_corrupt": "state.json war nicht lesbar; die Zusammenfassung wurde aus den Dateien auf der Platte rekonstruiert.",
       "fallback_summary_delivered": "Die Pipeline konnte nicht abgeschlossen werden; stattdessen wird eine Ersatzzusammenfassung alles Gesammelten geliefert."

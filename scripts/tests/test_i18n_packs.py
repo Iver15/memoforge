@@ -227,7 +227,7 @@ class PackParityTest(unittest.TestCase):
             with self.subTest(code=code):
                 abbreviations = set(i18n.node(code, "memo.abbreviations"))
                 citation = dict(i18n.node(code, "memo.citation"))
-                for key in ("art", "arts", "para", "paras", "s", "ss", "p", "pp"):
+                for key in ("art", "arts", "para", "paras", "reg", "regs", "s", "ss", "p", "pp"):
                     label = citation[key]
                     if not label.endswith("."):
                         continue

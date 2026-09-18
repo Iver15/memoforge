@@ -292,6 +292,10 @@ def run_render(args: argparse.Namespace) -> dict:
     fallback branch and `finalize` fall back to, so it must exist even when the docx renders cleanly.
     `ImportError` (no `python-docx`/`mistune`) and any renderer exception downgrade the run to the
     markdown branch with the `docx_export_failed` banner (§5.5, §5.6).
+
+    D-181: an unreadable memo pack is not one of those — a memo language is never silently replaced
+    by English (D-175), so the command answers the documented `language_pack_unavailable: <code>`
+    business error, the shape `finalize.run_finalize` already uses, and writes nothing.
     """
     work_dir = Path(args.workdir)
     state = state_io.read_state_or_none(work_dir)
@@ -308,7 +312,13 @@ def run_render(args: argparse.Namespace) -> dict:
         return {"errors": ["no_draft_to_render"], "draft_sha": args.draft_sha}
 
     step_dir = step_work_dir(work_dir, args.step, args.attempt)
-    rendered = fallback.render_workdir(work_dir, draft, state=state)
+    language = fallback.memo_language(state)
+    try:
+        rendered = fallback.render_workdir(work_dir, draft, state=state)
+    except i18n.PackUnavailable:
+        # The first label of the run is looked up here, so this is where a pack that cannot be
+        # read shows up — before any file of the step is written.
+        return {"errors": [f"language_pack_unavailable: {language}"]}
 
     md_staged = step_dir / f"{MEMO_STEM_PREFIX}{slug}.md"
     payload = rendered["markdown"].encode("utf-8")
@@ -335,9 +345,7 @@ def run_render(args: argparse.Namespace) -> dict:
     if exported["ok"]:
         validation = dict(
             validate.validate_path(
-                docx_staged,
-                footnotes_map=exported["map"],
-                language=fallback.memo_language(state),
+                docx_staged, footnotes_map=exported["map"], language=language
             )
         )
         if not validation["valid"]:
@@ -596,6 +604,11 @@ def run_validate(args: argparse.Namespace) -> dict:
 
     D-28: it is a `--step` command like every other script step, so `machine.py` needs no completion
     predicate of its own; without `--step` it stays the plain utility the tests call.
+
+    D-181: `--language <code>` is the memo language of a document validated without a `--workdir` —
+    there is no `state.json` to read it from, and a localized `Status` section is invisible to the
+    English run the check looks for. Nothing is inferred from the document or from the footnotes
+    map; without the flag the language is the state's, exactly as before.
     """
     work_dir = Path(args.workdir) if args.workdir else None
     state = state_io.read_state_or_none(work_dir) if work_dir else None
@@ -603,6 +616,11 @@ def run_validate(args: argparse.Namespace) -> dict:
     saved = begin_step(state, args, args_key)
     if saved is not None:
         return saved
+
+    requested = getattr(args, "language", None)
+    language = fallback.memo_language(state) if requested is None else i18n.normalize(requested)
+    if language is None:
+        return {"errors": [f"invalid_language: {requested}"], "valid": None}
 
     slug = slug_of(state or {}, work_dir) if work_dir is not None else "memo"
     path = Path(args.path) if args.path else (memo_docx_path(work_dir, slug) if work_dir else None)
@@ -626,9 +644,7 @@ def run_validate(args: argparse.Namespace) -> dict:
     # D-51: no banner is passed in — an `[unresolved:` literal invalidates the docx unconditionally,
     # and a missing `footnotes-map.json` is an error of the report, not a reason to skip checks.
     report = validate.validate_path(
-        path,
-        footnotes_map=_footnotes_map(work_dir, state or {}, args),
-        language=fallback.memo_language(state),
+        path, footnotes_map=_footnotes_map(work_dir, state or {}, args), language=language
     )
     result = dict(report)
     result["skipped"] = False
@@ -737,6 +753,11 @@ def register(subparsers) -> None:
     validate_cmd.add_argument("--path", default=None)
     validate_cmd.add_argument(
         "--map", dest="map_path", default=None, help="footnotes-map.json of the render step"
+    )
+    validate_cmd.add_argument(
+        "--language",
+        default=None,
+        help="memo language of the document; default: the task's with --workdir, else English (D-181)",
     )
     validate_cmd.add_argument("--step", default=None)
     validate_cmd.add_argument("--attempt", type=int, default=1)

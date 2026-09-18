@@ -77,7 +77,7 @@ a corrupt `state.json`.
 - **`docx_invalid`** — The generated docx failed validation; the markdown deliverable is authoritative.
 - **`unresolved_reference`** — Some references could not be resolved and are marked `[unresolved: …]` in the deliverable.
 - **`output_folder_unavailable`** — Output folder write failed; the final artifact stays in the working directory at {work_dir}.
-- **`publish_failed`** — The finished result could not be copied to the publish folder; it stays in the working directory, at the path the final message prints.
+- **`publish_failed`** — The finished result could not be copied to the publish folder; it stays in the working directory, at the path the final message prints.{failure}
 - **`dashboard_unavailable`** — The live dashboard could not be published ({reason}); the run continued and reported progress through the ordinary step lines.
 - **`state_corrupt`** — state.json was unreadable; the summary was reconstructed from the files on disk.
 - **`fallback_summary_delivered`** — The pipeline could not complete; a fallback summary of everything gathered is delivered instead.

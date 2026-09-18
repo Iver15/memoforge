@@ -286,6 +286,12 @@ class PinpointTest(unittest.TestCase):
         self.assertEqual("arts 5, 6", oscola.normalise_pinpoint("Articles 5, 6"))
         self.assertEqual("annex III point 4(b)", oscola.normalise_pinpoint("Annex III point 4(b)"))
 
+    def test_regulations_normalise_to_reg_and_regs(self):
+        self.assertEqual("reg 22(1)", oscola.normalise_pinpoint("Reg. 22(1)"))
+        self.assertEqual("reg 5", oscola.normalise_pinpoint("Regulation 5"))
+        self.assertEqual("regs 2-3", oscola.normalise_pinpoint("regs 2-3"))
+        self.assertEqual("reg 22(1)", oscola.normalise_pinpoint("reg 22(1)"))
+
     def test_a_pinpoint_with_no_label_is_left_alone(self):
         self.assertEqual(
             "point 2 of the operative part",
@@ -706,6 +712,8 @@ RU_CITATION: dict = {
     "memo.citation.arts": "стт.",
     "memo.citation.para": "п.",
     "memo.citation.paras": "пп.",
+    "memo.citation.reg": "рег.",
+    "memo.citation.regs": "рег.",
     "memo.citation.ibid": "там же",
     "memo.citation.cited_at": "цитируется в ",
     "memo.citation.also_cited_at": "также цитируется в ",
@@ -740,6 +748,10 @@ class LocalizedCitationTest(unittest.TestCase):
     def test_the_plural_label_is_not_taken_for_the_singular_one(self):
         self.assertEqual("стт. 5, 6", oscola.display_pinpoint("arts 5, 6", "ru"))
         self.assertEqual("пп. 44, 89", oscola.display_pinpoint("paras 44, 89", "ru"))
+
+    def test_reg_is_localized_on_display(self):
+        self.assertEqual("рег. 22(1)", oscola.display_pinpoint("reg 22(1)", "ru"))
+        self.assertEqual("reg 22(1)", oscola.display_pinpoint("reg 22(1)", "en"))
 
     def test_a_pinpoint_without_a_label_is_displayed_as_written(self):
         self.assertEqual("§ 26", oscola.display_pinpoint("§ 26", "ru"))

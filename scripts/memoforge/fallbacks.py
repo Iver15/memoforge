@@ -337,11 +337,14 @@ FALLBACKS: list[dict] = [
             "the source texts stay in the working directory (D-109)."
         ),
         "banner_id": "publish_failed",
+        # D-181: the failure class travels as a parameter, so `banner_text_for` re-renders it into
+        # the memo language with the diagnostic instead of dropping it. `finalize` passes the whole
+        # ` (<ExceptionClass>)` suffix, so the English text stays the byte string it always was.
         "banner_text": (
             "The finished result could not be copied to the publish folder; it stays in the working directory, "
-            "at the path the final message prints."
+            "at the path the final message prints.{failure}"
         ),
-        "banner_params": [],
+        "banner_params": ["failure"],
     },
     {
         "condition_key": "dashboard_unavailable",
@@ -407,6 +410,10 @@ DASHBOARD_LABELS: dict[str, str] = {
     ),
     "output_folder_unavailable": (
         "Output folder write failed; the final artifact stays in the working directory."
+    ),
+    "publish_failed": (
+        "The finished result could not be copied to the publish folder; it stays in the working "
+        "directory, at the path the final message prints."
     ),
     "dashboard_unavailable": (
         "The live dashboard could not be published; the run continued and reported progress in chat."
