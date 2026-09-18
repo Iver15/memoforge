@@ -6,7 +6,7 @@ need the network and fail on a read-only or externally managed environment; inst
 explicit `mf deps install`. The result is a cache the CLI and the README can read:
 
     <plugin_data_dir>/deps.json      {schema_version, kind: "deps", checked_at, python_version, deps}
-    <plugin_data_dir>/options.json   {"dashboard": "true", …} — the six `userConfig` options (§8.4)
+    <plugin_data_dir>/options.json   {"dashboard": "true", …} — the ten `userConfig` options (§8.4)
 
 The second file exists because a host exports `CLAUDE_PLUGIN_OPTION_*` to **hook** processes only
 (§8.4): a `Bash` command the orchestrator runs (`mf task new`) may see none of them, so the hook
@@ -40,11 +40,13 @@ OPTION_KEYS: tuple[str, ...] = (
     "writer_model",
     "source_review_gate",
     "citation_style",
+    "memo_language",
+    "ui_language",
     "dashboard",
     "stop_guard",
     "websearch_autoallow",
 )
-"""The eight `userConfig` options declared in `.claude-plugin/plugin.json` (ТЗ §8.4, D-109, D-152)."""
+"""The ten `userConfig` options declared in `.claude-plugin/plugin.json` (ТЗ §8.4, D-109, D-152, D-169)."""
 
 MODULES: tuple[tuple[str, str], ...] = (
     ("jsonschema", "jsonschema"),

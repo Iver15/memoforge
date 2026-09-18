@@ -209,6 +209,55 @@ class ReviewSchemaTest(unittest.TestCase):
             seen,
         )
 
+    def test_every_issue_shape_accepts_issue_client(self):
+        # D-173a: optional `issue_client` (1–400 chars) on every issue shape: one issue per
+        # schema variant — logic, form, citations, unverified_hard_fail, counterarguments.
+        base = {
+            "logic": read_json(fixture_dir("review") / "valid-1.json"),
+            "form": read_json(fixture_dir("review") / "valid-2.json"),
+            "citations": read_json(fixture_dir("review") / "valid-3.json"),
+            "counterarguments": read_json(fixture_dir("review") / "valid-4.json"),
+        }
+        base["counterarguments"]["issues"] = [
+            {
+                "severity": "blocker",
+                "category": "missing_application",
+                "section_id": "s-4-1",
+                "issue": "The counterargument is stated but never answered.",
+                "suggestion": "Answer it.",
+                "attack_vector": "contrary_authority",
+            }
+        ]
+        unverified_issue = {
+            "severity": "blocker",
+            "category": "unverified_hard_fail",
+            "section_id": "document",
+            "issue": "Hard-fail checklist item LOG-02 was graded `unknown`.",
+            "suggestion": "Re-run the reviewer and grade LOG-02 as pass or fail.",
+            "checklist_id": "LOG-02",
+        }
+        # Which `$defs` issue shape each exercised issue validates against.
+        shapes = {
+            "logic": "logic_issue",
+            "form": "form_issue",
+            "citations": "citations_issue",
+            "counterarguments": "counterarguments_issue",
+            "unverified_hard_fail": "unverified_hard_fail_issue",
+        }
+        exercised: set[str] = set()
+        for kind, report in base.items():
+            report["verdict"] = "needs_revision"
+            report["issues"].append(dict(unverified_issue))
+            with self.subTest(kind=kind):
+                for issue in report["issues"]:
+                    issue["issue_client"] = "Der Test wird nicht angewendet."
+                self.assertEqual([], errors_for("review", report))
+                report["issues"][0]["issue_client"] = "x" * 401
+                self.assertTrue(errors_for("review", report))
+            exercised.add(shapes[kind])
+            exercised.add("unverified_hard_fail_issue")
+        self.assertEqual(set(shapes.values()), exercised)
+
     def test_review_with_7_issues_is_valid(self):
         # §4.5: the "<=5 major" cap is prompt guidance, never maxItems in the schema.
         review = self._logic_review()
@@ -338,6 +387,14 @@ class ClientReadinessSchemaTest(unittest.TestCase):
     def test_every_issue_carries_a_section_id(self):
         report = self._report()
         report["issues"][0].pop("section_id")
+        self.assertTrue(errors_for("client-readiness", report))
+
+    def test_an_issue_may_carry_a_client_sentence(self):
+        # D-173a: optional `issue_client` (1–400 chars).
+        report = self._report()
+        report["issues"][0]["issue_client"] = "Der Test wird nicht angewendet."
+        self.assertEqual([], errors_for("client-readiness", report))
+        report["issues"][0]["issue_client"] = "x" * 401
         self.assertTrue(errors_for("client-readiness", report))
 
 

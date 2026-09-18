@@ -19,6 +19,7 @@ Hook events are at-least-once and deduplicated on read by `event_key`.
 | `fallback_invoked` |
 | `gate_answered` |
 | `gate_channel_switched` |
+| `language_fallback` |
 | `mcp_call` |
 | `mcp_ratelimit_fallback` |
 | `mode_selected` |

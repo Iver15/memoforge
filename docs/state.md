@@ -13,7 +13,7 @@ Paths inside the state are POSIX strings relative to `work_dir`, except `work_di
 | Field | Meaning |
 |---|---|
 | `schema_version` | Always `2`. `mf task resolve` answers `unsupported` for anything lower. |
-| `task_id`, `created_at`, `user_query`, `language` | Task identity and the question verbatim; `language` is always `en` (ТЗ §0.3). |
+| `task_id`, `created_at`, `user_query`, `language`, `ui_language` | Task identity and the question verbatim; `language` is the memo language (`en` \| `de` \| `fr` \| `es` \| `ru`), `ui_language` the interface language (same enum, optional — absence means `en`). |
 | `work_dir`, `output_folder` | Absolute run directory and the folder it was resolved into (ТЗ §2.5 chain). |
 | `mode` | `brief` \| `full` \| `null` until the plan gate fixes it. |
 | `config` | Effective run configuration: `python_cmd`, `plugin_data_dir`, `reviewer_list`, `researcher_layers`, `max_iterations`, `lint_fix_rounds`, `intake_max_questions`, `client_polish_enabled`, `max_client_polish`, `template_id`, `template_path`, `citation_style` (D-150: footnotes, inline or null; null leaves the choice to the template's own front matter, which is inline in both templates), `writer_model`, `publish_folder`, `source_review_gate`, `dashboard`, `mcp_budget`, and the resolved style profile: `style_profile`, `style_profile_path`, `style_profile_mode_binding`, `prose_style_path`. |

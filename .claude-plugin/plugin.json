@@ -47,6 +47,18 @@
       "default": "inline",
       "description": "How citations appear in the memorandum: inline (short parenthetical citations linked to the source, full records in the Sources annex) or footnotes (a Word footnote per citation)."
     },
+    "memo_language": {
+      "title": "Memo language",
+      "type": "string",
+      "default": "en",
+      "description": "Language of the memorandum, summary and docx: en, de, fr, es, ru, or auto (use the detected language of the request)."
+    },
+    "ui_language": {
+      "title": "Interface language",
+      "type": "string",
+      "default": "auto",
+      "description": "Language of the plugin interface (gates, dashboard): en, de, fr, es, ru, or auto (use the detected language of the request)."
+    },
     "dashboard": {
       "title": "Live dashboard",
       "type": "boolean",

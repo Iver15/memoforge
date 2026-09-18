@@ -57,8 +57,12 @@
     },
     "language": {
       "type": "string",
-      "minLength": 2,
-      "maxLength": 16
+      "enum": ["en", "de", "fr", "es", "ru"]
+    },
+    "ui_language": {
+      "description": "D-171: interface language; optional, absence means `en` (no migration).",
+      "type": "string",
+      "enum": ["en", "de", "fr", "es", "ru"]
     },
     "work_dir": {
       "type": "string",

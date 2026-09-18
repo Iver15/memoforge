@@ -25,7 +25,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import events, limits, routing, schema  # noqa: E402
+from memoforge import events, limits, routing, schema, task  # noqa: E402
 
 
 def load_hook(name: str, directory: str = "hooks"):
@@ -1237,11 +1237,19 @@ class ManifestTest(unittest.TestCase):
         self.assertTrue(user_config["websearch_autoallow"]["default"])
         # D-152: `citation_style` is the eighth option; `inline` is the default of both templates.
         self.assertEqual(user_config["citation_style"]["default"], "inline")
+        # D-169: the two language options; `memo_language` defaults to `en`, `ui_language` to `auto`.
+        self.assertEqual(user_config["memo_language"]["default"], "en")
+        self.assertEqual(user_config["ui_language"]["default"], "auto")
         self.assertEqual(
             sorted(user_config),
-            ["citation_style", "dashboard", "output_folder", "publish_folder",
-             "source_review_gate", "stop_guard", "websearch_autoallow", "writer_model"],
+            ["citation_style", "dashboard", "memo_language", "output_folder", "publish_folder",
+             "source_review_gate", "stop_guard", "ui_language", "websearch_autoallow", "writer_model"],
         )
+
+    def test_the_manifest_the_chain_and_the_session_hook_list_the_same_options(self):
+        manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(list(manifest["userConfig"]), list(task.OPTION_KEYS))
+        self.assertEqual(tuple(ensure_deps.OPTION_KEYS), task.OPTION_KEYS)
 
     def test_the_writer_model_default_is_allowed(self):
         self.assertIn(self.manifest["userConfig"]["writer_model"]["default"], limits.ALLOWED_WRITER_MODELS)

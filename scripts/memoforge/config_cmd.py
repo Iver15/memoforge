@@ -37,7 +37,7 @@ def _answer(path, extra: dict | None = None) -> dict:
 
 
 def run_show(args: argparse.Namespace) -> dict:
-    """`mf config show` — effective value and source of each of the six options (§8.4)."""
+    """`mf config show` — effective value and source of each of the ten options (§8.4)."""
     return _answer(task.options_path())
 
 

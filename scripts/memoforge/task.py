@@ -9,7 +9,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from . import events, fallbacks, hooks_common, limits, modes, phases, pylauncher, review, state_io
+from . import events, fallbacks, hooks_common, i18n, limits, modes, phases, pylauncher, review, state_io
 
 WORK_DIR_SUBDIRS: tuple[str, ...] = (
     "intake",
@@ -24,8 +24,18 @@ WORK_DIR_SUBDIRS: tuple[str, ...] = (
 
 LEGACY_HINT = "task from v1 — finish it with memoforge 1.1.1 or start a new task"
 
-MEMO_LANGUAGE = "en"
-"""The memo is English-only (ТЗ §0.3 non-goals); the query language never changes the output."""
+LANGUAGE_OPTIONS = ("memo_language", "ui_language")
+"""The two language options of D-169 — the memo language and the interface language."""
+
+LANGUAGE_VALUES = ("auto",) + i18n.LANGUAGES
+"""Every legal option value (`auto` resolves through `--detected-language`, D-170)."""
+
+LANGUAGE_CODES = "|".join(i18n.LANGUAGES)
+"""`en|de|fr|es|ru` — the named-flag error text (no `auto` there, D-169)."""
+
+LANGUAGE_OPTION_VALUES = "|".join(LANGUAGE_VALUES)
+"""`auto|en|de|fr|es|ru` — the option error text (`--option`, `mf config set`, D-169)."""
+
 
 
 # --- helpers --------------------------------------------------------------
@@ -50,11 +60,6 @@ def sanitize_slug(text: str | None) -> str:
     return value or "task"
 
 
-def detect_language(query: str) -> str:
-    """Memo language tag: always `en` (§0.3 «memo остаётся English-only»); no override exists (D-15)."""
-    return MEMO_LANGUAGE
-
-
 def coerce_bool(value: object) -> bool:
     """Parse a plugin userConfig boolean coming from the environment."""
     if isinstance(value, bool):
@@ -73,11 +78,13 @@ OPTION_KEYS: tuple[str, ...] = (
     "writer_model",
     "source_review_gate",
     "citation_style",
+    "memo_language",
+    "ui_language",
     "dashboard",
     "stop_guard",
     "websearch_autoallow",
 )
-"""The eight options declared in `.claude-plugin/plugin.json`, in manifest order (§8.4, D-109, D-152)."""
+"""The ten options declared in `.claude-plugin/plugin.json`, in manifest order (§8.4, D-109, D-152, D-169)."""
 
 BOOL_OPTIONS: frozenset = frozenset(("dashboard", "stop_guard", "websearch_autoallow"))
 
@@ -92,6 +99,8 @@ OPTION_DEFAULTS: dict = {
     "writer_model": modes.DEFAULT_WRITER_MODEL,
     "source_review_gate": "auto",
     "citation_style": modes.DEFAULT_CITATION_STYLE,
+    "memo_language": "en",
+    "ui_language": "auto",
     "dashboard": "true",
     "stop_guard": "false",
     "websearch_autoallow": "true",
@@ -132,7 +141,7 @@ def read_options_file(path: str | os.PathLike | None = None) -> dict:
 
 
 def resolve_options(flags: dict | None = None, *, path: str | os.PathLike | None = None) -> dict:
-    """Resolve the six options: CLI flags > `CLAUDE_PLUGIN_OPTION_*` > `options.json` > defaults.
+    """Resolve the ten options: CLI flags > `CLAUDE_PLUGIN_OPTION_*` > `options.json` > defaults.
 
     D-91: a host exports the option variables to hooks only, so `options.json` (written by
     `hooks/ensure_deps.py`, or by hand through `mf config set`) is what a `Bash`-launched `mf`
@@ -197,7 +206,62 @@ def validate_option(key: str, value: object) -> str | None:
     if key == "citation_style" and text.lower() not in modes.CITATION_STYLES:
         expected = "|".join(modes.CITATION_STYLES)
         return f"invalid_option_value: {key}={value} (expected {expected})"
+    if key in LANGUAGE_OPTIONS and text.lower() not in LANGUAGE_VALUES:
+        return f"invalid_option_value: {key}={value} (expected {LANGUAGE_OPTION_VALUES})"
     return None
+
+
+def validate_language(value: object) -> str | None:
+    """None when `value` is a legal named-flag language code, else the error string (D-169)."""
+    if i18n.normalize(value) is not None:
+        return None
+    return f"invalid_language: {value} (expected {LANGUAGE_CODES})"
+
+
+def resolve_languages(
+    values: dict,
+    *,
+    language: str | None,
+    ui_language: str | None,
+    detected: str | None,
+) -> dict:
+    """Resolve the two language options to codes plus sources and fallbacks (D-169, D-170).
+
+    Resolution order per option: named flag → ordinary chain (`--option` > env >
+    `options.json` > default). If the result is `auto`: `normalize(detected)` or `en`,
+    source `detected` (the chain's source stays when no detected value was given). An
+    invalid chain value resolves to `en` and is reported as one fallback per option.
+    `values` is the `resolve_options` answer (`{"values": ..., "sources": ...}`);
+    the named flags were validated already.
+    """
+    raw_values = values.get("values", values)
+    chain_sources = values.get("sources", {})
+    out: dict = {"language": "en", "ui_language": "en", "sources": {}, "fallbacks": []}
+    for option, flag in (("memo_language", language), ("ui_language", ui_language)):
+        answer_key = "language" if option == "memo_language" else "ui_language"
+        if flag is not None:
+            out[answer_key] = i18n.normalize(flag) or "en"
+            out["sources"][answer_key] = "flag"
+            continue
+        raw = raw_values.get(option, OPTION_DEFAULTS[option])
+        text = str(raw).strip().lower()
+        if text not in LANGUAGE_VALUES:
+            out["sources"][answer_key] = "default"
+            out["fallbacks"].append({"option": option, "requested": str(raw), "applied": "en"})
+            continue
+        if text == i18n.AUTO:
+            # Presence beats normalization: a supplied `--detected-language` owns the source
+            # even when it falls outside the five codes (then it means `en`).
+            if detected is not None:
+                out[answer_key] = i18n.normalize(detected) or "en"
+                out["sources"][answer_key] = "detected"
+            else:
+                out[answer_key] = "en"
+                out["sources"][answer_key] = chain_sources.get(option, "default")
+            continue
+        out[answer_key] = text
+        out["sources"][answer_key] = chain_sources.get(option, "default")
+    return out
 
 
 def parse_option_flags(pairs: list | None) -> tuple:
@@ -301,6 +365,7 @@ def build_initial_state(
     output_folder: Path,
     config: dict,
     created_at: str | None = None,
+    ui_language: str = "en",
 ) -> dict:
     """Build a schema-valid v2 `state.json` for a fresh task (§2.2)."""
     created_at = created_at or events.utc_now()
@@ -310,6 +375,7 @@ def build_initial_state(
         "user_query": user_query,
         "created_at": created_at,
         "language": language,
+        "ui_language": ui_language,
         "work_dir": str(work_dir),
         "output_folder": str(output_folder),
         "mode": None,
@@ -481,7 +547,26 @@ def run_new(args: argparse.Namespace) -> dict:
     ):
         if value is not None:
             flags[name] = value  # a named flag beats the same key given as `--option key=value`
+    # D-169: the named language flags accept the five codes only, not `auto`.
+    language_errors = []
+    for value in (getattr(args, "language", None), getattr(args, "ui_language", None)):
+        error = validate_language(value) if value is not None else None
+        if error is not None:
+            language_errors.append(error)
+    if language_errors:
+        return {"errors": language_errors}
     options = resolve_options(flags)
+    languages = resolve_languages(
+        options,
+        language=getattr(args, "language", None),
+        ui_language=getattr(args, "ui_language", None),
+        detected=getattr(args, "detected_language", None),
+    )
+    language = languages["language"]
+    ui_language = languages["ui_language"]
+    # D-169: a memo pack that cannot be read refuses the task before anything lands on disk.
+    if not i18n.available(language):
+        return {"errors": [f"language_pack_unavailable: {language}"]}
     user_config = user_config_from_options(options)
     config = modes.resolve_config(None, user_config)
     # D-15: an unknown `writer_model` never fails `task new`; it degrades and is logged below.
@@ -495,12 +580,11 @@ def run_new(args: argparse.Namespace) -> dict:
     work_dir, task_id = allocate_work_dir(output_folder, f"memo-{utc_stamp()}-{slug}")
     create_work_dir_tree(work_dir)
 
-    language = detect_language(query)
     events.append_event(
         work_dir,
         "task_created",
         "cli",
-        {"task_id": task_id, "slug": slug, "language": language},
+        {"task_id": task_id, "slug": slug, "language": language, "ui_language": ui_language},
         phase=phases.INITIAL_PHASE,
     )
     events.append_event(
@@ -524,11 +608,22 @@ def run_new(args: argparse.Namespace) -> dict:
             phase=phases.INITIAL_PHASE,
             severity="warn",
         )
+    # D-169: an invalid chain value degrades to `en` and is logged, like `writer_model_fallback`.
+    for fallback in languages["fallbacks"]:
+        events.append_event(
+            work_dir,
+            "language_fallback",
+            "cli",
+            fallback,
+            phase=phases.INITIAL_PHASE,
+            severity="warn",
+        )
 
     state = build_initial_state(
         task_id=task_id,
         user_query=query,
         language=language,
+        ui_language=ui_language,
         work_dir=work_dir,
         output_folder=output_folder,
         config=config,
@@ -546,6 +641,8 @@ def run_new(args: argparse.Namespace) -> dict:
         "schema_version": 2,
         "current_phase": state["current_phase"],
         "language": language,
+        "ui_language": ui_language,
+        "language_source": languages["sources"],
         "slug": slug,
         # D-91: where each option came from, so a host with no options UI is diagnosable.
         "options_source": options["sources"],
@@ -706,6 +803,93 @@ def run_dashboard(args: argparse.Namespace) -> dict:
     return result
 
 
+class _LanguageRefused(Exception):
+    """Control flow: the `run_language` mutator declined the write.
+
+    Raised inside `state_io.write_state`, so the file is never rewritten and no
+    `state_written` event is emitted. `.reason` is one of `terminal|locked|unavailable|noop`.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("language change refused")
+        self.reason = reason
+
+
+def run_language(args: argparse.Namespace) -> dict:
+    """`mf task language` — change the memo and/or interface language of a task (D-172).
+
+    `--memo` is allowed while the plan is not approved yet (at most `plan_approval_pending`);
+    later it answers `language_locked` and leaves the state untouched. `--ui` is allowed in
+    any non-terminal phase. Eligibility is decided inside the locked mutator, so a phase
+    change between the first read and the write cannot slip a change through: the mutator
+    raises `_LanguageRefused` and `write_state` never writes, never emits `state_written`.
+    """
+    memo = getattr(args, "memo", None)
+    ui = getattr(args, "ui", None)
+    if memo is None and ui is None:
+        return {"errors": ["language_requires_one_of: --memo or --ui"]}
+    for value in (memo, ui):
+        error = validate_language(value) if value is not None else None
+        if error is not None:
+            return {"errors": [error]}
+    memo_code = i18n.normalize(memo) if memo is not None else None
+    ui_code = i18n.normalize(ui) if ui is not None else None
+
+    work_dir = Path(args.workdir)
+    # Fast path only: detect a missing state before touching the lock.
+    if state_io.read_state_or_none(work_dir) is None:
+        return {"errors": ["state_unreadable"], "work_dir": str(work_dir.absolute())}
+
+    outcome: dict = {}
+
+    def mutator(current: dict) -> None:
+        phase = current.get("current_phase")
+        if isinstance(phase, str) and phases.is_terminal(phase):
+            outcome["state"] = dict(current)
+            raise _LanguageRefused("terminal")
+        changed: list[str] = []
+        if memo_code is not None and memo_code != current.get("language"):
+            gate = phases.PHASE_INDEX["plan_approval_pending"]
+            if phase not in phases.PHASE_INDEX or phases.PHASE_INDEX[phase] > gate:
+                raise _LanguageRefused("locked")
+            if not i18n.available(memo_code):
+                raise _LanguageRefused("unavailable")
+            current["language"] = memo_code
+            changed.append("language")
+        if ui_code is not None and ui_code != current.get("ui_language", "en"):
+            current["ui_language"] = ui_code
+            changed.append("ui_language")
+        if not changed:
+            raise _LanguageRefused("noop")
+        outcome["changed"] = changed
+
+    try:
+        new_state = state_io.write_state(work_dir, mutator)
+    except _LanguageRefused as refused:
+        if refused.reason == "terminal":
+            result = _describe(work_dir, outcome["state"])
+            result["already_terminal"] = True
+            result["changed"] = []
+            return result
+        if refused.reason == "locked":
+            return {"errors": ["language_locked: memo language is fixed once the plan is approved"]}
+        if refused.reason == "unavailable":
+            return {"errors": [f"language_pack_unavailable: {memo}"]}
+        state = state_io.read_state_or_none(work_dir)
+        return {
+            "language": (state or {}).get("language"),
+            "ui_language": (state or {}).get("ui_language", "en"),
+            "changed": [],
+        }
+    except OSError:
+        return {"errors": ["state_unreadable"], "work_dir": str(work_dir.absolute())}
+    return {
+        "language": new_state.get("language"),
+        "ui_language": new_state.get("ui_language", "en"),
+        "changed": outcome.get("changed", []),
+    }
+
+
 def register(subparsers) -> None:
     """Register the `task` command group."""
     from . import cli
@@ -730,6 +914,24 @@ def register(subparsers) -> None:
         metavar="key=value",
         help="userConfig option, repeatable (e.g. --option dashboard=false); highest priority",
     )
+    new.add_argument(
+        "--language",
+        dest="language",
+        default=None,
+        help="memo language, one of en|de|fr|es|ru (beats every option level, D-170)",
+    )
+    new.add_argument(
+        "--ui-language",
+        dest="ui_language",
+        default=None,
+        help="interface language, one of en|de|fr|es|ru (beats every option level, D-170)",
+    )
+    new.add_argument(
+        "--detected-language",
+        dest="detected_language",
+        default=None,
+        help="language the user writes in; applies only to options resolved to auto (D-170)",
+    )
     new.set_defaults(func=run_new)
 
     resolve = group.add_parser("resolve", help="resolve a task id (default: last unfinished)")
@@ -747,6 +949,12 @@ def register(subparsers) -> None:
     cancel.add_argument("task_id", nargs="?", default=None)
     cancel.add_argument("--workdir", default=None)
     cancel.set_defaults(func=run_cancel)
+
+    language = group.add_parser("language", help="change the memo and/or interface language (D-172)")
+    language.add_argument("--workdir", required=True)
+    language.add_argument("--memo", default=None, help="memo language, one of en|de|fr|es|ru")
+    language.add_argument("--ui", default=None, help="interface language, one of en|de|fr|es|ru")
+    language.set_defaults(func=run_language)
 
     dashboard = group.add_parser("dashboard", help="record the live dashboard URL (ТЗ §7.5)")
     dashboard.add_argument("--workdir", required=True)

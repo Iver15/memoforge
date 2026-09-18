@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import sys
@@ -16,13 +15,18 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import cli, events, limits, phases, schema, state_io, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from memoforge import cli, events, i18n, limits, phases, schema, state_io, task  # noqa: E402
+import _i18n  # noqa: E402
 
 ENV_KEYS = (
     "CLAUDE_PLUGIN_DATA",
     "CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER",
     "CLAUDE_PLUGIN_OPTION_WRITER_MODEL",
     "CLAUDE_PLUGIN_OPTION_SOURCE_REVIEW_GATE",
+    "CLAUDE_PLUGIN_OPTION_MEMO_LANGUAGE",
+    "CLAUDE_PLUGIN_OPTION_UI_LANGUAGE",
     "CLAUDE_PLUGIN_OPTION_DASHBOARD",
     "CLAUDE_PLUGIN_OPTION_STOP_GUARD",
     "CLAUDE_PLUGIN_OPTION_WEBSEARCH_AUTOALLOW",
@@ -47,6 +51,10 @@ def new_args(**kwargs) -> argparse.Namespace:
         "output_folder": None,
         "writer_model": None,
         "source_review_gate": None,
+        "language": None,
+        "ui_language": None,
+        "detected_language": None,
+        "option": None,
         "human": False,
     }
     base.update(kwargs)
@@ -109,19 +117,27 @@ class SlugTest(unittest.TestCase):
 
 
 class LanguageTest(unittest.TestCase):
-    """ТЗ §0.3: the memo is English-only, so the query language never selects the output language."""
+    """D-15 removed `detect_language`; the memo language is a resolved option (D-169, D-170)."""
+
+    def test_no_detect_language_remains(self):
+        self.assertFalse(hasattr(task, "detect_language"))
 
     def test_a_non_english_query_still_produces_an_english_memo(self):
-        self.assertEqual(task.detect_language("Обработка данных"), "en")
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
+            with clean_env(MEMOFORGE_OUTPUT_FOLDER=tmp, CLAUDE_PLUGIN_DATA=data):
+                result = task.run_new(new_args(query="Обработка данных в поддержке"))
+            self.assertEqual(result["language"], "en")
 
     def test_defaults_to_english(self):
-        self.assertEqual(task.detect_language("Data processing"), "en")
+        self.assertEqual("en", task.LANGUAGE_OPTIONS and task.resolve_languages({}, language=None,
+                                                                              ui_language=None,
+                                                                              detected=None)["language"])
 
     def test_a_new_task_records_english(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
             with clean_env(MEMOFORGE_OUTPUT_FOLDER=tmp, CLAUDE_PLUGIN_DATA=data):
                 result = task.run_new(new_args(query="Обработка данных в поддержке"))
-            self.assertEqual(result["language"], task.MEMO_LANGUAGE)
+            self.assertEqual(result["language"], "en")
 
 
 class WorkDirChainTest(unittest.TestCase):
@@ -295,13 +311,10 @@ class TaskNewTest(unittest.TestCase):
             self.assertNotEqual(first["work_dir"], second["work_dir"])
             self.assertNotEqual(first["task_id"], second["task_id"])
 
-    def test_the_language_flag_no_longer_exists(self):
-        """D-15: `task new --language` is removed; the memo is always English (§0.3)."""
+    def test_the_language_flag_now_selects_the_memo_language(self):
         parser = cli.build_parser()
-        with mock.patch.object(sys, "stderr", io.StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                parser.parse_args(["task", "new", "--query", "x", "--language", "de"])
-        self.assertEqual(raised.exception.code, 2)
+        parsed = parser.parse_args(["task", "new", "--query", "x", "--language", "de"])
+        self.assertEqual(parsed.language, "de")
 
     def test_a_new_task_is_always_english(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data:
@@ -631,6 +644,98 @@ class CitationStyleOptionTest(unittest.TestCase):
             resolved = task.resolve_options()
         self.assertEqual("inline", resolved["values"]["citation_style"])
         self.assertEqual("default", resolved["sources"]["citation_style"])
+
+
+class LanguageOptionsTest(unittest.TestCase):
+    """D-169, D-170: the two language options, the three flags, state and `mf task language`."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.out = Path(self._tmp.name) / "out"
+        self.out.mkdir()
+        self.data = Path(self._tmp.name) / "data"
+        self.data.mkdir()
+        packs = Path(self._tmp.name) / "packs"
+        packs.mkdir()
+        _i18n.fake_pack(packs, "ru", _i18n.RU)
+        _i18n.fake_pack(packs, "de")
+        patcher = mock.patch.object(i18n, "PACK_DIR", packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def new(self, **kwargs):
+        with clean_env(CLAUDE_PLUGIN_DATA=str(self.data), **kwargs.pop("env", {})):
+            return task.run_new(new_args(output_folder=str(self.out), **kwargs))
+
+    def test_a_russian_question_under_the_defaults_still_gets_an_english_memo(self):
+        result = self.new(query="Обработка данных", detected_language="ru")
+        self.assertEqual(("en", "ru"), (result["language"], result["ui_language"]))
+        self.assertEqual({"language": "default", "ui_language": "detected"}, result["language_source"])
+
+    def test_auto_takes_the_detected_language_and_an_unknown_one_means_english(self):
+        self.assertEqual("ru", self.new(option=["memo_language=auto"], detected_language="ru")["language"])
+        refused = self.new(option=["memo_language=auto"], detected_language="it")
+        self.assertEqual("en", refused["language"])
+        self.assertEqual("detected", refused["language_source"]["language"])
+        absent = self.new(option=["memo_language=auto"])
+        self.assertEqual("en", absent["language"])
+        self.assertEqual("flag", absent["language_source"]["language"])
+
+    def test_an_explicit_flag_beats_the_option_and_the_detected_language(self):
+        result = self.new(language="de", detected_language="ru", option=["memo_language=ru"])
+        self.assertEqual("de", result["language"])
+        self.assertEqual("flag", result["language_source"]["language"])
+
+    def test_an_explicit_unknown_language_is_refused_not_replaced(self):
+        self.assertEqual(["invalid_language: it (expected en|de|fr|es|ru)"], self.new(language="it")["errors"])
+        self.assertIn("invalid_option_value: memo_language=it", self.new(option=["memo_language=it"])["errors"][0])
+
+    def test_a_bad_value_from_the_environment_degrades_and_is_logged(self):
+        result = self.new(env={"CLAUDE_PLUGIN_OPTION_MEMO_LANGUAGE": "klingon"})
+        self.assertEqual("en", result["language"])
+        rows = events.read_events(Path(result["work_dir"]))
+        self.assertEqual([{"option": "memo_language", "requested": "klingon", "applied": "en"}],
+                         [row["data"] for row in rows if row["event"] == "language_fallback"])
+
+    def test_a_memo_language_without_a_pack_creates_nothing(self):
+        result = self.new(language="fr")                              # no fr.json in the temp PACK_DIR
+        self.assertEqual(["language_pack_unavailable: fr"], result["errors"])
+        self.assertEqual([], [p for p in self.out.iterdir() if p.is_dir()])
+
+    def test_state_carries_both_languages(self):
+        state = state_io.read_state(Path(self.new(language="ru", ui_language="de")["work_dir"]))
+        self.assertEqual(("ru", "de"), (state["language"], state["ui_language"]))
+
+    def test_task_language_changes_the_memo_language_until_the_plan_is_approved(self):
+        work = Path(self.new()["work_dir"])
+        changed = run_cli(["task", "language", "--workdir", str(work), "--memo", "ru", "--ui", "de"])
+        self.assertEqual(["language", "ui_language"], changed["changed"])
+        state_io.write_state(work, lambda s: {**s, "current_phase": "research"})   # past the plan gate
+        locked = run_cli(["task", "language", "--workdir", str(work), "--memo", "de"])
+        self.assertEqual(["language_locked: memo language is fixed once the plan is approved"], locked["errors"])
+        self.assertEqual("ru", state_io.read_state(work)["language"])
+        self.assertNotIn("errors", run_cli(["task", "language", "--workdir", str(work), "--ui", "en"]))
+
+    def test_a_phase_change_between_read_and_write_still_locks_the_memo_language(self):
+        work = Path(self.new()["work_dir"])
+        pending = state_io.read_state(work)
+        advanced = dict(pending, current_phase="research")
+        writes_before = len([e for e in events.read_events(work) if e["event"] == "state_written"])
+        reads = {"n": 0}
+
+        def flipping_read_json(path):
+            reads["n"] += 1
+            if reads["n"] == 1:
+                return dict(pending)       # the fast-path read: plan not approved yet
+            return dict(advanced)          # the locked read: the pipeline moved on
+
+        with mock.patch.object(state_io, "read_json", side_effect=flipping_read_json):
+            refused = run_cli(["task", "language", "--workdir", str(work), "--memo", "ru"])
+        self.assertEqual(["language_locked: memo language is fixed once the plan is approved"], refused["errors"])
+        self.assertEqual("en", state_io.read_state(work)["language"])
+        writes_after = len([e for e in events.read_events(work) if e["event"] == "state_written"])
+        self.assertEqual(writes_before, writes_after, "the refused call wrote nothing")
 
 
 class ProjectFolderTaskTest(unittest.TestCase):

@@ -111,6 +111,14 @@ class StateSchemaTest(unittest.TestCase):
     def test_positive(self):
         self.assertEqual(schema.validate(valid_state(), "state"), [])
 
+    def test_a_state_written_before_the_language_option_is_still_valid(self):
+        state = valid_state()                                  # the schema test's existing builder
+        state.pop("ui_language", None)
+        self.assertEqual("en", state["language"])
+        self.assertEqual([], schema.validate(state, "state"))
+        state["ui_language"] = "xx"
+        self.assertNotEqual([], schema.validate(state, "state"))
+
     def test_positive_with_steps_published_and_progress(self):
         state = valid_state()
         state["steps"] = [

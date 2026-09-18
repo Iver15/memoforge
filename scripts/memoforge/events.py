@@ -37,6 +37,8 @@ EVENT_TYPES: set[str] = {
     # --- degradations reported by agents and by config resolution (D-10, D-15)
     "mcp_ratelimit_fallback",
     "writer_model_fallback",
+    # --- language option degradations (D-169): an invalid chain value resolves to `en`
+    "language_fallback",
     # --- hooks, at-least-once with dedup by `event_key` (§7.2 C, §8.1) ----
     "subagent_requested",
     "subagent_started",
