@@ -98,7 +98,7 @@ def run_finish(args: argparse.Namespace) -> dict:
     )
     draft_entry = stepctx.publish_file(work_dir, anchored_file, draft_rel, step_id=args.step)
     draft_sha = draft_entry["sha256"]
-    document = lint.parse_draft(anchored)
+    document = lint.parse_draft(anchored, lint.grammar((state or {}).get("language") or "en"))
     anchor_result = {
         "anchors_inserted": inserted,
         "sections": [

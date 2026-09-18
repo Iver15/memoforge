@@ -19,7 +19,7 @@ import bisect
 import re
 from pathlib import Path
 
-from .. import fallbacks, state_io
+from .. import fallbacks, i18n, state_io
 from ..sources import canonical_id
 from . import oscola
 
@@ -31,12 +31,51 @@ ANY_TOKEN = re.compile(
 """One pass over both token kinds so footnote numbers follow first mention in document order (§5.5)."""
 SOURCES_MARKER = re.compile(r"^<!--\s*sources:\s*generated\s*-->\s*$", re.MULTILINE)
 
-SOURCES_HEADING = "## Sources"
-APPENDIX_HEADING = "## Appendix — Assumptions & Unverified Sources"
+# --- the words of the deliverable (D-175) ----------------------------------
+
+
+def memo_language(state: dict | None) -> str:
+    """The memo language of a task; anything unusable is English (D-169, D-175)."""
+    return i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
+
+
+def label(key: str, language: str = i18n.DEFAULT, **fmt) -> str:
+    """One `memo.labels` string of the memo language, rendered with `**fmt` (D-175).
+
+    The single door both deliverables go through: markdown and docx print the same words and
+    differ only in the decoration they wrap them in.
+    """
+    return i18n.t(i18n.normalize(language) or i18n.DEFAULT, f"memo.labels.{key}", **fmt)
+
+
+def sources_heading(language: str = i18n.DEFAULT) -> str:
+    """`## Sources` of the markdown deliverable; the docx prints the label as a bold paragraph."""
+    return f"## {label('sources_heading', language)}"
+
+
+def appendix_heading(language: str = i18n.DEFAULT) -> str:
+    """The appendix heading of the markdown deliverable; `finalize` partitions on it (D-113)."""
+    return f"## {label('appendix_heading', language)}"
+
+
+def status_heading(language: str = i18n.DEFAULT) -> str:
+    """The `## Status` heading; the docx prints the same label bold, so both carry one word (D34-11)."""
+    return f"## {label('status_label', language)}"
+
+
+def status_lead_prefix(language: str = i18n.DEFAULT) -> str:
+    """The fixed opening of the Status lead, before its first placeholder (D-175).
+
+    What tells a Status section this pipeline wrote from a heading of the same name inside the
+    memorandum itself. A lead that opens with its placeholder has no fixed opening at all, and the
+    caller must then read the section back by its heading alone rather than match on nothing.
+    """
+    return label("status_lead", language).split("{", 1)[0]
+
+
+# --- citations in the body and the annex -----------------------------------
 
 PINPOINT_SEPARATOR = ", "
-PINPOINT_FIRST_PREFIX = "cited at "
-PINPOINT_LATER_PREFIX = "also cited at "
 """D34-22/D-124: one `## Sources` line carries every mention of its source, so it prints their
 pinpoints in mention order — and says «also» when the first mention had none, instead of pinning a
 later article on it. D-150 made the line a `; `-separated record, so the pinpoints join with `, `."""
@@ -76,47 +115,16 @@ APPENDIX_WARNING_LIMIT = 12
 APPENDIX_WARNING_CHARS = 240
 """Hard cap per bullet, ellipsis included (D-113)."""
 
-APPENDIX_MORE = "… and {count} more in summary.md"
-
-ASSUMPTIONS_LABEL = "Assumptions carried into the analysis"
-UNVERIFIED_LABEL = "Unverified sources"
-UNRESOLVED_LABEL = "Unresolved references"
-"""The three sub-headings of the appendix; `renderer.py` prints them bold, markdown wraps them in `**`."""
-
-ASSUMPTIONS_MD = f"**{ASSUMPTIONS_LABEL}**"
-UNVERIFIED_MD = f"**{UNVERIFIED_LABEL}**"
-UNRESOLVED_MD = f"**{UNRESOLVED_LABEL}**"
-
 CURRENCY_UNAVAILABLE_BANNER = "currency_unavailable"
 """The `currency_checker_failed` row of `fallbacks.py`: the checker was down for the *whole* run."""
-
-CURRENCY_UNAVAILABLE_NOTE = (
-    "Source currency was not checked in this run (currency checker unavailable); "
-    "verify before client use."
-)
 
 UNRESOLVED_MARKER = re.compile(r"\[unresolved:\s*([^\]]+)\]")
 """The marker left in a rendered body; lets a re-read of the deliverable recover the ids (D-113)."""
 
 # --- the status of a run that did not end approved (D34-11) ----------------
 
-STATUS_HEADING = "## Status"
-STATUS_LABEL = "Status"
-"""The section both deliverables carry when the run did not end approved; `renderer.py` prints the
-label bold, markdown prints the heading. Kept in one place so `docx validate` can look for it."""
-
 APPROVED_STATUS_PREFIXES: tuple[str, ...] = ("approved", "client_ready")
 """`final_status` prefixes that mean the pipeline signed the memo off (§2.1 row 15)."""
-
-STATUS_LEAD = (
-    "Final status: {final_status}. The pipeline did not sign this memorandum off; "
-    "the points below are unresolved and must be checked before client use."
-)
-
-STATUS_BANNERS_LABEL = "Pipeline notices"
-STATUS_ISSUES_LABEL = "Unresolved blocking issues"
-STATUS_BANNERS_MD = f"**{STATUS_BANNERS_LABEL}**"
-STATUS_ISSUES_MD = f"**{STATUS_ISSUES_LABEL}**"
 
 STATUS_ISSUE_LIMIT = 12
 """How many `remaining_blocking_issues[]` rows the deliverable prints before pointing at the summary."""
@@ -148,7 +156,7 @@ is a boundary as well, otherwise dropping the file name would glue the two sente
 """
 
 
-def assumption_bullets(warnings: list) -> list[str]:
+def assumption_bullets(warnings: list, language: str = i18n.DEFAULT) -> list[str]:
     """One short bullet per `drafting_warnings[]` entry for the appendix (D-113).
 
     The warnings are the sufficiency reviewer's prose *addressed to the writer* — in the run that
@@ -159,7 +167,7 @@ def assumption_bullets(warnings: list) -> list[str]:
     bullets: list[str] = []
     seen: set[str] = set()
     for warning in warnings:
-        text = assumption_bullet(warning)
+        text = assumption_bullet(warning, language=language)
         if not text:
             continue
         key = text.casefold()
@@ -170,10 +178,43 @@ def assumption_bullets(warnings: list) -> list[str]:
     if len(bullets) <= APPENDIX_WARNING_LIMIT:
         return bullets
     rest = len(bullets) - APPENDIX_WARNING_LIMIT
-    return bullets[:APPENDIX_WARNING_LIMIT] + [APPENDIX_MORE.format(count=rest)]
+    return bullets[:APPENDIX_WARNING_LIMIT] + [label("appendix_more", language, count=rest)]
 
 
-def assumption_bullet(warning: object) -> str:
+def _sentence_spans_abbreviations(language: str) -> set[str]:
+    """The abbreviation stems of the memo language, case-folded and without the period."""
+    try:
+        words = i18n.node(i18n.normalize(language) or i18n.DEFAULT, "memo.abbreviations")
+    except (KeyError, i18n.PackUnavailable):
+        return set()
+    if not isinstance(words, list):
+        return set()
+    return {str(word).rstrip(".").casefold() for word in words if str(word).strip()}
+
+
+def _first_sentence(raw: str, language: str) -> str:
+    """The opening sentence, never cut right after an abbreviation of the memo language.
+
+    English keeps exactly the pre-task code path (the plain `_SENTENCE_END` split) — the frozen
+    output never consulted an abbreviation list. The abbreviation-aware cut applies only to the
+    other languages.
+    """
+    code = i18n.normalize(language) or i18n.DEFAULT
+    if code == i18n.DEFAULT:
+        return _SENTENCE_END.split(raw, 1)[0]
+    short = _sentence_spans_abbreviations(code)
+    if not short:
+        return _SENTENCE_END.split(raw, 1)[0]
+    for match in _SENTENCE_END.finditer(raw):
+        boundary = match.start()
+        stem = raw[:boundary].rstrip()
+        word = stem.split()[-1].rstrip(".") if stem.split() else ""
+        if word.casefold() not in short:
+            return raw[:boundary]
+    return raw
+
+
+def assumption_bullet(warning: object, language: str = i18n.DEFAULT) -> str:
     """First sentence of one warning, tag- and filename-free, at most `APPENDIX_WARNING_CHARS`."""
     if isinstance(warning, dict):
         raw = str(warning.get("message") or warning.get("code") or "")
@@ -184,7 +225,7 @@ def assumption_bullet(warning: object) -> str:
         return ""
     # The sentence is cut before the file names are dropped: `research/doctrine.json states …` would
     # otherwise start the next sentence with a lowercase word and the cut would run past it.
-    sentence = _SENTENCE_END.split(raw, 1)[0]
+    sentence = _first_sentence(raw, language)
     sentence = _INTERNAL_FILE.sub(" ", _WARNING_ID_TAG.sub(" ", sentence))
     sentence = re.sub(r"\s+([,;:.])", r"\1", re.sub(r"\s+", " ", sentence)).strip()
     if len(sentence) <= APPENDIX_WARNING_CHARS:
@@ -202,24 +243,28 @@ def is_approved(final_status: object) -> bool:
 
 
 def blocking_issue_line(issue: object) -> str:
-    """One `severity · section_id · issue` row of `state.remaining_blocking_issues` (D34-11)."""
+    """One `severity · section_id · issue` row of `state.remaining_blocking_issues` (D34-11).
+
+    D-173a: a finding that carries its client-facing sentence prints that instead of `issue`.
+    """
     if not isinstance(issue, dict):
         return re.sub(r"\s+", " ", str(issue or "")).strip()
+    text = str(issue.get("issue_client") or issue.get("issue") or issue.get("category") or "")
     parts = [
         str(issue.get("severity") or "").strip(),
         str(issue.get("section_id") or "").strip(),
-        re.sub(r"\s+", " ", str(issue.get("issue") or issue.get("category") or "")).strip(),
+        re.sub(r"\s+", " ", text).strip(),
     ]
     return STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
 
 
-def blocking_issue_lines(issues: list) -> list[str]:
+def blocking_issue_lines(issues: list, language: str = i18n.DEFAULT) -> list[str]:
     """The blocker rows of the deliverable: capped, the rest pointed at `summary.md` (D34-11)."""
     rows = [line for line in (blocking_issue_line(issue) for issue in issues or ()) if line]
     if len(rows) <= STATUS_ISSUE_LIMIT:
         return rows
     rest = len(rows) - STATUS_ISSUE_LIMIT
-    return rows[:STATUS_ISSUE_LIMIT] + [APPENDIX_MORE.format(count=rest)]
+    return rows[:STATUS_ISSUE_LIMIT] + [label("appendix_more", language, count=rest)]
 
 
 def status_inputs(state: dict | None, extra_banners: list | None = None) -> dict:
@@ -232,8 +277,12 @@ def status_inputs(state: dict | None, extra_banners: list | None = None) -> dict
     D-144: this dict *is* the section, so it is also what `docx.status_signature` hashes — the ids
     next to their texts, and the rendered blocker lines, not only the ids. `COPY_BANNERS` are left
     out: they describe the copy of the result, not the memorandum.
+
+    D-175: the memo language travels with it, so both rendered forms print the section in the
+    language the run was asked for and neither has to be told a second time.
     """
     state = state or {}
+    language = memo_language(state)
     final_status = str(state.get("final_status") or "")
     ids: list[str] = []
     texts: list[str] = []
@@ -241,7 +290,7 @@ def status_inputs(state: dict | None, extra_banners: list | None = None) -> dict
     for row in list(state.get("fallback_banners") or []) + list(extra_banners or []):
         if isinstance(row, dict):
             key = str(row.get("banner_id"))
-            text = str(row.get("text") or row.get("banner_id") or "")
+            text = fallbacks.banner_text_for(row, language)
         else:
             key = text = str(row or "")
         text = re.sub(r"\s+", " ", text).strip()
@@ -253,9 +302,10 @@ def status_inputs(state: dict | None, extra_banners: list | None = None) -> dict
     return {
         "required": bool(final_status) and not is_approved(final_status),
         "final_status": final_status,
+        "language": language,
         "banner_ids": ids,
         "banners": texts,
-        "issues": blocking_issue_lines(state.get("remaining_blocking_issues") or []),
+        "issues": blocking_issue_lines(state.get("remaining_blocking_issues") or [], language),
     }
 
 
@@ -263,13 +313,19 @@ def render_status(inputs: dict) -> str:
     """`## Status` block of the markdown deliverable; empty string when the run ended approved."""
     if not inputs.get("required"):
         return ""
-    lines = [STATUS_HEADING, "", STATUS_LEAD.format(final_status=inputs["final_status"]), ""]
+    language = inputs.get("language") or i18n.DEFAULT
+    lines = [
+        status_heading(language),
+        "",
+        label("status_lead", language, final_status=inputs["final_status"]),
+        "",
+    ]
     if inputs["banners"]:
-        lines.extend([STATUS_BANNERS_MD, ""])
+        lines.extend([f"**{label('status_banners_label', language)}**", ""])
         lines.extend(f"- {row}" for row in inputs["banners"])
         lines.append("")
     if inputs["issues"]:
-        lines.extend([STATUS_ISSUES_MD, ""])
+        lines.extend([f"**{label('status_issues_label', language)}**", ""])
         lines.extend(f"- {row}" for row in inputs["issues"])
         lines.append("")
     return "\n".join(lines)
@@ -404,12 +460,15 @@ class SourceIndex:
         """The `oscola` citation view of a canonical id — the one both renderers cite from (D-150)."""
         return oscola.view_of(source_id, self.entries.get(source_id), self.sources.get(source_id))
 
-    def unverified_rows(self) -> list[dict]:
+    def unverified_rows(self, language: str = i18n.DEFAULT) -> list[dict]:
         """Sources whose verification/currency/liveness belongs in the appendix (§5.5).
 
         When the currency checker was unavailable for the whole run the `unchecked` status says
         nothing about the individual source, so it is left to the one notice line the appendix
         prints and a source with no other problem drops out of the list entirely (D-113).
+
+        D-175: the note is a label around a machine token — `unresolved`, `unchecked`, `dead` are
+        the recorded statuses and are printed as they stand, in every language.
         """
         rows: list[dict] = []
         for source_id in sorted(self.sources):
@@ -419,15 +478,15 @@ class SourceIndex:
             notes: list[str] = []
             verification = record.get("verification")
             if isinstance(verification, dict) and verification.get("us") in UNVERIFIED_US:
-                notes.append(f"US citation {verification['us']}")
+                notes.append(label("us_citation_note", language, status=verification["us"]))
             if isinstance(verification, dict) and verification.get("eu_syntax_ok") is False:
-                notes.append("EU identifier syntax not verified")
+                notes.append(label("eu_syntax_note", language))
             currency = record.get("currency")
             status = currency.get("status") if isinstance(currency, dict) else None
             if status in UNVERIFIED_CURRENCY and not (
                 self.currency_unavailable and status == "unchecked"
             ):
-                notes.append(f"currency {status}")
+                notes.append(label("currency_note", language, status=status))
             # D-158: the frozen snapshot decides, exactly as it does for C-08 — the registry may
             # still carry the hash of a raw file that was gone by the time the freeze ran.
             if (
@@ -435,10 +494,10 @@ class SourceIndex:
                 and str(record.get("tier") or "") in ("critical", "supporting")
                 and self.snapshot_hashes.get(source_id) is None
             ):
-                notes.append("no saved source text — the citation could not be checked against the source")
+                notes.append(label("no_saved_text_note", language))
             liveness = record.get("liveness")
             if isinstance(liveness, dict) and liveness.get("status") in UNVERIFIED_LIVENESS:
-                notes.append(f"link {liveness['status']}")
+                notes.append(label("link_note", language, status=liveness["status"]))
             if notes:
                 rows.append(
                     {
@@ -544,7 +603,7 @@ def scan_mentions(text: str, index: SourceIndex, style: str | None = None) -> di
     }
 
 
-def source_rows(scanned: dict, index: SourceIndex) -> list[dict]:
+def source_rows(scanned: dict, index: SourceIndex, language: str = i18n.DEFAULT) -> list[dict]:
     """One `## Sources` row per cited **instrument**, numbered in citation order (§5.5, D-150).
 
     The registry is article-level; the annex is not. Every article of one act collapses into a
@@ -581,11 +640,13 @@ def source_rows(scanned: dict, index: SourceIndex) -> list[dict]:
             row["pinpoints"].append(place)
     ordered = [rows[key] for key in scanned["instruments"] if key in rows]
     for row in ordered:
-        row["pinpoints_text"] = pinpoint_text(row)
+        row["pinpoints_text"] = pinpoint_text(row, language)
     return ordered
 
 
-def mention_markdown(mention: dict, index: SourceIndex, style: str) -> str:
+def mention_markdown(
+    mention: dict, index: SourceIndex, style: str, language: str = i18n.DEFAULT
+) -> str:
     """One rendered citation of the markdown deliverable (D-150).
 
     The markdown has no footnote apparatus, so in the footnote style its marker is the **source's**
@@ -599,7 +660,9 @@ def mention_markdown(mention: dict, index: SourceIndex, style: str) -> str:
     if mention["form"] == oscola.FORM_OMITTED:
         return ""
     view = index.view(mention["source_id"])
-    text = oscola.mention_text(view, mention, style)
+    text = oscola.mention_text(view, mention, style, language)
+    # D-175a: the link is built from the canonical pinpoint the token carried, never from its
+    # display form — the anchor of a consolidated act is `#art_6` in every language.
     url = oscola.anchor_url(view, mention["pinpoint"])
     return f"([{text}]({url}))" if url else f"({text})"
 
@@ -618,30 +681,34 @@ def drop_omitted(text: str, mentions: list[dict]) -> str:
     return SPACED_MENTION_RE.sub(on_sentinel, text)
 
 
-def render_mentions(text: str, scanned: dict, index: SourceIndex) -> str:
+def render_mentions(
+    text: str, scanned: dict, index: SourceIndex, language: str = i18n.DEFAULT
+) -> str:
     """Substitute every sentinel left in the text with its rendered citation."""
     style = scanned["style"]
 
     def on_sentinel(match: "re.Match[str]") -> str:
-        return mention_markdown(scanned["mentions"][int(match.group(1))], index, style)
+        return mention_markdown(scanned["mentions"][int(match.group(1))], index, style, language)
 
     return MENTION_RE.sub(on_sentinel, text)
 
 
-def replace_tokens(text: str, index: SourceIndex, style: str | None = None) -> dict:
+def replace_tokens(
+    text: str, index: SourceIndex, style: str | None = None, language: str = i18n.DEFAULT
+) -> dict:
     """Scan, number and render every citation token of one body in one call (§5.5, D-150)."""
     scanned = scan_mentions(text, index, style)
-    rows = source_rows(scanned, index)
+    rows = source_rows(scanned, index, language)
     scanned["text"] = drop_omitted(scanned["text"], scanned["mentions"])
     return {
-        "text": render_mentions(scanned["text"], scanned, index),
+        "text": render_mentions(scanned["text"], scanned, index, language),
         "scanned": scanned,
         "footnotes": rows,
         "unresolved": scanned["unresolved"],
     }
 
 
-def pinpoint_text(row: dict) -> str:
+def pinpoint_text(row: dict, language: str = i18n.DEFAULT) -> str:
     """The `cited at …` field of one `## Sources` line, first mention first (D34-22, D-124, D-150).
 
     A row carries every mention of its instrument, so the annex prints every place the memorandum
@@ -653,8 +720,11 @@ def pinpoint_text(row: dict) -> str:
     pins = [str(pin).strip() for pin in (row.get("pinpoints") or []) if str(pin).strip()]
     if not pins:
         return ""
-    prefix = PINPOINT_FIRST_PREFIX if row.get("first_pinpointed") else PINPOINT_LATER_PREFIX
-    return prefix + PINPOINT_SEPARATOR.join(pins)
+    key = "cited_at" if row.get("first_pinpointed") else "also_cited_at"
+    prefix = oscola.citation_word(key, language)
+    return prefix + PINPOINT_SEPARATOR.join(
+        oscola.display_pinpoint(pin, language) for pin in pins
+    )
 
 
 def attribute_blockquotes(text: str, mentions: list[dict]) -> str:
@@ -700,17 +770,18 @@ def attribute_blockquotes(text: str, mentions: list[dict]) -> str:
     return "\n".join(out)
 
 
-def sources_line(row: dict) -> str:
+def sources_line(row: dict, language: str = i18n.DEFAULT) -> str:
     """`[n] <full record>` — the annex line of one cited instrument (§5.5, D-150)."""
-    return f"[{row['n']}] {oscola.sources_entry(row)}"
+    return f"[{row['n']}] {oscola.sources_entry(row, language)}"
 
 
-def render_sources_section(rows: list[dict]) -> str:
+def render_sources_section(rows: list[dict], language: str = i18n.DEFAULT) -> str:
     """`## Sources` block: the full record of every cited source, in citation order (D-150)."""
+    heading = sources_heading(language)
     if not rows:
-        return f"{SOURCES_HEADING}\n\n_No sources were cited in this draft._\n"
-    lines = [SOURCES_HEADING, ""]
-    lines.extend(sources_line(row) for row in rows)
+        return f"{heading}\n\n_{label('no_sources_cited', language)}_\n"
+    lines = [heading, ""]
+    lines.extend(sources_line(row, language) for row in rows)
     lines.append("")
     return "\n".join(lines)
 
@@ -721,37 +792,44 @@ def render_appendix(
     unresolved: list[str],
     *,
     currency_unavailable: bool = False,
+    language: str = i18n.DEFAULT,
 ) -> str:
     """«Assumptions & Unverified Sources» appendix (§5.5); empty string when there is nothing to say.
 
     The client form of D-113: one condensed bullet per warning, capped, and a single currency
     notice instead of «currency unchecked» under every source.
     """
-    bullets = assumption_bullets(warnings)
+    bullets = assumption_bullets(warnings, language)
     if not bullets and not unverified and not unresolved and not currency_unavailable:
         return ""
-    lines = [APPENDIX_HEADING, ""]
+    lines = [appendix_heading(language), ""]
     if bullets:
-        lines.append(ASSUMPTIONS_MD)
+        lines.append(f"**{label('assumptions_label', language)}**")
         lines.append("")
         for bullet in bullets:
             lines.append(f"- {bullet}")
         lines.append("")
     if unverified or currency_unavailable:
-        lines.append(UNVERIFIED_MD)
+        lines.append(f"**{label('unverified_label', language)}**")
         lines.append("")
         if currency_unavailable:
-            lines.append(f"- {CURRENCY_UNAVAILABLE_NOTE}")
+            lines.append(f"- {label('currency_unavailable_note', language)}")
         for row in unverified:
             lines.append(f"- {unverified_line(row)}")
         lines.append("")
     if unresolved:
-        lines.append(UNRESOLVED_MD)
+        lines.append(f"**{label('unresolved_label', language)}**")
         lines.append("")
         for raw_id in unresolved:
+            # The markdown sets the id and the marker in code spans; the docx prints them plain.
             lines.append(
-                f"- `{raw_id}` — not in the frozen source pack or the quote registry; "
-                f"marked `[unresolved: {raw_id}]` in the text."
+                "- "
+                + label(
+                    "unresolved_bullet",
+                    language,
+                    raw_id=f"`{raw_id}`",
+                    marker=f"`{oscola.unresolved_text(raw_id)}`",
+                )
             )
         lines.append("")
     return "\n".join(lines)
@@ -780,22 +858,27 @@ def render(
     state: dict | None = None,
     citation_style: str | None = None,
 ) -> dict:
-    """Render one draft into the fallback deliverable; pure function over its inputs."""
+    """Render one draft into the fallback deliverable; pure function over its inputs.
+
+    D-175: the memo language comes from the state of the task and reaches every label from here;
+    an unreadable pack raises `i18n.PackUnavailable` rather than delivering an English memo.
+    """
     style = oscola.normalise_style(citation_style) or oscola.DEFAULT_CITATION_STYLE
+    language = memo_language(state)
     body = SOURCES_MARKER.sub("", draft_text).rstrip() + "\n"
     scanned = scan_mentions(body, index, style)
-    rows = source_rows(scanned, index)
+    rows = source_rows(scanned, index, language)
     body_text = attribute_blockquotes(
         drop_omitted(scanned["text"], scanned["mentions"]), scanned["mentions"]
     )
-    text = render_mentions(body_text, scanned, index)
+    text = render_mentions(body_text, scanned, index, language)
     replaced = {"footnotes": rows, "unresolved": scanned["unresolved"]}
 
     banners = []
     if replaced["unresolved"]:
         banners.append(fallbacks.banner("unresolved_reference_in_fallback"))
 
-    parts = [text.rstrip() + "\n", "", render_sources_section(rows)]
+    parts = [text.rstrip() + "\n", "", render_sources_section(rows, language)]
     # D34-11: `## Status` sits between the memo and its appendix — the banners and the blockers the
     # run left open have to reach the client, not only `state.json`.
     status = render_status(status_inputs(state, banners))
@@ -803,9 +886,10 @@ def render(
         parts.extend(["", status])
     appendix = render_appendix(
         list(drafting_warnings or []),
-        index.unverified_rows(),
+        index.unverified_rows(language),
         replaced["unresolved"],
         currency_unavailable=index.currency_unavailable,
+        language=language,
     )
     if appendix:
         parts.extend(["", appendix])

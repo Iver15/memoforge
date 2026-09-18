@@ -92,5 +92,19 @@ class AnchorExampleTest(unittest.TestCase):
         self.assertIn("<!-- §s-4-1 -->", spans)
 
 
+class LanguageNeutralityTest(unittest.TestCase):
+    """D-173: static content files name the memo language as given in the task prompt."""
+
+    NEUTRAL = (
+        "the memo language, the section headings and the risk-line literal are given "
+        "in your task prompt; the english forms below are the example"
+    )
+
+    def test_both_templates_and_prose_style_carry_the_neutral_sentence(self):
+        for path in CONTENT_FILES:
+            with self.subTest(file=path.name):
+                self.assertIn(self.NEUTRAL, path.read_text(encoding="utf-8").lower())
+
+
 if __name__ == "__main__":
     unittest.main()

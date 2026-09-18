@@ -8,7 +8,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from . import events, limits, schema, sources, state_io
+from . import events, i18n, limits, schema, sources, state_io
 
 QUOTES_PATH = "research/quotes.json"
 
@@ -49,13 +49,8 @@ TYPOGRAPHIC: dict[str, str] = {
     "…": "...",
 }
 
-ABBREVIATIONS: frozenset[str] = frozenset(
-    {
-        "art", "arts", "artt", "no", "nos", "nr", "para", "paras", "pt", "p", "pp", "ch",
-        "sec", "secs", "ss", "cf", "eg", "ie", "etc", "al", "fig", "vs", "reg", "dir",
-        "ст", "стт", "п", "пп", "гл", "абз", "см", "др", "ред",
-    }
-)
+ENGLISH_ABBREVIATIONS: frozenset[str] = frozenset(i18n.node("en", "memo.abbreviations"))
+"""D-174: the English abbreviation set — the default of `sentence_spans`; a language passes its own."""
 
 _BLOCK_START = re.compile(r"^(?:[#>*+|]|-\s|\d+[.)]\s|\(\w{1,3}\)\s)")
 
@@ -113,8 +108,13 @@ def _is_hard_break(text: str, newline: int) -> bool:
     return bool(_BLOCK_START.match(stripped)) or bool(_BLOCK_START.match(line))
 
 
-def sentence_spans(text: str) -> list[tuple[int, int]]:
-    """`[start, end)` of every sentence; block boundaries and terminal punctuation both close one."""
+def sentence_spans(text: str, abbreviations: frozenset[str] | None = None) -> list[tuple[int, int]]:
+    """`[start, end)` of every sentence; block boundaries and terminal punctuation both close one.
+
+    D-174: `abbreviations` is the language's own set (`memo.abbreviations`); `None` keeps the
+    English one, which is what a *source* text gets — a source is not in the memo language.
+    """
+    known = ENGLISH_ABBREVIATIONS if abbreviations is None else abbreviations
     spans: list[tuple[int, int]] = []
     start = 0
     position = 0
@@ -132,7 +132,7 @@ def sentence_spans(text: str) -> list[tuple[int, int]]:
             if ends and char == "." :
                 token = re.search(r"([\w§]+)[\s(]*$", text[:position])
                 word = token.group(1).lower() if token else ""
-                if word in ABBREVIATIONS or (len(word) == 1 and word.isalpha()):
+                if word in known or (len(word) == 1 and word.isalpha()):
                     position = after
                     continue
             if ends:

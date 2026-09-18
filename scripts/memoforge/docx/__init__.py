@@ -19,7 +19,7 @@ import os
 import re
 from pathlib import Path
 
-from .. import events, fallbacks, state_io, stepctx
+from .. import events, fallbacks, i18n, state_io, stepctx
 from . import fallback, validate
 
 MEMO_STEM_PREFIX = "memo-"
@@ -206,8 +206,17 @@ def status_signature(state: dict | None, extra_banners: list | None = None) -> s
     `final_status` plus the banner **ids** only, so a run whose `remaining_blocking_issues` changed
     between the export and `finalize` still matched (R2-03). A docx cannot be rewritten in place, so
     `finalize` compares this signature with its own before handing an export to the client.
+
+    D-175: the memo language is a displayed input like any other, so it is hashed — except for
+    English, where the payload stays exactly the set of fields it had before the language existed.
+    That keeps the English signature byte-identical, so a docx an earlier plugin version exported
+    for a task that is still in flight is still accepted here; and it keeps two otherwise identical
+    sections in different languages apart, which is what stops `finalize` from delivering an export
+    written in a language the run no longer uses.
     """
     inputs = fallback.status_inputs(state, extra_banners)
+    if inputs.get("language") == i18n.DEFAULT:
+        inputs = {key: value for key, value in inputs.items() if key != "language"}
     payload = json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return state_io.sha256_bytes(payload.encode("utf-8"))
 
@@ -324,7 +333,13 @@ def run_render(args: argparse.Namespace) -> dict:
     # the orchestrator needs no second round trip (one live run idled 20 minutes between the two).
     validation = None
     if exported["ok"]:
-        validation = dict(validate.validate_path(docx_staged, footnotes_map=exported["map"]))
+        validation = dict(
+            validate.validate_path(
+                docx_staged,
+                footnotes_map=exported["map"],
+                language=fallback.memo_language(state),
+            )
+        )
         if not validation["valid"]:
             invalid = fallbacks.banner("docx_invalid")
             if invalid is not None:
@@ -610,7 +625,11 @@ def run_validate(args: argparse.Namespace) -> dict:
 
     # D-51: no banner is passed in — an `[unresolved:` literal invalidates the docx unconditionally,
     # and a missing `footnotes-map.json` is an error of the report, not a reason to skip checks.
-    report = validate.validate_path(path, footnotes_map=_footnotes_map(work_dir, state or {}, args))
+    report = validate.validate_path(
+        path,
+        footnotes_map=_footnotes_map(work_dir, state or {}, args),
+        language=fallback.memo_language(state),
+    )
     result = dict(report)
     result["skipped"] = False
     result["demoted_to"] = None

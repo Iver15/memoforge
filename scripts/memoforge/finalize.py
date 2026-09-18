@@ -14,7 +14,7 @@ import os
 import shutil
 from pathlib import Path
 
-from . import events, fallbacks, hooks_common, limits, phases, render, sources, state_io, stepctx
+from . import events, fallbacks, hooks_common, i18n, limits, phases, render, sources, state_io, stepctx
 from .docx import fallback as md_fallback
 from .docx import (
     memo_docx_path,
@@ -118,34 +118,44 @@ def condense_appendix(body: str, work_dir: Path, state: dict) -> str:
     approved has no status section to find either — so keying the rewrite on the appendix heading
     left exactly those exports carrying the status they were rendered with, not the one this
     finalize is about to write. A body that needs neither section is still returned untouched.
+
+    D-175: the export was written in the memo language of the run, so the headings this pass reads
+    back are that language's — an English partition would find nothing and double the appendix.
     """
-    head, marker, _ = body.partition(md_fallback.APPENDIX_HEADING)
+    language = md_fallback.memo_language(state)
+    head, marker, _ = body.partition(md_fallback.appendix_heading(language))
     appendix = ""
     if marker:
         index = md_fallback.SourceIndex.load(work_dir, state=state)
         appendix = md_fallback.render_appendix(
             state.get("drafting_warnings") or [],
-            index.unverified_rows(),
+            index.unverified_rows(language),
             md_fallback.unresolved_ids(head),
             currency_unavailable=index.currency_unavailable,
+            language=language,
         )
     status = md_fallback.render_status(md_fallback.status_inputs(state))
-    memo = _without_status(head)
+    memo = _without_status(head, language=language)
     if not marker and not status and memo == head:
         return body  # no appendix, no status to write and none to drop: nothing to rewrite
     parts = [memo.rstrip()] + [part.rstrip() for part in (status, appendix) if part]
     return "\n\n".join(parts) + "\n"
 
 
-def _without_status(head: str) -> str:
+def _without_status(head: str, *, language: str = "en") -> str:
     """Drop the `## Status` section a previous render wrote, so the rewrite never doubles it.
 
     Only a section opening with the lead line of `docx.fallback.render_status` is ours; a heading of
-    the same name inside the memorandum itself belongs to the writer and is left alone.
+    the same name inside the memorandum itself belongs to the writer and is left alone. A language
+    whose lead opens with its placeholder has no fixed opening to match on, and then nothing is
+    dropped: cutting on an empty prefix would take the writer's own section with it.
     """
-    marker = md_fallback.STATUS_HEADING + "\n"
+    lead = md_fallback.status_lead_prefix(language)
+    if not lead:
+        return head
+    marker = md_fallback.status_heading(language) + "\n"
     memo, found, tail = head.rpartition(marker)
-    if found and tail.lstrip().startswith(md_fallback.STATUS_LEAD.split("{", 1)[0]):
+    if found and tail.lstrip().startswith(lead):
         return memo
     return head
 
@@ -155,35 +165,49 @@ def _without_status(head: str) -> str:
 
 def build_fallback_summary(state: dict, work_dir: Path, reason: str | None) -> str:
     """Universal fallback body: what was learned and what failed (fallbacks `universal_fallback`)."""
+    language = md_fallback.memo_language(state)
     task_id = state.get("task_id") or work_dir.name
+    query = state.get("user_query") or md_fallback_summary("query_unavailable", language)
+    last_phase = state.get("current_phase") or md_fallback_summary("phase_unknown", language)
+    mode = state.get("mode") or md_fallback_summary("not_selected", language)
     lines = [
-        f"# memoforge fallback summary — {task_id}",
+        f"# {md_fallback_summary('fallback_title', language, task_id=task_id)}",
         "",
-        "The pipeline could not produce a memorandum. Everything that was gathered is listed below.",
+        md_fallback_summary("fallback_lead", language),
         "",
-        f"- Task: {state.get('user_query') or '(query unavailable)'}",
-        f"- Last phase reached: {state.get('current_phase') or '(unknown)'}",
-        f"- Mode: {state.get('mode') or '(not selected)'}",
+        md_fallback_summary("fallback_task", language, query=query),
+        md_fallback_summary("fallback_last_phase", language, phase=last_phase),
+        md_fallback_summary("fallback_mode", language, mode=mode),
     ]
     if reason:
-        lines.append(f"- Reported reason: {reason}")
+        lines.append(md_fallback_summary("fallback_reason", language, reason=reason))
     lines.append("")
-    lines.append("## Artifacts on disk")
+    lines.append(md_fallback_summary("fallback_artifacts", language))
     lines.append("")
     artifacts = _artifact_inventory(work_dir)
     if artifacts:
         lines.extend(f"- `{path}`" for path in artifacts)
     else:
-        lines.append("- (none)")
+        lines.append(md_fallback_summary("fallback_none", language))
     lines.append("")
     # D-113: this file is delivered to the client too, so it carries the short form of the warnings.
-    bullets = md_fallback.assumption_bullets(state.get("drafting_warnings") or [])
+    bullets = md_fallback.assumption_bullets(state.get("drafting_warnings") or [], language)
     if bullets:
-        lines.append("## Open questions and unverified facts")
+        lines.append(md_fallback_summary("fallback_open_questions", language))
         lines.append("")
         lines.extend(f"- {bullet}" for bullet in bullets)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def md_fallback_summary(key: str, lang: str, **fmt) -> str:
+    """One `memo.summary` string of the memo language, rendered with `**fmt` (D-175).
+
+    Reads through `i18n.node` and formats here: one entry is rendered with a `{code}`
+    placeholder, which would collide with the language argument of `i18n.t`.
+    """
+    text = str(i18n.node(i18n.normalize(lang) or i18n.DEFAULT, f"memo.summary.{key}"))
+    return text.format(**fmt) if fmt else text
 
 
 def _artifact_inventory(work_dir: Path) -> list[str]:
@@ -212,13 +236,21 @@ def _status_view(state: dict, final_status: str | None, banners: list) -> dict:
 
 
 def choose_deliverable(
-    work_dir: Path, state: dict, reason: str | None, *, final_status: str | None = None
+    work_dir: Path,
+    state: dict,
+    reason: str | None,
+    *,
+    final_status: str | None = None,
+    reuse_export: bool = True,
 ) -> dict:
     """Select and materialise `deliverable.{docx|md}` (M9, §2.1 row 15).
 
     Order: the `memo-<slug>.docx` export of the selected version (D-50) -> the rendered
     `memo-<slug>.md` -> a fresh markdown fallback over the last draft -> the universal fallback
     summary. Returns the deliverable description and the banners it raised.
+
+    D-175b: `reuse_export=False` takes the `memo-<slug>.md` export out of that order — the caller
+    is rendering in a different language than the export was written in.
     """
     slug = slug_of(state, work_dir)
     banners: list[dict] = []
@@ -240,7 +272,8 @@ def choose_deliverable(
 
     banners.append(fallbacks.banner("docx_render_failed"))
     body, extra, status_reason, extra_reasons = _markdown_body(
-        work_dir, state, slug, reason, final_status=final_status, banners=banners
+        work_dir, state, slug, reason, final_status=final_status, banners=banners,
+        reuse_export=reuse_export,
     )
     banners.extend(extra)
     reasons.extend(extra_reasons)
@@ -304,8 +337,19 @@ def _markdown_body(
     *,
     final_status: str | None = None,
     banners: list | None = None,
+    reuse_export: bool = True,
 ) -> tuple[str, list[dict], str | None, list[str]]:
-    """The markdown deliverable, bound to the version §2.1 row 15 selects (not to whatever is on disk)."""
+    """The markdown deliverable, bound to the version §2.1 row 15 selects (not to whatever is on disk).
+
+    D-175b: `reuse_export=False` says the export on disk is written in another language than this
+    render — `finalize --salvage` switched the labels to English because the pack of the run's
+    language cannot be read. Reusing it would leave the parse-back of `condense_appendix` looking
+    for English headings in a localized body: the export's own `## Status` survives and a second,
+    English one is appended. So the selected draft is rendered afresh instead, and the export is
+    left exactly as it is — its bytes are bound to a draft sha and a `published[]` row (D-50), and
+    a degraded run must not invalidate them. With no draft left the export is still the deliverable:
+    M9 delivers what there is, and an unrewritten localized body is whole.
+    """
     selection = select_draft(state, work_dir)
     rendered = memo_md_path(work_dir, slug)
     raised = list(selection["banners"])
@@ -315,7 +359,7 @@ def _markdown_body(
     view = _status_view(state, final_status, list(banners or []) + raised)
     banners = raised
 
-    if rendered.is_file():
+    if reuse_export and rendered.is_file():
         # An earlier `docx render` may have exported a different version; only its own record of the
         # source draft proves otherwise (§2.1 row 15 «выбор версии», §2.2 published[]).
         source_sha = rendered_source_sha(state, rendered.relative_to(work_dir).as_posix())
@@ -325,7 +369,8 @@ def _markdown_body(
 
     if selection["path"] is not None:
         result = md_fallback.render_workdir(work_dir, selection["path"], state=view)
-        state_io.write_bytes_atomic(rendered, result["markdown"].encode("utf-8"))
+        if reuse_export:
+            state_io.write_bytes_atomic(rendered, result["markdown"].encode("utf-8"))
         return result["markdown"], banners + list(result["banners"]), None, reasons
 
     if rendered.is_file():
@@ -357,39 +402,43 @@ def build_summary(
     reason: str | None,
     banners: list,
     salvaged: bool = False,
+    pack_unavailable: str | None = None,
 ) -> str:
     """`summary.md`: status, `final_status_reasons[]`, the banners, the open blockers and the paths."""
+    language = md_fallback.memo_language(state)
     task_id = state.get("task_id") or work_dir.name
     lines = [
-        f"# memoforge run summary — {task_id}",
+        f"# {md_fallback_summary('title', language, task_id=task_id)}",
         "",
-        f"- Status: **{final_status}**",
-        f"- Terminal phase: `{phase}`",
-        f"- Mode: {state.get('mode') or '(not selected)'}",
+        md_fallback_summary("status", language, final_status=final_status),
+        md_fallback_summary("terminal_phase", language, phase=phase),
+        md_fallback_summary("mode", language, mode=state.get("mode") or md_fallback_summary("not_selected", language)),
     ]
     if state.get("user_query"):
-        lines.append(f"- Question: {state['user_query']}")
+        lines.append(md_fallback_summary("question", language, question=state["user_query"]))
     if reason:
-        lines.append(f"- Reason given to `mf finalize`: {reason}")
+        lines.append(md_fallback_summary("reason", language, reason=reason))
     if salvaged:
-        lines.append("- Produced by `mf finalize --salvage` (degraded path, M9).")
+        lines.append(md_fallback_summary("salvaged", language))
+    if pack_unavailable is not None:
+        lines.append(md_fallback_summary("pack_unavailable", language, code=pack_unavailable))
     lines.append("")
 
     reasons = [str(row) for row in (state.get("final_status_reasons") or [])]
-    lines.append("## Manual-review reasons")
+    lines.append(md_fallback_summary("manual_review_reasons", language))
     lines.append("")
-    lines.extend([f"- {row}" for row in reasons] or ["- none"])
-    lines.append("")
-
-    lines.append("## Fallback banners")
-    lines.append("")
-    rows = [_banner_text(banner) for banner in banners]
-    lines.extend([f"- {row}" for row in rows] or ["- none"])
+    lines.extend([f"- {row}" for row in reasons] or [md_fallback_summary("none", language)])
     lines.append("")
 
-    lines.append("## MCP calls")
+    lines.append(md_fallback_summary("fallback_banners", language))
     lines.append("")
-    lines.extend([f"- {row}" for row in mcp_call_lines(state)] or ["- none yet"])
+    rows = [_banner_text(banner, language) for banner in banners]
+    lines.extend([f"- {row}" for row in rows] or [md_fallback_summary("none", language)])
+    lines.append("")
+
+    lines.append(md_fallback_summary("mcp_calls", language))
+    lines.append("")
+    lines.extend([f"- {row}" for row in mcp_call_lines(state, language)] or [md_fallback_summary("none_yet", language)])
     lines.append("")
 
     # D34-11: the deliverable prints at most `STATUS_ISSUE_LIMIT` of these and points here for the
@@ -398,41 +447,48 @@ def build_summary(
         md_fallback.blocking_issue_line(issue)
         for issue in (state.get("remaining_blocking_issues") or [])
     ]
-    lines.append("## Remaining blocking issues")
+    lines.append(md_fallback_summary("remaining_blocking_issues", language))
     lines.append("")
-    lines.extend([f"- {row}" for row in blockers if row] or ["- none"])
+    lines.extend([f"- {row}" for row in blockers if row] or [md_fallback_summary("none", language)])
     lines.append("")
 
-    lines.append("## Paths")
+    lines.append(md_fallback_summary("paths", language))
     lines.append("")
-    lines.append(f"- Work dir: `{state.get('work_dir') or work_dir}`")
-    lines.append(f"- Deliverable: `{deliverable['deliverable']}`")
+    lines.append(md_fallback_summary("work_dir", language, path=state.get("work_dir") or work_dir))
+    lines.append(md_fallback_summary("deliverable", language, name=deliverable["deliverable"]))
     if deliverable.get("source"):
-        lines.append(f"- Rendered from: `{deliverable['source']}`")
-    for label, relative in (
-        ("State", state_io.STATE_FILENAME),
-        ("Journal", events.EVENTS_FILENAME),
+        lines.append(md_fallback_summary("rendered_from", language, name=deliverable["source"]))
+    for label_key, relative in (
+        ("state", state_io.STATE_FILENAME),
+        ("journal", events.EVENTS_FILENAME),
     ):
         if (work_dir / relative).exists():
-            lines.append(f"- {label}: `{relative}`")
+            lines.append(
+                f"- {md_fallback_summary(label_key, language)}: `{relative}`"
+            )
     lines.append("")
 
     warnings = state.get("drafting_warnings") or []
     if warnings:
-        lines.append("## Drafting warnings")
+        lines.append(md_fallback_summary("drafting_warnings", language))
         lines.append("")
         lines.extend(f"- {md_fallback.warning_text(warning)}" for warning in warnings)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _banner_text(banner: object) -> str:
+def _banner_text(banner: object, language: str = "en") -> str:
     if isinstance(banner, dict):
-        return f"{banner.get('text', '')} (`{banner.get('banner_id')}`)".strip()
+        return md_fallback_summary(
+            "banner_row",
+            language,
+            text=fallbacks.banner_text_for(banner, language),
+            banner_id=banner.get("banner_id"),
+        ).strip()
     return str(banner)
 
 
-def mcp_call_lines(state: dict) -> list[str]:
+def mcp_call_lines(state: dict, language: str = "en") -> list[str]:
     """One `## MCP calls` line per server of `progress.mcp_calls` (D-166, telemetry)."""
     calls = (state.get("progress") or {}).get("mcp_calls") or {}
     rows = []
@@ -440,9 +496,17 @@ def mcp_call_lines(state: dict) -> list[str]:
         used = calls[server]
         used = used if isinstance(used, int) else 0
         if server in limits.MCP_QUOTA_SERVERS:
-            rows.append(f"{server}: {used} of {limits.MCP_PROVIDER_DAILY_LIMITS[server]}")
+            rows.append(
+                md_fallback_summary(
+                    "mcp_quota_row",
+                    language,
+                    server=server,
+                    used=used,
+                    limit=limits.MCP_PROVIDER_DAILY_LIMITS[server],
+                )
+            )
         else:
-            rows.append(f"{server}: {used}")
+            rows.append(md_fallback_summary("mcp_plain_row", language, server=server, used=used))
     return rows
 
 
@@ -508,8 +572,12 @@ def publish_root(state: dict) -> Path | None:
     return None
 
 
-def source_pack_markdown(work_dir: Path) -> str:
-    """`sources/source-pack.md`: the frozen pack when there is one, else a list of what was found."""
+def source_pack_markdown(work_dir: Path, *, language: str = "en") -> str:
+    """`sources/source-pack.md`: the frozen pack when there is one, else a list of what was found.
+
+    D-175: the client reads this file next to the memorandum, so it is written in the memo
+    language. `tier` and the currency status are the recorded tokens and are printed as they are.
+    """
     pack = None
     try:
         pack = sources.read_pack(work_dir)
@@ -517,7 +585,7 @@ def source_pack_markdown(work_dir: Path) -> str:
         pack = None
     if isinstance(pack, dict) and pack.get("entries"):
         try:
-            return render.render_source_pack(pack)
+            return render.render_source_pack(pack, language)
         except (TypeError, AttributeError, KeyError, IndexError):
             pass  # a structurally broken pack falls through to the registry listing (D-99, D-90)
 
@@ -525,18 +593,25 @@ def source_pack_markdown(work_dir: Path) -> str:
         registry = sources.read_registry(work_dir)
     except (OSError, ValueError):
         registry = sources.empty_registry()
-    lines = ["# Sources (registered, not frozen)", ""]
+    lines = [f"# {md_fallback.label('registered_sources_heading', language)}", ""]
     rows = sorted((registry.get("sources") or {}).items())
     if not rows:
-        lines.append("- (no sources were registered)")
+        lines.append(f"- {md_fallback.label('no_registered_sources', language)}")
     for source_id, record in rows:
         record = record if isinstance(record, dict) else {}
         currency = record.get("currency") if isinstance(record.get("currency"), dict) else {}
         lines.append(
-            f"- `{source_id}` — {record.get('title') or '(untitled)'}; "
-            f"{record.get('citation_form') or '(no citation form)'}; "
-            f"tier {record.get('tier') or 'unknown'}; "
-            f"currency {currency.get('status') or 'unchecked'}"
+            "- "
+            + md_fallback.label(
+                "registered_source_row",
+                language,
+                source_id=f"`{source_id}`",
+                title=record.get("title") or md_fallback.label("untitled", language),
+                citation_form=record.get("citation_form")
+                or md_fallback.label("no_citation_form", language),
+                tier=record.get("tier") or "unknown",
+                status=currency.get("status") or "unchecked",
+            )
         )
     return "\n".join(lines).rstrip() + "\n"
 
@@ -653,7 +728,10 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
                     shutil.copyfile(origin, staging / name)
                     result["files"].append(name)
             state_io.write_bytes_atomic(
-                staged_sources / SOURCE_PACK_MD, source_pack_markdown(work_dir).encode("utf-8")
+                staged_sources / SOURCE_PACK_MD,
+                source_pack_markdown(
+                    work_dir, language=md_fallback.memo_language(state)
+                ).encode("utf-8"),
             )
             result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{SOURCE_PACK_MD}")
             for source_id, text in published_source_texts(work_dir):
@@ -860,7 +938,28 @@ def run_finalize(args: argparse.Namespace) -> dict:
     phase = terminal_phase(state, args.reason)
     already_terminal = phases.is_terminal(str(state.get("current_phase")))
     terminal_status = default_final_status(phase, state)
-    deliverable = choose_deliverable(work_dir, state, args.reason, final_status=terminal_status)
+    # D-175: no silent English memo — a normal finalize fails when the memo pack of the run's
+    # language cannot be read, before the deliverable is chosen. `--salvage` is the exception:
+    # it renders in English and says so in the summary.
+    language = md_fallback.memo_language(state)
+    pack_missing: str | None = None
+    if language != i18n.DEFAULT and not args.salvage:
+        try:
+            i18n.load(language)
+        except i18n.PackUnavailable:
+            return {"errors": [f"language_pack_unavailable: {language}"]}
+    if args.salvage and language != i18n.DEFAULT and not i18n.available(language):
+        pack_missing = language
+        state = dict(state, language=i18n.DEFAULT)
+    # D-175b: the labels this run generates are now English while the `memo-<slug>.md` export on
+    # disk is not, so the export is out of the deliverable order (`_markdown_body`).
+    deliverable = choose_deliverable(
+        work_dir,
+        state,
+        args.reason,
+        final_status=terminal_status,
+        reuse_export=pack_missing is None,
+    )
 
     # Fix wave (D-166): the only banners raised past the choice above are the copy/telemetry
     # ones — `mcp_soft_cap_exceeded` here and `publish_failed` in `publish` — both
@@ -890,6 +989,7 @@ def run_finalize(args: argparse.Namespace) -> dict:
             reason=args.reason,
             banners=rows,
             salvaged=bool(args.salvage),
+            pack_unavailable=pack_missing,
         )
         state_io.write_bytes_atomic(work_dir / SUMMARY_MD, body.encode("utf-8"))
 

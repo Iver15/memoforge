@@ -7,12 +7,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import limits, lint, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import i18n, limits, lint, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
 
 TASK_ID = "memo-20260101T000000Z-lint"
 DRAFTS = Path(__file__).resolve().parent / "fixtures" / "drafts"
@@ -61,6 +65,13 @@ Risk: low. The role is settled on the facts. Legal must re-check it at each rele
 <!-- sources: generated -->
 """
 """D34-09: the real Brief structure of run `memo-20260910T095310Z` — front matter, then `## 1. …`."""
+
+RU_SUBSECTION = (
+    "## 2. Правовое основание\n\n"
+    "Обработка опирается на согласие [[src:gdpr art 6]].\n\n"
+    "Риск: средний. Основание действует, пока отметка не проставлена заранее. Продукт оставляет её пустой.\n"
+)
+"""One analytical subsection in Russian; its Risk line is literal only under the Russian pack (D-174)."""
 
 
 def fixture(name: str) -> str:
@@ -719,6 +730,73 @@ class DisclaimerTest(LintTestCase):
 
     def test_l14_does_not_apply_when_the_assumptions_were_accepted(self):
         self.assertNotIn("L-14", self.rules(self.lint(fixture("classical-clean"), state=self._state(True))))
+
+
+class LocalizedGrammarTest(LintTestCase):
+    """D-174: every language-bound recognizer of lint comes from the pack, never from a constant."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.packs = self.root / "i18n"
+        self.packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU)
+        _i18n.fake_pack(self.packs, "es", {"memo.placeholders_ignore_case": False})
+        _i18n.fake_pack(self.packs, "de", {"memo.abbreviations": ["abs", "vgl", "gem", "art"]})
+
+    def rule(self, rule_id: str, text: str, *, language: str = "en") -> list[dict]:
+        """Findings of one rule for a draft linted in one memo language."""
+        state = state_io.read_state(self.work_dir)
+        state["language"] = language
+        return self.only(self.lint(text, state=state), rule_id)
+
+    def test_the_english_grammar_is_todays_constants(self):
+        english = lint.grammar("en")
+        self.assertEqual(r"^Risk: (high|medium|low|undetermined)\.", english.risk_line.pattern)
+        self.assertEqual("executive_summary", english.sections["executive summary"])
+        self.assertEqual("Risk: <high|medium|low|undetermined>.", english.risk_literal)
+
+    def test_a_russian_risk_line_satisfies_l07_and_an_english_one_does_not(self):
+        self.assertEqual([], self.rule("L-07", RU_SUBSECTION, language="ru"))
+        english = RU_SUBSECTION.replace("Риск: средний.", "Risk: medium.")
+        hints = [row["hint"] for row in self.rule("L-07", english, language="ru")]
+        literal = "Риск: <высокий|средний|низкий|не определён>."
+        self.assertTrue(hints and all(literal in hint for hint in hints), hints)
+
+    def test_a_misplaced_or_bold_localized_risk_line_is_malformed_not_missing(self):
+        bold = RU_SUBSECTION.replace("Риск: средний.", "**Риск:** средний.")
+        self.assertTrue(any("format" in row["hint"].lower() for row in self.rule("L-07", bold, language="ru")))
+
+    def test_localized_section_titles_are_canonical(self):
+        document = lint.parse_draft("# T\n\n## 1. Резюме\n\ntext\n", lint.grammar("ru"))
+        # sections[0] is the H1 title section; the first H2 follows it.
+        self.assertEqual("executive_summary", document["sections"][1]["kind"])
+
+    def test_the_em_dash_rule_is_off_for_russian_and_on_for_english(self):
+        text = (
+            "# T\n\n## 1. A\n\n"
+            "Эта оговорка занимает больше шести слов до тире — и остаётся обычной прозой.\n"
+        )
+        self.assertEqual([], self.rule("L-03", text, language="ru"))
+        self.assertNotEqual([], self.rule("L-03", text, language="en"))
+
+    def test_spanish_todo_is_prose_and_the_upper_case_placeholder_is_not(self):
+        self.assertEqual(
+            [], self.rule("L-11", "# T\n\n## 1. A\n\nTodo tratamiento requiere una base jurídica.\n", language="es")
+        )
+        self.assertNotEqual([], self.rule("L-11", "# T\n\n## 1. A\n\nTODO completar.\n", language="es"))
+        self.assertNotEqual(
+            [], self.rule("L-11", "# T\n\n## 1. A\n\nVéase [insert referencia].\n\n[insert otra]\n", language="es")
+        )
+        # English is unchanged: the same prose still matches «TODO» case-blind.
+        self.assertNotEqual([], self.rule("L-11", "# T\n\n## 1. A\n\nTodo tratamiento.\n", language="en"))
+
+    def test_german_abbreviations_do_not_split_a_paragraph(self):
+        para = "Die Verarbeitung ist gem. Art. 6 Abs. 1 DSGVO zulässig, vgl. Erwägungsgrund 47."
+        self.assertEqual(1, len(quotes.sentence_spans(para, lint.grammar("de").abbreviations)))
+        self.assertGreater(len(quotes.sentence_spans(para)), 1)
 
 
 # --- commands ---------------------------------------------------------------

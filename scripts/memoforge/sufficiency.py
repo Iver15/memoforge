@@ -6,7 +6,7 @@ import argparse
 import re
 from pathlib import Path
 
-from . import events, limits, review, schema, state_io, stepctx
+from . import events, i18n, limits, review, schema, state_io, stepctx
 
 SUFFICIENCY_PATH = "research/research-sufficiency.json"
 
@@ -106,9 +106,15 @@ def _warnings(document: dict, gaps: list[dict]) -> list[dict]:
     return rows
 
 
-def _out_of_scope_warnings(document: dict, gaps: list[dict], mode: str) -> list[dict]:
+def _out_of_scope_warnings(
+    document: dict, gaps: list[dict], mode: str, language: object = "en"
+) -> list[dict]:
     """D-112: one warning per gap outside the mode's layers, so the writer caveats it instead."""
-    prefix = f"Out of scope for {mode or 'this'} mode: "
+    code = i18n.normalize(language) or i18n.DEFAULT
+    if mode:
+        prefix = i18n.t(code, "memo.warnings.out_of_scope_prefix", mode=mode)
+    else:
+        prefix = i18n.t(code, "memo.warnings.out_of_scope_prefix_no_mode")
     texts = [f"{str(gap.get('gap', '')).strip()} {str(gap.get('why_blocking', '')).strip()}".strip() for gap in gaps]
     texts += [str(text).strip() for text in document.get("out_of_scope_gaps") or []]
     return [
@@ -266,7 +272,12 @@ def run_route(args: argparse.Namespace) -> dict:
     warnings = _warnings(document, decision["warn_gaps"]) if carry else []
     # D-112: the out-of-scope gaps are carried on every route, including the one that opens the
     # gate — they are never re-researched, so there is no later pass that would rediscover them.
-    out_of_scope = _out_of_scope_warnings(document, decision["out_of_scope"], str(state.get("mode") or ""))
+    out_of_scope = _out_of_scope_warnings(
+        document,
+        decision["out_of_scope"],
+        str(state.get("mode") or ""),
+        state.get("language"),
+    )
     warnings += out_of_scope
     unresolved_user_gaps = any(gap.get("target") == "user" for gap in decision["warn_gaps"])
 

@@ -10,6 +10,8 @@ user-facing banner has `banner_id = None` and `banner_text = None`.
 
 from __future__ import annotations
 
+from . import i18n
+
 FALLBACKS: list[dict] = [
     {
         "condition_key": "work_dir_not_writable",
@@ -445,6 +447,33 @@ def banner(condition_key: str, **params: object) -> dict | None:
         # with the banner — `finalize.collect_banners` dedups them by server.
         rendered["params"] = {name: str(params[name]) for name in row["banner_params"]}
     return rendered
+
+
+def banner_text_for(row: object, language: str) -> str:
+    """The banner text the deliverable prints: the memo language's, or the stored one (D-175).
+
+    `banner_id` + `params` re-render the text from `memo.banners.<id>` of the memo language, so
+    a banner raised before a language change prints in the language the run ends in. The stored
+    `text` is kept — and returned — for English, for string rows, for unknown ids and for rows
+    that predate per-banner params: none of those have a pack entry to render from.
+    """
+    if not isinstance(row, dict):
+        return str(row or "")
+    banner_id = row.get("banner_id")
+    stored = str(row.get("text") or banner_id or "")
+    code = i18n.normalize(language) or i18n.DEFAULT
+    if code == i18n.DEFAULT or not isinstance(banner_id, str):
+        return stored
+    declared = BY_BANNER.get(banner_id)
+    if declared is None:
+        return stored
+    if declared["banner_params"] and not isinstance(row.get("params"), dict):
+        return stored
+    params = row.get("params") if isinstance(row.get("params"), dict) else {}
+    try:
+        return i18n.t(code, f"memo.banners.{banner_id}", **params)
+    except KeyError:
+        return stored
 
 
 def dashboard_label(banner_id: str) -> str:

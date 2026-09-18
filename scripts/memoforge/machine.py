@@ -17,6 +17,7 @@ from . import (
     fallbacks,
     finalize,
     gates,
+    i18n,
     limits,
     modes,
     phases,
@@ -2017,6 +2018,15 @@ def warning(code: str, message: str, phase: str) -> dict:
     return {"code": code, "message": message, "phase": phase, "at": events.utc_now()}
 
 
+def memo_warning(key: str, language: object, **fmt) -> str:
+    """One `memo.warnings` string of the memo language, rendered with `**fmt` (D-175).
+
+    The language is locked by the time the code writes a warning, so the message is created
+    in the language the deliverable will print it in.
+    """
+    return i18n.t(i18n.normalize(language) or i18n.DEFAULT, f"memo.warnings.{key}", **fmt)
+
+
 # --- inline-llm specs ------------------------------------------------------
 
 
@@ -3011,7 +3021,11 @@ def plan_research(work_dir: Path, state: dict) -> dict:
             warnings=[
                 warning(
                     "research_layer_missing",
-                    f"no findings for layer(s): {', '.join(missing)}",
+                    memo_warning(
+                        "no_findings_for_layers",
+                        state.get("language"),
+                        layers=", ".join(missing),
+                    ),
                     "research",
                 )
             ],
@@ -3111,7 +3125,7 @@ def plan_research_insufficient_pending(work_dir: Path, state: dict) -> dict:
         warnings=[
             warning(
                 "insufficient_research_accepted",
-                "the user chose to continue with incomplete research",
+                memo_warning("continue_with_incomplete_research", state.get("language")),
                 "research_insufficient_pending",
             )
         ],
@@ -3183,7 +3197,11 @@ def plan_currency_check(work_dir: Path, state: dict) -> dict:
         state_io.write_json_atomic(path, _unchecked_currency(work_dir))
         banners.append(("currency_checker_failed", {}))
         warnings.append(
-            warning("currency_unchecked", "source currency could not be verified", "currency_check")
+            warning(
+                "currency_unchecked",
+                memo_warning("currency_unchecked", state.get("language")),
+                "currency_check",
+            )
         )
     try:
         document = stepctx.read_published(work_dir, sources.CURRENCY_PATH, state=state)

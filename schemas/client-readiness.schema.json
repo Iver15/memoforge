@@ -48,7 +48,13 @@
         "section_id": { "type": "string", "minLength": 1 },
         "severity": { "enum": ["blocker", "major", "minor"] },
         "issue": { "type": "string", "minLength": 1 },
-        "suggestion": { "type": "string", "minLength": 1 }
+        "suggestion": { "type": "string", "minLength": 1 },
+        "issue_client": {
+          "description": "D-173a: one client-facing sentence in the memo language (only when it is not `en`).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        }
       }
     }
   }

@@ -8,16 +8,25 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import docx, fallbacks, state_io, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import docx, fallbacks, i18n, state_io, task  # noqa: E402
 from memoforge.docx import fallback, oscola  # noqa: E402
 
 FOOTNOTES = oscola.STYLE_FOOTNOTES
 INLINE = oscola.STYLE_INLINE
+
+SOURCES_HEADING = fallback.sources_heading()
+APPENDIX_HEADING = fallback.appendix_heading()
+STATUS_HEADING = fallback.status_heading()
+"""The English headings of the markdown deliverable, read from the pack the same way it writes them."""
 
 
 def issue_step(work_dir: Path, step_id: str, attempt: int = 1) -> None:
@@ -222,7 +231,7 @@ class PinpointTest(unittest.TestCase):
             "Applied in [[src:case-c-311-18 para 93]].\n",
             number=1,
         )
-        self.assertIn(f" — {fallback.PINPOINT_LATER_PREFIX}para 93 — ", line)
+        self.assertIn(" — also cited at para 93 — ", line)
 
     def test_one_mention_with_a_pinpoint_reads_exactly_as_before(self):
         self.assertIn(
@@ -313,8 +322,8 @@ class InlineCitationTest(unittest.TestCase):
 
     def test_no_footnote_markers_are_written(self):
         markdown = self.markdown()
-        self.assertNotIn("[1]", markdown.split(fallback.SOURCES_HEADING)[0])
-        self.assertNotIn("[2]", markdown.split(fallback.SOURCES_HEADING)[0])
+        self.assertNotIn("[1]", markdown.split(SOURCES_HEADING)[0])
+        self.assertNotIn("[2]", markdown.split(SOURCES_HEADING)[0])
 
     def test_the_blockquote_keeps_its_attribution_line(self):
         markdown = self.markdown()
@@ -336,7 +345,7 @@ class InlineCitationTest(unittest.TestCase):
         self.assertTrue(lines[1].startswith("[2] Case C-311/18 Schrems II"))
 
     def test_the_body_carries_no_url_outside_the_link_target(self):
-        body = self.markdown().split(fallback.SOURCES_HEADING)[0]
+        body = self.markdown().split(SOURCES_HEADING)[0]
         self.assertNotIn("<https", body)
         self.assertNotIn("retrieved", body)
 
@@ -367,7 +376,7 @@ class SectionBoundaryTest(unittest.TestCase):
 
     def body(self, style: str) -> str:
         return fallback.render(self.DRAFT, index(), citation_style=style)["markdown"].split(
-            fallback.SOURCES_HEADING
+            SOURCES_HEADING
         )[0]
 
     def test_the_quotation_in_the_next_section_keeps_its_attribution_inline(self):
@@ -425,7 +434,7 @@ class RealRunAnnexTest(unittest.TestCase):
         return fallback.render(self.draft, self.index, citation_style=style)
 
     def annex(self, markdown: str) -> list[str]:
-        tail = markdown.split(fallback.SOURCES_HEADING, 1)[1]
+        tail = markdown.split(SOURCES_HEADING, 1)[1]
         return [row for row in tail.splitlines() if row.startswith("[")]
 
     def test_ten_annex_entries_instead_of_twenty_two(self):
@@ -435,7 +444,7 @@ class RealRunAnnexTest(unittest.TestCase):
             self.assertEqual(10, len(self.annex(rendered["markdown"])), style)
 
     def test_the_gdpr_is_spelled_out_once_in_the_body(self):
-        body = self.render(INLINE)["markdown"].split(fallback.SOURCES_HEADING)[0]
+        body = self.render(INLINE)["markdown"].split(SOURCES_HEADING)[0]
         self.assertEqual(1, body.count("Regulation (EU) 2016/679 (GDPR)"))
         self.assertIn("[GDPR, art 44]", body)
         self.assertIn("[GDPR, art 28(3)]", body)
@@ -452,7 +461,7 @@ class RealRunAnnexTest(unittest.TestCase):
         self.assertNotIn("#art", line)
 
     def test_the_body_links_still_point_at_the_article_anchor(self):
-        body = self.render(INLINE)["markdown"].split(fallback.SOURCES_HEADING)[0]
+        body = self.render(INLINE)["markdown"].split(SOURCES_HEADING)[0]
         self.assertIn("(https://eur-lex.europa.eu/eli/reg/2016/679/oj#art44)", body)
 
 
@@ -587,8 +596,8 @@ class StatusSectionTest(unittest.TestCase):
     """D34-11: a run that did not end approved says so in the deliverable, not only in state."""
 
     def status(self, markdown: str) -> str:
-        self.assertIn(fallback.STATUS_HEADING, markdown)
-        return markdown.partition(fallback.STATUS_HEADING)[2].partition("\n## ")[0]
+        self.assertIn(STATUS_HEADING, markdown)
+        return markdown.partition(STATUS_HEADING)[2].partition("\n## ")[0]
 
     def test_the_banners_and_the_blockers_reach_the_deliverable(self):
         markdown = fallback.render("Body.\n", index(), state=FORCED_EXIT_STATE)["markdown"]
@@ -606,7 +615,7 @@ class StatusSectionTest(unittest.TestCase):
             drafting_warnings=["one warning"],
         )["markdown"]
         self.assertLess(
-            markdown.index(fallback.STATUS_HEADING), markdown.index(fallback.APPENDIX_HEADING)
+            markdown.index(STATUS_HEADING), markdown.index(APPENDIX_HEADING)
         )
 
     def test_an_approved_run_carries_no_status_section(self):
@@ -615,11 +624,11 @@ class StatusSectionTest(unittest.TestCase):
                 markdown = fallback.render("Body.\n", index(), state={"final_status": status})[
                     "markdown"
                 ]
-                self.assertNotIn(fallback.STATUS_HEADING, markdown)
+                self.assertNotIn(STATUS_HEADING, markdown)
 
     def test_a_run_without_a_final_status_yet_carries_no_status_section(self):
         markdown = fallback.render("Body.\n", index(), state={})["markdown"]
-        self.assertNotIn(fallback.STATUS_HEADING, markdown)
+        self.assertNotIn(STATUS_HEADING, markdown)
 
     def test_the_blocker_list_is_capped_and_points_at_the_summary(self):
         state = dict(FORCED_EXIT_STATE, remaining_blocking_issues=blockers_fixture(15))
@@ -634,6 +643,21 @@ class StatusSectionTest(unittest.TestCase):
         ]
         self.assertIn("unresolved", self.status(markdown).lower())
 
+    def test_an_english_signature_is_the_one_it_was_before_the_language_existed(self):
+        """D-175: for `en` the hashed payload is exactly the set of fields it carried before.
+
+        A docx an earlier plugin version exported for a task still in flight has to keep matching.
+        The expected value is the pre-D-175 expression: the same dict without the `language` key.
+        """
+        inputs = fallback.status_inputs(FORCED_EXIT_STATE)
+        self.assertEqual("en", inputs["language"])
+        without = {key: value for key, value in inputs.items() if key != "language"}
+        payload = json.dumps(without, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self.assertEqual(
+            state_io.sha256_bytes(payload.encode("utf-8")),
+            docx.status_signature(FORCED_EXIT_STATE),
+        )
+
     def test_a_blocker_row_is_severity_section_and_issue(self):
         self.assertEqual(
             "blocker · s-4 · Something is wrong.",
@@ -643,6 +667,17 @@ class StatusSectionTest(unittest.TestCase):
         )
         self.assertEqual("a plain string", fallback.blocking_issue_line("a plain string"))
         self.assertEqual("", fallback.blocking_issue_line({}))
+
+    def test_the_status_row_prints_the_client_sentence(self):
+        issue = {
+            "severity": "blocker",
+            "section_id": "s-4",
+            "issue": "Risk line format: …",
+            "issue_client": "Формат строки риска",
+        }
+        self.assertTrue(fallback.blocking_issue_line(issue).endswith("Формат строки риска"))
+        issue.pop("issue_client")
+        self.assertTrue(fallback.blocking_issue_line(issue).endswith("Risk line format: …"))
 
 
 class CurrencyUnavailableTest(unittest.TestCase):
@@ -691,8 +726,8 @@ class CurrencyUnavailableTest(unittest.TestCase):
             drafting_warnings=warnings_fixture(),
         )
         markdown = rendered["markdown"]
-        self.assertIn(f"- {fallback.CURRENCY_UNAVAILABLE_NOTE}", markdown)
-        self.assertEqual(1, markdown.count(fallback.CURRENCY_UNAVAILABLE_NOTE))
+        self.assertIn(f"- {fallback.label('currency_unavailable_note')}", markdown)
+        self.assertEqual(1, markdown.count(fallback.label('currency_unavailable_note')))
         self.assertNotIn("currency unchecked", markdown)
         self.assertIn("- AI Act, Annex III(4) — link changed", markdown)
         self.assertIn("- … and 2 more in summary.md", markdown)
@@ -1171,6 +1206,209 @@ class SlugTest(unittest.TestCase):
 
     def test_slug_of_an_unrecognised_directory(self):
         self.assertEqual(docx.slug_of({}, Path("/tmp/scratch")), "memo")
+
+
+RU_DELIVERABLE: dict = {
+    "memo.labels.sources_heading": "Источники",
+    "memo.labels.no_sources_cited": "В этом проекте не процитировано ни одного источника.",
+    "memo.labels.appendix_heading": "Приложение — допущения и непроверенные источники",
+    "memo.labels.appendix_more": "… и ещё {count} в summary.md",
+    "memo.labels.assumptions_label": "Допущения, принятые в анализе",
+    "memo.labels.unverified_label": "Непроверенные источники",
+    "memo.labels.unresolved_label": "Неразрешённые ссылки",
+    "memo.labels.unresolved_bullet": "{raw_id} — нет во замороженном пакете; помечено {marker}.",
+    "memo.labels.currency_unavailable_note": "Актуальность источников в этом прогоне не проверялась.",
+    "memo.labels.currency_note": "актуальность {status}",
+    "memo.labels.link_note": "ссылка {status}",
+    "memo.labels.status_label": "Статус",
+    "memo.labels.status_lead": "Итоговый статус: {final_status}. Конвейер не подписал меморандум.",
+    "memo.labels.status_banners_label": "Уведомления конвейера",
+    "memo.labels.status_issues_label": "Нерешённые блокирующие замечания",
+    "memo.banner_titles.forced_exit": "ЗАМЕЧАНИЯ РЕЦЕНЗЕНТОВ СНЯТЫ НЕ ПОЛНОСТЬЮ",
+    "memo.banner_titles.subtitle": "Перед использованием требуется ручная проверка.",
+    "memo.banner_titles.final_status": "Итоговый статус: {final_status}.",
+    "memo.banner_titles.fallbacks_heading": "Сработавшие запасные сценарии:",
+    "memo.banner_titles.reasons_heading": "Причины, записанные для ручной проверки:",
+    "memo.citation.art": "ст.",
+    "memo.citation.cited_at": "цитируется в ",
+    "memo.citation.also_cited_at": "также цитируется в ",
+    "memo.citation.checked": "проверено ",
+    "memo.citation.currency": "актуальность ",
+    "memo.citation.ibid": "там же",
+}
+"""The Russian labels of the deliverable; the docx test family builds its packs from this too."""
+
+LOCALIZED_KEYS: tuple[str, ...] = (
+    "sources_heading",
+    "appendix_heading",
+    "status_label",
+    "assumptions_label",
+    "unverified_label",
+    "unresolved_label",
+)
+"""The labels a Russian deliverable must carry, and must not carry in English (D-175)."""
+
+
+class _PackedTestCase(unittest.TestCase):
+    """A temp pack directory with one Russian pack; `i18n.PACK_DIR` points at it for the test."""
+
+    OVERRIDES: dict = RU_DELIVERABLE
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", self.OVERRIDES)
+
+
+def localized_index() -> fallback.SourceIndex:
+    """One consolidated EU act whose currency and liveness put it into the appendix."""
+    return fallback.SourceIndex(
+        sources={
+            "gdpr": {
+                "citation_form": "Regulation (EU) 2016/679 (GDPR), art 6",
+                "identifiers": {
+                    "celex": "32016R0679",
+                    "celex_consolidated": "02016R0679-20160504",
+                },
+                "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+                "retrieved_at": "2026-09-10T09:55:07Z",
+                "currency": {"status": "manual_check"},
+                "liveness": {"status": "dead"},
+            }
+        }
+    )
+
+
+class LocalizedMarkdownTest(_PackedTestCase):
+    """D-175: every label the markdown deliverable prints comes from the memo language."""
+
+    DRAFT = (
+        "Правомерно по [[src:gdpr art 6(1)(f)]].\n\n"
+        "И ещё раз [[src:gdpr art 6(1)(f)]] плюс призрак [[src:ghost]].\n\n"
+        "<!-- sources: generated -->\n"
+    )
+
+    def render_md(self, language: str = "ru") -> str:
+        state = dict(FORCED_EXIT_STATE, language=language)
+        return fallback.render(
+            self.DRAFT,
+            localized_index(),
+            drafting_warnings=["Одно допущение осталось непроверенным."],
+            state=state,
+            citation_style=INLINE,
+        )["markdown"]
+
+    def test_a_russian_deliverable_carries_no_english_label(self):
+        result = self.render_md()
+        for key in LOCALIZED_KEYS:
+            self.assertNotIn(i18n.t("en", f"memo.labels.{key}"), result, key)
+            self.assertIn(i18n.t("ru", f"memo.labels.{key}"), result, key)
+
+    def test_pinpoint_labels_are_translated_only_on_display(self):
+        body = self.render_md().split(fallback.sources_heading("ru"))[0]
+        self.assertIn("ст. 6(1)(f)", body)
+        # The deep link still comes from the canonical pinpoint.
+        self.assertIn("#art_6", body)
+        self.assertNotIn("art 6(1)(f)]", body)
+
+    def test_the_sources_line_names_the_cited_places_in_the_memo_language(self):
+        self.assertIn("цитируется в ст. 6(1)(f)", self.render_md())
+        self.assertIn("проверено 2026-09-10, актуальность manual_check", self.render_md())
+
+    def test_the_appendix_notes_are_localized_and_the_statuses_are_not(self):
+        result = self.render_md()
+        self.assertIn("актуальность manual_check", result)
+        self.assertIn("ссылка dead", result)
+
+    def test_the_status_lead_and_its_sub_headings_are_localized(self):
+        status = self.render_md().partition(fallback.status_heading("ru"))[2]
+        self.assertIn("Итоговый статус: forced_exit_on_v1_with_remaining_issues.", status)
+        self.assertIn("Уведомления конвейера", status)
+        self.assertIn("Нерешённые блокирующие замечания", status)
+
+    def test_english_is_what_it_was_before_the_language_existed(self):
+        without = fallback.render(
+            self.DRAFT,
+            localized_index(),
+            drafting_warnings=["Одно допущение осталось непроверенным."],
+            state=dict(FORCED_EXIT_STATE),
+            citation_style=INLINE,
+        )["markdown"]
+        self.assertEqual(without, self.render_md(language="en"))
+        self.assertIn("cited at art 6(1)(f)", without)
+
+
+class BannerLanguageSignatureTest(_PackedTestCase):
+    """D-175: render and finalize hash the same banner strings, in the memo language."""
+
+    OVERRIDES: dict = {
+        **RU_DELIVERABLE,
+        "memo.banners.mcp_partial": "Частичное покрытие MCP — доступен только {available}.",
+    }
+
+    def test_the_status_signature_is_the_same_at_render_and_at_finalize_for_a_russian_task(self):
+        from memoforge import finalize as _finalize
+
+        banners = [fallbacks.banner("mcp_partial", available="legalviz")]
+        render_state = dict(FORCED_EXIT_STATE, language="ru", fallback_banners=list(banners))
+        render_signature = docx.status_signature(render_state)
+        gathered = _finalize.collect_banners(
+            {"fallback_banners": []}, list(banners) + list(render_state["fallback_banners"])
+        )
+        view = _finalize._status_view(render_state, render_state["final_status"], gathered)
+        self.assertEqual(render_signature, docx.status_signature(view))
+
+    def test_a_german_warning_is_not_cut_at_an_abbreviation(self):
+        _i18n.fake_pack(self.packs, "de", {"memo.abbreviations": ["gem", "art", "abs"]})
+        warning = {
+            "code": "unresolved_research_gap",
+            "message": (
+                "Die Verarbeitung ist gem. Art. 6 Abs. 1 DSGVO nur zulässig, "
+                "wenn ein Vertrag besteht. Zweiter Satz."
+            ),
+        }
+        self.assertEqual(
+            "Die Verarbeitung ist gem. Art. 6 Abs. 1 DSGVO nur zulässig, wenn ein Vertrag besteht.",
+            fallback.assumption_bullet(warning, language="de"),
+        )
+
+    def test_an_english_warning_is_cut_at_the_first_boundary_abbreviations_notwithstanding(self):
+        """English is frozen: the cut never consulted an abbreviation list, `art` included."""
+        warning = {
+            "code": "unresolved_research_gap",
+            "message": "See art. Contract scope remains open. Second sentence.",
+        }
+        self.assertEqual("See art.", fallback.assumption_bullet(warning, language="en"))
+
+
+class LocalizedStatusSignatureTest(_PackedTestCase):
+    """D-175: `en` keeps the signature it always had; every other language is hashed with its code.
+
+    Two runs whose `## Status` section differs only in the language it is written in must not share
+    a signature, or `finalize` would hand the client an export in the language the run left behind.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        _i18n.fake_pack(self.packs, "de", {})
+
+    def signature(self, language: str) -> str:
+        return docx.status_signature(dict(FORCED_EXIT_STATE, language=language))
+
+    def test_two_languages_with_the_same_section_do_not_share_a_signature(self):
+        self.assertNotEqual(self.signature("ru"), self.signature("de"))
+        self.assertNotEqual(self.signature("ru"), self.signature("en"))
+        self.assertNotEqual(self.signature("de"), self.signature("en"))
+
+    def test_a_non_english_signature_hashes_the_whole_dict(self):
+        inputs = fallback.status_inputs(dict(FORCED_EXIT_STATE, language="ru"))
+        self.assertEqual("ru", inputs["language"])
+        payload = json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self.assertEqual(state_io.sha256_bytes(payload.encode("utf-8")), self.signature("ru"))
 
 
 if __name__ == "__main__":

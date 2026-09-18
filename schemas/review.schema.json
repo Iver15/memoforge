@@ -16,6 +16,12 @@
     "section_id": { "type": "string", "minLength": 1 },
     "checklist_id": { "type": "string", "minLength": 1 },
     "severity": { "enum": ["blocker", "major", "minor"] },
+    "issue_client": {
+      "description": "D-173a: one client-facing sentence in the memo language (only when it is not `en`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
     "verdict": { "enum": ["approved", "needs_revision"] },
     "reviewer_kind": { "enum": ["logic", "form", "citations", "counterarguments"] },
     "checklist_item": {
@@ -39,7 +45,8 @@
         "section_id": { "$ref": "#/$defs/section_id" },
         "issue": { "type": "string", "minLength": 1 },
         "suggestion": { "type": "string", "minLength": 1 },
-        "checklist_id": { "$ref": "#/$defs/checklist_id" }
+        "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "issue_client": { "$ref": "#/$defs/issue_client" }
       }
     },
     "form_issue": {
@@ -53,6 +60,7 @@
         "issue": { "type": "string", "minLength": 1 },
         "suggestion": { "type": "string", "minLength": 1 },
         "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "issue_client": { "$ref": "#/$defs/issue_client" },
         "lens": {
           "description": "form-reviewer merges the v1 clarity and style reviewers (TZ section 4.1).",
           "enum": ["clarity", "style"]
@@ -70,6 +78,7 @@
         "issue": { "type": "string", "minLength": 1 },
         "suggestion": { "type": "string", "minLength": 1 },
         "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "issue_client": { "$ref": "#/$defs/issue_client" },
         "issue_category": {
           "description": "Only the three judgement calls left to the LLM. Existence, verbatim accuracy, currency and Sources-section coverage are decided by `mf draft audit-citations` (C-01..C-07) before the reviewer sees the draft, so the v1 categories ignored_blocking_currency, missing_in_sources_section, unverified_against_source and length_overflow_disclosure are gone (TZ section 4.1, section 5.4).",
           "enum": ["source_drift", "source_pack_mismatch", "unsupported_claim"]
@@ -87,7 +96,8 @@
         "section_id": { "$ref": "#/$defs/section_id" },
         "issue": { "type": "string", "minLength": 1 },
         "suggestion": { "type": "string", "minLength": 1 },
-        "checklist_id": { "$ref": "#/$defs/checklist_id" }
+        "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "issue_client": { "$ref": "#/$defs/issue_client" }
       }
     },
     "counterarguments_issue": {
@@ -101,6 +111,7 @@
         "issue": { "type": "string", "minLength": 1 },
         "suggestion": { "type": "string", "minLength": 1 },
         "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "issue_client": { "$ref": "#/$defs/issue_client" },
         "attack_vector": {
           "enum": [
             "contrary_authority",

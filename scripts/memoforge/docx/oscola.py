@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import pylauncher
+from .. import i18n, pylauncher
 
 # --- citation style (D-150) ------------------------------------------------
 
@@ -169,20 +169,15 @@ NOT_A_BODY: frozenset = frozenset({"AI", "EU", "US", "UK", "EC"})
 _META_BODY_KEYS = ("issuing_body", "publisher", "author", "authority", "institution")
 _META_DATE_KEYS = ("date", "published_at", "publication_date", "effective_date")
 
-MONTHS = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-)
+
+def citation_word(key: str, language: str = i18n.DEFAULT) -> str:
+    """One `memo.citation` word of the memo language (D-175a).
+
+    Only the words of a citation that are a label live here. Its identity — the case name, the
+    court, the act kind, `(n N)`, CELEX/ECLI/ELI and `[unresolved: …]` — is the same in every
+    language, because it is how a reader finds the source, not how the memo describes it.
+    """
+    return i18n.t(i18n.normalize(language) or i18n.DEFAULT, f"memo.citation.{key}")
 
 
 def view_of(source_id: str, entry: dict | None = None, record: dict | None = None) -> dict:
@@ -347,7 +342,7 @@ def date_only(value: object) -> str:
     return f"{match.group(1)}-{match.group(2)}-{match.group(3)}" if match else text
 
 
-def long_date(value: object) -> str:
+def long_date(value: object, language: str = i18n.DEFAULT) -> str:
     """`18 June 2021` out of an ISO date; anything else comes back as it was written."""
     text = str(value or "").strip()
     match = DATE_RE.match(text)
@@ -356,7 +351,8 @@ def long_date(value: object) -> str:
     month = int(match.group(2))
     if not 1 <= month <= 12:
         return text
-    return f"{int(match.group(3))} {MONTHS[month - 1]} {match.group(1)}"
+    months = i18n.node(i18n.normalize(language) or i18n.DEFAULT, "memo.months")
+    return f"{int(match.group(3))} {months[month - 1]} {match.group(1)}"
 
 
 # --- pinpoints -------------------------------------------------------------
@@ -400,6 +396,26 @@ def normalise_pinpoint(value: object) -> str:
         if re.fullmatch(pattern, label, re.IGNORECASE):
             return f"{replacement} {text[match.end():].strip()}".strip()
     return text  # pragma: no cover - the alternation and the table are the same list
+
+
+_DISPLAY_LABELS: tuple[str, ...] = tuple(dict.fromkeys(name for _, name in _PINPOINT_LABELS))
+_DISPLAY_LABEL_RE = re.compile(r"^(?P<label>" + "|".join(_DISPLAY_LABELS) + r")(?=\s|$)")
+"""The normalised label at the head of a canonical pinpoint, plural before singular."""
+
+
+def display_pinpoint(pinpoint: str, language: str = i18n.DEFAULT) -> str:
+    """The canonical pinpoint with its label in the memo language (D-175a).
+
+    The only place a pinpoint label is translated, and it runs on the string that is about to be
+    printed — after the anchor of the link and the `ibid` decision were taken on the canonical
+    form. A pinpoint the normaliser did not label (`§ 26`, `point 2 of the operative part`) is
+    printed as the draft wrote it.
+    """
+    text = str(pinpoint or "")
+    match = _DISPLAY_LABEL_RE.match(text)
+    if match is None:
+        return text
+    return citation_word(match.group("label"), language) + text[match.end():]
 
 
 # --- names -----------------------------------------------------------------
@@ -595,7 +611,7 @@ def record_pinpoint(view: dict) -> str:
     return ""
 
 
-def _eu_legislation(view: dict, pinpoint: str) -> str:
+def _eu_legislation(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """`Regulation (EU) 2016/679 (GDPR), art 35(3)(a)` (D-150)."""
     instrument = _instrument(view)
     if not instrument:
@@ -606,7 +622,7 @@ def _eu_legislation(view: dict, pinpoint: str) -> str:
     return _join(instrument, pinpoint)
 
 
-def _legislation(view: dict, pinpoint: str) -> str:
+def _legislation(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """`Data Protection Act 2018, s 2(1)`, `15 USC § 45` — national legislation (D-150)."""
     cite = _strip_noise(view.get("citation_form") or "")
     head = cite.split(",")[0].strip() if cite else ""
@@ -615,7 +631,7 @@ def _legislation(view: dict, pinpoint: str) -> str:
     return _join(head, pinpoint)
 
 
-def _cjeu(view: dict, pinpoint: str, name: str | None = None) -> str:
+def _cjeu(view: dict, pinpoint: str, language: str = i18n.DEFAULT, name: str | None = None) -> str:
     """`Case C-311/18 Data Protection Commissioner v … EU:C:2020:559, para 2 …` (D-150)."""
     text = _text_of(view)
     number = ""
@@ -633,7 +649,7 @@ def _cjeu(view: dict, pinpoint: str, name: str | None = None) -> str:
     return _join(head, pinpoint)
 
 
-def _case(view: dict, pinpoint: str) -> str:
+def _case(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """Any other court by its conventional form — the registry's citation form, trimmed (D-150)."""
     cite = _strip_noise(view.get("citation_form") or "")
     if not cite:
@@ -685,17 +701,21 @@ def _version(view: dict) -> str:
     return f"v {match.group(1)}" if match else ""
 
 
-def _soft_law(view: dict, pinpoint: str) -> str:
+def _soft_law(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """`EDPB, Recommendations 01/2020 (v 2.0, 18 June 2021) paras 44, 89` (D-150)."""
     body, document = _soft_law_parts(view)
     head = ", ".join(part for part in (body, document) if part)
-    inside = ", ".join(part for part in (_version(view), long_date(_meta_value(view, _META_DATE_KEYS))) if part)
+    inside = ", ".join(
+        part
+        for part in (_version(view), long_date(_meta_value(view, _META_DATE_KEYS), language))
+        if part
+    )
     if inside:
         head = f"{head} ({inside})" if head else f"({inside})"
     return f"{_trim(head)} {pinpoint}".strip() if pinpoint else _trim(head)
 
 
-def _doctrine(view: dict, pinpoint: str) -> str:
+def _doctrine(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """`Abraha, 'A pragmatic compromise?' (2022) 12 IDPL 276, 280` (D-150)."""
     cite = _strip_noise(view.get("citation_form") or "")
     author = short_name(view)
@@ -736,19 +756,22 @@ _COMPACT = {
     CLASS_SOFT_LAW: _soft_law,
     CLASS_DOCTRINE: _doctrine,
 }
+"""One builder per source class; all six take `(view, pinpoint, language)` so the dispatch is one
+call. The pinpoint arrives already in its display form, and only the soft-law form has a word of its
+own to translate — the date inside the citation."""
 
 
-def compact(view: dict, pinpoint: str = "") -> str:
+def compact(view: dict, pinpoint: str = "", language: str = i18n.DEFAULT) -> str:
     """The citation of a first mention: one form per source class, no URL, no CELEX, no date (D-150)."""
-    pin = normalise_pinpoint(pinpoint) or record_pinpoint(view)
+    pin = display_pinpoint(normalise_pinpoint(pinpoint) or record_pinpoint(view), language)
     kind = source_class(view)
-    text = _trim(_COMPACT[kind](view, pin))
+    text = _trim(_COMPACT[kind](view, pin, language))
     if len(text) <= MAX_COMPACT_CHARS:
-        return text or short(view, pin)
+        return text or short(view, pinpoint, language=language)
     if kind == CLASS_CJEU:
-        text = _trim(_cjeu(view, pin, name=short_name(view)))
+        text = _trim(_cjeu(view, pin, language, name=short_name(view)))
     else:
-        text = _trim(short(view, pin))
+        text = _trim(short(view, pinpoint, language=language))
     if len(text) <= MAX_COMPACT_CHARS:
         return text
     return _hard_cut(text)
@@ -762,26 +785,24 @@ def _hard_cut(text: str) -> str:
     return cut.rstrip(" ,;:.") + "…"
 
 
-def short(view: dict, pinpoint: str = "", first_n: int | None = None) -> str:
+def short(
+    view: dict, pinpoint: str = "", first_n: int | None = None, language: str = i18n.DEFAULT
+) -> str:
     """`GDPR, art 88(1)` — with `(n 19)` in front of the pinpoint in the footnote style only (D-150)."""
-    pin = normalise_pinpoint(pinpoint) or record_pinpoint(view)
+    pin = display_pinpoint(normalise_pinpoint(pinpoint) or record_pinpoint(view), language)
     name = short_name(view)
     if first_n:
         name = f"{name} (n {int(first_n)})"
     return f"{name}, {pin}" if pin else name
 
 
-IBID = "ibid"
-"""Two adjacent citations of the same instrument and pinpoint: the second is `ibid` (D-150)."""
-
-
-def instrument_form(view: dict) -> str:
+def instrument_form(view: dict, language: str = i18n.DEFAULT) -> str:
     """The citation of the **work**, without the article the record happens to be about (D-150).
 
     `Regulation (EU) 2016/679 (GDPR)` for every one of the eleven GDPR articles the registry keeps
     as separate sources: what the `## Sources` annex lists, and what the short form cites.
     """
-    return _trim(_COMPACT[source_class(view)](view, ""))
+    return _trim(_COMPACT[source_class(view)](view, "", language))
 
 
 def instrument_key(view: dict) -> str:
@@ -875,17 +896,21 @@ def assign_forms(mentions: list, style: str) -> list[str]:
     return cited
 
 
-def mention_text(view: dict, mention: dict, style: str) -> str:
-    """The rendered citation of one mention, in the style of the run (D-150)."""
+def mention_text(view: dict, mention: dict, style: str, language: str = i18n.DEFAULT) -> str:
+    """The rendered citation of one mention, in the style of the run (D-150).
+
+    D-175a: `assign_forms` has already decided what this mention is, on the canonical pinpoints;
+    the language only decides how the decision is written down.
+    """
     form = mention.get("form") or FORM_FULL
     pinpoint = mention.get("pinpoint") or ""
     if form == FORM_FULL:
-        return compact(view, pinpoint)
+        return compact(view, pinpoint, language)
     if form == FORM_IBID:
         # The pinpoint is the one the citation before it carried — that is what makes this `ibid`.
-        return IBID
+        return citation_word("ibid", language)
     back_reference = mention.get("first_n") if style == STYLE_FOOTNOTES else None
-    return short(view, pinpoint, back_reference)
+    return short(view, pinpoint, back_reference, language)
 
 
 # --- links and the annex ---------------------------------------------------
@@ -912,8 +937,6 @@ def anchor_url(view: dict, pinpoint: str = "") -> str:
     return f"{url.split('#', 1)[0]}#art_{article.group(1)}"
 
 
-CHECKED = "checked "
-CURRENCY = "currency "
 SOURCES_SEPARATOR = " — "
 """D-150: the annex fields of one instrument — citation, identifiers, pinpoints, URL, provenance."""
 
@@ -940,11 +963,12 @@ def identifiers_field(views: list) -> str:
     return ", ".join(parts)
 
 
-def provenance_field(views: list) -> str:
+def provenance_field(views: list, language: str = i18n.DEFAULT) -> str:
     """`checked 2026-09-10, currency unchecked; art 6 amended` (D-150).
 
     One currency verdict per instrument — the run checks the work, not each article — plus the
-    articles whose own status says the text moved under the memorandum.
+    articles whose own status says the text moved under the memorandum. D-175a: the article is
+    named by its display form, the status it carries is the recorded token and stays as it is.
     """
     retrieved = ""
     status = ""
@@ -956,16 +980,22 @@ def provenance_field(views: list) -> str:
         value = str(view.get("currency_status") or "").strip().lower()
         if value not in AMENDED_STATUSES:
             continue
-        where = record_pinpoint(view) or short_name(view)
+        where = display_pinpoint(record_pinpoint(view), language) or short_name(view)
         note = f"{where} {value}".strip()
         if note not in notes:
             notes.append(note)
-    head = ", ".join(part for part in (f"{CHECKED}{retrieved}" if retrieved else "",
-                                       f"{CURRENCY}{status}" if status else "") if part)
+    head = ", ".join(
+        part
+        for part in (
+            f"{citation_word('checked', language)}{retrieved}" if retrieved else "",
+            f"{citation_word('currency', language)}{status}" if status else "",
+        )
+        if part
+    )
     return "; ".join(part for part in ([head] if head else []) + notes)
 
 
-def sources_entry(row: dict) -> str:
+def sources_entry(row: dict, language: str = i18n.DEFAULT) -> str:
     """One `## Sources` line: the full record of one **instrument** (D-150).
 
     The annex is where everything the body does not carry lives — the identifiers, every place the
@@ -976,11 +1006,15 @@ def sources_entry(row: dict) -> str:
     views = [view for view in (row.get("members") or [row.get("view")]) if isinstance(view, dict)]
     if not views:
         return ""
-    parts = [instrument_form(views[0]), identifiers_field(views), row.get("pinpoints_text") or ""]
+    parts = [
+        instrument_form(views[0], language),
+        identifiers_field(views),
+        row.get("pinpoints_text") or "",
+    ]
     url = canonical_url(views[0])
     if url:
         parts.append(f"<{url}>")
-    parts.append(provenance_field(views))
+    parts.append(provenance_field(views, language))
     return SOURCES_SEPARATOR.join(part for part in parts if part)
 
 

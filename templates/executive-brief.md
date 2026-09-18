@@ -8,6 +8,8 @@ citation_style: inline
 
 Same rhetorical surface as `classical-memo` — the four beats from `lib/prose-style.md` — compressed: one or two sentences per beat, and no more than three issues.
 
+The memo language, the section headings and the risk-line literal are given in your task prompt; the English forms below are the example.
+
 ## Sections, in this order
 
 1. **Title** — `# <Subject>: <Analytical framing>`. No date or jurisdiction inside the title line.
@@ -33,7 +35,7 @@ Same rhetorical surface as `classical-memo` — the four beats from `lib/prose-s
 
 ## Tone and length
 
-Direct, plain English for a reader who is not a lawyer; define an unavoidable legal term in a phrase where it first appears, inline — this template has no background section. Keep it tight: the word cap for the brief is enforced by `mf draft lint`, which counts the body and the footnotes it will generate. If the question genuinely cannot be answered defensibly at this length, write the honest short version and say so in your final response rather than padding or over-compressing.
+Direct, plain language for a reader who is not a lawyer; define an unavoidable legal term in a phrase where it first appears, inline — this template has no background section. Keep it tight: the word cap for the brief is enforced by `mf draft lint`, which counts the body and the footnotes it will generate. If the question genuinely cannot be answered defensibly at this length, write the honest short version and say so in your final response rather than padding or over-compressing.
 
 ## Rules
 

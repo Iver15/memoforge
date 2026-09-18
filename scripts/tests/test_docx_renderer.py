@@ -15,6 +15,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 from xml.sax.saxutils import escape, quoteattr
 
 from lxml import etree
@@ -25,14 +26,27 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import _i18n  # noqa: E402
+from memoforge import i18n  # noqa: E402
 from memoforge.docx import fallback, oscola, renderer, validate  # noqa: E402
-from test_docx_fallback import issue_step, warnings_fixture  # noqa: E402
+from test_docx_fallback import (  # noqa: E402
+    RU_DELIVERABLE,
+    issue_step,
+    warnings_fixture,
+)
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "fixtures" / "docx"
 UPDATE_GOLDEN = os.environ.get("MEMOFORGE_UPDATE_GOLDEN") == "1"
 
 DOCUMENT_PART = "word/document.xml"
 FOOTNOTES_PART = "word/footnotes.xml"
+STYLES_PART = "word/styles.xml"
+
+STATUS_LABEL = fallback.label("status_label")
+STATUS_BANNERS_LABEL = fallback.label("status_banners_label")
+STATUS_ISSUES_LABEL = fallback.label("status_issues_label")
+APPENDIX_HEADING = fallback.label("appendix_heading")
+"""The English labels of the docx deliverable, read the same way the renderer writes them."""
 
 NAMESPACE_PREFIX = {
     "http://schemas.openxmlformats.org/wordprocessingml/2006/main": "w",
@@ -409,7 +423,7 @@ class SourcesSectionTest(GoldenCase):
         bullets = [row for row in text.splitlines() if "<w:t>Assumption " in row]
         self.assertLessEqual(len(bullets), fallback.APPENDIX_WARNING_LIMIT)
         self.assertIn(escape("… and 2 more in summary.md"), text)
-        self.assertEqual(1, text.count(escape(fallback.CURRENCY_UNAVAILABLE_NOTE)))
+        self.assertEqual(1, text.count(escape(fallback.label('currency_unavailable_note'))))
         self.assertNotIn("currency unchecked", text)
         self.assertIn(escape("Some Circular 2011 — link changed"), text)
         self.assertNotIn("Only currency was unchecked", text)
@@ -423,7 +437,7 @@ class StatusSectionTest(GoldenCase):
     def status_paragraphs(self, path: Path) -> list[str]:
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
-        tail = text.partition(f"<w:t>{fallback.STATUS_LABEL}</w:t>")[2]
+        tail = text.partition(f"<w:t>{STATUS_LABEL}</w:t>")[2]
         return [row.split(">", 1)[1].rsplit("<", 1)[0] for row in tail.splitlines() if "<w:t" in row]
 
     def render_forced_exit(self, **kwargs):
@@ -444,23 +458,23 @@ class StatusSectionTest(GoldenCase):
         self.assertIn("REVIEWER NOTES NOT FULLY RESOLVED.", rows)
         self.assertIn(escape("blocker · s-2 · Art. 17(1) carries no rule."), rows)
         self.assertTrue(any("forced_exit_on_v1_with_remaining_issues" in row for row in rows))
-        self.assertIn(fallback.STATUS_BANNERS_LABEL, rows)
-        self.assertIn(fallback.STATUS_ISSUES_LABEL, rows)
+        self.assertIn(STATUS_BANNERS_LABEL, rows)
+        self.assertIn(STATUS_ISSUES_LABEL, rows)
 
     def test_the_status_section_stands_before_the_appendix(self):
         path = self.render_forced_exit(drafting_warnings=[{"code": "gap", "message": "A gap."}])
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
         self.assertLess(
-            text.index(f"<w:t>{fallback.STATUS_LABEL}</w:t>"),
-            text.index(escape(renderer.APPENDIX_HEADING)),
+            text.index(f"<w:t>{STATUS_LABEL}</w:t>"),
+            text.index(escape(APPENDIX_HEADING)),
         )
 
     def test_an_approved_run_carries_no_status_section(self):
         path = self.render("Body of the memo.\n", final_status="approved_v3")
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
-        self.assertNotIn(f"<w:t>{fallback.STATUS_LABEL}</w:t>", text)
+        self.assertNotIn(f"<w:t>{STATUS_LABEL}</w:t>", text)
         self.assertFalse(self.result["status_required"])
 
     def test_the_footnotes_map_tells_the_validator_the_section_was_owed(self):
@@ -613,7 +627,7 @@ class CitationStyleTest(GoldenCase):
     def test_the_second_of_two_identical_adjacent_citations_is_ibid_in_footnotes(self):
         self.render(self.DRAFT, citation_style=oscola.STYLE_FOOTNOTES)
         texts = [row["text"] for row in self.result["footnotes"]]
-        self.assertIn(oscola.IBID, texts)
+        self.assertIn(i18n.t('en', 'memo.citation.ibid'), texts)
 
     def test_the_footnote_style_keeps_the_footnotes_and_links_nothing(self):
         path = self.render(self.DRAFT, citation_style=oscola.STYLE_FOOTNOTES)
@@ -780,6 +794,77 @@ class FallbackBranchTest(unittest.TestCase):
         self.assertEqual("memo-gdpr.md", result["markdown_path"])
         self.assertTrue((work_dir / "memo-gdpr.docx").is_file())
         self.assertTrue((work_dir / "memo-gdpr.md").is_file())
+
+
+class LocalizedDocxTest(GoldenCase):
+    """D-175: the docx prints its labels in the memo language and declares it to Word."""
+
+    DRAFT = "Правомерно по [[src:gdpr art 6(1)(f)]].\n"
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", dict(RU_DELIVERABLE, **{"memo.docx_lang": "ru-RU"}))
+
+    def part(self, name: str, draft: str | None = None, **kwargs) -> str:
+        path = self.render(draft or self.DRAFT, **kwargs)
+        with zipfile.ZipFile(path) as archive:
+            return archive.read(name).decode("utf-8")
+
+    def test_the_docx_declares_the_memo_language(self):
+        self.assertIn('<w:lang w:val="ru-RU"', self.part(STYLES_PART, language="ru"))
+
+    def test_english_keeps_the_declaration_the_template_ships(self):
+        self.assertEqual(self.part(STYLES_PART, language="en"), self.part(STYLES_PART))
+        self.assertIn('<w:lang w:val="en-US"', self.part(STYLES_PART))
+
+    def test_the_generated_sections_are_localized(self):
+        text = normalise(
+            self.part(
+                DOCUMENT_PART,
+                language="ru",
+                drafting_warnings=["Одно допущение."],
+                final_status="forced_exit_on_v1",
+                remaining_blocking_issues=[{"severity": "blocker", "issue": "Нет нормы."}],
+            ).encode("utf-8")
+        )
+        for key in ("sources_heading", "appendix_heading", "status_label", "assumptions_label"):
+            self.assertIn(escape(i18n.t("ru", f"memo.labels.{key}")), text, key)
+            self.assertNotIn(f"<w:t>{i18n.t('en', f'memo.labels.{key}')}</w:t>", text, key)
+
+    def test_the_banner_table_is_localized(self):
+        text = self.part(
+            DOCUMENT_PART,
+            language="ru",
+            final_status="forced_exit_on_v1",
+            banners=[{"banner_id": "forced_exit", "text": "Замечания остались."}],
+            final_status_reasons=["no_checked_draft"],
+        )
+        self.assertIn("ЗАМЕЧАНИЯ РЕЦЕНЗЕНТОВ СНЯТЫ НЕ ПОЛНОСТЬЮ", text)
+        self.assertIn("Перед использованием требуется ручная проверка. Итоговый статус:", text)
+        self.assertIn("Сработавшие запасные сценарии:", text)
+        self.assertIn("Причины, записанные для ручной проверки:", text)
+        self.assertNotIn("REVIEWER NOTES NOT FULLY RESOLVED", text)
+
+    def test_the_banner_title_follows_the_pack(self):
+        self.assertEqual(
+            "ЗАМЕЧАНИЯ РЕЦЕНЗЕНТОВ СНЯТЫ НЕ ПОЛНОСТЬЮ",
+            renderer.banner_title("forced_exit_on_v2", [], language="ru"),
+        )
+        self.assertEqual(
+            "REVIEWER NOTES NOT FULLY RESOLVED", renderer.banner_title("forced_exit_on_v2", [])
+        )
+
+    def test_the_footnote_carries_the_localized_pinpoint(self):
+        text = self.part(DOCUMENT_PART, language="ru", citation_style=oscola.STYLE_FOOTNOTES)
+        notes = self.part(FOOTNOTES_PART, language="ru", citation_style=oscola.STYLE_FOOTNOTES)
+        self.assertIn("ст. 6(1)(f)", notes)
+        self.assertNotIn("art 6(1)(f)", notes)
+        self.assertIn('<w:footnoteReference w:id="1"/>', normalise(text.encode("utf-8")))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ citation_style: inline
 
 The rhetorical surface is the four-beat analytical subsection from `lib/prose-style.md`. This is the longest form and the closest to the classical office memorandum.
 
+The memo language, the section headings and the risk-line literal are given in your task prompt; the English forms below are the example.
+
 ## Sections, in this order
 
 1. **Title** — `# <Subject>: <Analytical framing>`. No date or jurisdiction inside the title line.
@@ -39,7 +41,7 @@ Every numbered analytical subsection carries these, in order:
 
 ## Tone and length
 
-Formal, analytical, precise; English regardless of the query language. See `lib/prose-style.md`. Typically 3000–6000 words, but a straightforward subsection can be 200–300 words and still carry all four beats. Do not pad.
+Formal, analytical, precise, in the memo language; see `lib/prose-style.md`. Typically 3000–6000 words, but a straightforward subsection can be 200–300 words and still carry all four beats. Do not pad.
 
 ## Rules
 

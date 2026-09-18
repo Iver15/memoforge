@@ -21,6 +21,10 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape
+
+from .. import i18n
+from . import fallback
 
 FOOTNOTES_RELATIONSHIP = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
@@ -55,11 +59,17 @@ RUN_TEXT_RE = re.compile(r"<w:t[^>]*>([^<]*)</w:t>")
 STYLE_ID_RE = re.compile(r'w:styleId="([^"]+)"')
 SHORT_FORM_RE = re.compile(r"\(n\s+([0-9]+)\)")
 
-STATUS_HEADING_TEXT = "Status"
-STATUS_RUN = f"<w:t>{STATUS_HEADING_TEXT}</w:t>"
-"""D34-11: the heading `renderer._render_status` writes. The render step records in
-`footnotes-map.json` whether this run owed the reader that section; a docx that owes it and does not
-carry it is invalid, so the markdown — which always carries it — becomes the deliverable instead."""
+
+def status_run(language: str = i18n.DEFAULT) -> str:
+    """The run `renderer._render_status` writes as the Status heading, in the memo language (D34-11).
+
+    The render step records in `footnotes-map.json` whether this run owed the reader that section;
+    a docx that owes it and does not carry it is invalid, so the markdown — which always carries it
+    — becomes the deliverable instead. D-175: the word looked for is the one the memo was written
+    in, otherwise every non-English export would fail this check.
+    """
+    return f"<w:t>{escape(fallback.label('status_label', language))}</w:t>"
+
 
 TEXT_PART_SUFFIXES: tuple[str, ...] = (".xml", ".rels")
 """Parts the literal-token scan reads; `.rels` carries the footnotes relationship (§5.5)."""
@@ -104,7 +114,9 @@ def _opens_with_python_docx(path: Path) -> str | None:
     return None
 
 
-def validate_path(path: str | Path, *, footnotes_map: dict | None = None) -> dict:
+def validate_path(
+    path: str | Path, *, footnotes_map: dict | None = None, language: str = i18n.DEFAULT
+) -> dict:
     """Run the §5.5 checks over one docx; `valid` is False as soon as `errors` is non-empty."""
     path = Path(path)
     errors: list[str] = []
@@ -184,7 +196,7 @@ def validate_path(path: str | Path, *, footnotes_map: dict | None = None) -> dic
 
     # D34-11: a run whose `final_status` is not an approved one owes the reader a `Status` section.
     if isinstance(footnotes_map, dict) and footnotes_map.get("status_required"):
-        if STATUS_RUN not in document:
+        if status_run(language) not in document:
             errors.append(E_MISSING_STATUS)
             details.append(
                 "final_status is not an approved one, but the document carries no Status section"

@@ -9,12 +9,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import modes, render, state_io, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import i18n, modes, render, state_io, task  # noqa: E402
 
 TESTS = Path(__file__).resolve().parent
 SCHEMA_FIXTURES = TESTS / "fixtures" / "schemas"
@@ -330,6 +334,43 @@ class PublishedInputTest(unittest.TestCase):
             publish(work_dir, "research/currency.json")
             result = render.run_render(render_args(work_dir, "currency", step="s-300"))
             self.assertEqual(1, result["count"])
+
+
+class LocalizedSourcePackTest(unittest.TestCase):
+    """D-175: the published `sources/source-pack.md` is written in the memo language."""
+
+    RU = {
+        "memo.labels.source_pack_heading": "Пакет источников (заморожен)",
+        "memo.labels.frozen_at": "Заморожен: {value}",
+        "memo.labels.entries_heading": "Записи",
+        "memo.labels.snapshot_heading": "Снимок",
+        "memo.labels.none": "нет",
+    }
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", self.RU)
+        source, _, _ = INPUTS["source-pack"]
+        self.document = json.loads(source.read_text(encoding="utf-8-sig"))
+
+    def test_the_published_source_pack_is_in_the_memo_language(self):
+        rendered = render.render_source_pack(self.document, language="ru")
+        self.assertNotIn("# Source pack (frozen)", rendered)
+        self.assertIn("# Пакет источников (заморожен)", rendered)
+        self.assertIn("## Записи", rendered)
+        self.assertIn("## Снимок", rendered)
+        self.assertIn("raw_sha256 нет", rendered)
+
+    def test_english_is_unchanged_and_is_what_the_internal_view_keeps(self):
+        rendered = render.render_source_pack(self.document)
+        self.assertEqual(rendered, render.render_source_pack(self.document, language="en"))
+        self.assertIn("# Source pack (frozen)", rendered)
+        self.assertIn("raw_sha256 none", rendered)
 
 
 if __name__ == "__main__":

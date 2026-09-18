@@ -7,12 +7,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import citations, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import citations, i18n, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
 
 TASK_ID = "memo-20260101T000000Z-citations"
 DRAFTS = Path(__file__).resolve().parent / "fixtures" / "drafts"
@@ -358,6 +362,43 @@ class C04Test(CitationsTestCase):
         self.set_currency([{"source_id": "gdpr-art-7", "status": "manual_check", "note": "unverified"}])
         self.freeze()
         self.assertNotIn("C-04", self.rules(self.audit(fixture("classical-clean"))))
+
+
+class LocalizedRiskLineTest(CitationsTestCase):
+    """D-174: C-04 recognises the Risk line through the label of the run's memo language."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.packs = self.root / "i18n"
+        self.packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU)
+
+    def set_language(self, code: str) -> None:
+        """Record the memo language the way `task new` / `mf task language` does (D-171)."""
+
+        def mutator(state: dict) -> None:
+            state["language"] = code
+
+        state_io.write_state(self.work_dir, mutator)
+
+    def test_a_localized_risk_line_carries_c04_only_in_its_own_language(self):
+        self.set_currency([{"source_id": "gdpr-art-7", "status": "manual_check", "note": "unverified"}])
+        self.freeze()
+        text = fixture("classical-clean").replace(
+            "Risk: high. A regulator would treat the asymmetry as a defect of the consent itself.",
+            "Риск: высокий. A regulator would treat this as a defect [[src:gdpr-art-7 Art. 7(3)]].",
+        )
+        self.set_language("ru")
+        findings = self.only(self.audit(text), "C-04")
+        self.assertEqual(1, len(findings), [row["hint"] for row in findings])
+        self.assertEqual("blocker", findings[0]["severity"])
+        self.assertIn("gdpr-art-7", findings[0]["hint"])
+
+        self.set_language("en")
+        self.assertEqual([], self.only(self.audit(text), "C-04"), "the English label no longer matches")
 
 
 class C05Test(CitationsTestCase):

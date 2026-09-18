@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,11 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import fallbacks, phases  # noqa: E402
+from memoforge import fallbacks, i18n, phases  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
 
 PLACEHOLDER = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 ROW_KEYS = {"condition_key", "phase", "action", "banner_id", "banner_text", "banner_params"}
@@ -91,6 +96,52 @@ class BannerTextTest(unittest.TestCase):
     def test_unknown_condition_key_raises(self):
         with self.assertRaises(KeyError):
             fallbacks.get("no_such_condition")
+
+
+class BannerLanguageTest(unittest.TestCase):
+    """D-175: the deliverable prints `memo.banners.<id>` of the memo language at render time."""
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", {})
+
+    def test_a_banner_is_rendered_in_the_memo_language_from_id_and_params(self):
+        _i18n.fake_pack(
+            self.packs,
+            "ru",
+            {"memo.banners.mcp_partial": "Частичное покрытие MCP — доступен только {available}."},
+        )
+        row = fallbacks.banner("mcp_partial", available="legalviz")
+        self.assertEqual(
+            "Частичное покрытие MCP — доступен только legalviz.",
+            fallbacks.banner_text_for(row, "ru"),
+        )
+        self.assertEqual(row["text"], fallbacks.banner_text_for(row, "en"))
+
+    def test_a_legacy_row_without_params_an_unknown_id_and_a_string_row_keep_their_text(self):
+        legacy = {
+            "banner_id": "mcp_partial",
+            "text": "Partial MCP coverage — only legalviz was reachable.",
+        }
+        self.assertEqual(legacy["text"], fallbacks.banner_text_for(legacy, "ru"))
+        self.assertEqual("x", fallbacks.banner_text_for({"banner_id": "nope", "text": "x"}, "ru"))
+        self.assertEqual("plain", fallbacks.banner_text_for("plain", "ru"))
+
+    def test_every_banner_id_has_an_english_pack_entry_with_the_same_text(self):
+        for row in fallbacks.FALLBACKS:
+            if row["banner_id"] is None:
+                continue
+            with self.subTest(banner=row["banner_id"]):
+                self.assertEqual(
+                    row["banner_text"], i18n.node("en", f"memo.banners.{row['banner_id']}")
+                )
 
 
 class SoftCapRowTest(unittest.TestCase):

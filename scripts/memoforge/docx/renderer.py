@@ -31,7 +31,7 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 from docx.shared import Cm, Inches, Pt, Twips
 
-from .. import fallbacks, state_io, stepctx
+from .. import fallbacks, i18n, state_io, stepctx
 from . import fallback, oscola
 
 # --- visual spec (ported from docs/attic/v1-docx-render/scripts/md_to_docx.py) ---
@@ -64,11 +64,6 @@ ABSTRACT_NUM_ID_BASE = 900
 
 MAX_LIST_DEPTH = 2
 """`List Bullet`/`List Bullet 2`/`List Bullet 3` — deeper items reuse level 3 (§5.5 «вложенные»)."""
-
-SOURCES_HEADING = "Sources"
-APPENDIX_HEADING = fallback.APPENDIX_HEADING.lstrip("# ").strip()
-STATUS_HEADING = fallback.STATUS_LABEL
-"""D34-11: the same heading text the markdown deliverable prints, and what `docx validate` looks for."""
 
 MENTION_OPEN = fallback.MENTION_OPEN
 MENTION_CLOSE = fallback.MENTION_CLOSE
@@ -202,6 +197,31 @@ def _configure_default_style(doc) -> None:
     fmt.line_spacing = LINE_SPACING_VALUE
     fmt.space_before = SPACING_BEFORE
     fmt.space_after = SPACING_AFTER
+
+
+def _declare_language(doc, language: str) -> None:
+    """Set `w:lang w:val` of the document's default run properties to the memo language (D-175).
+
+    Word spell-checks, hyphenates and sorts by this, so a Russian memorandum declared as English
+    is underlined red from the first word. The template already declares `en-US`, so an English
+    export writes the value that was there and its `styles.xml` is byte for byte what it was.
+    """
+    value = i18n.t(i18n.normalize(language) or i18n.DEFAULT, "memo.docx_lang")
+    defaults = doc.styles.element.find(qn("w:docDefaults"))
+    if defaults is None:  # pragma: no cover - the python-docx template always carries them
+        return
+    run_defaults = defaults.find(qn("w:rPrDefault"))
+    if run_defaults is None:  # pragma: no cover - likewise
+        return
+    r_pr = run_defaults.find(qn("w:rPr"))
+    if r_pr is None:  # pragma: no cover - likewise
+        r_pr = OxmlElement("w:rPr")
+        run_defaults.append(r_pr)
+    lang = r_pr.find(qn("w:lang"))
+    if lang is None:  # pragma: no cover - likewise
+        lang = OxmlElement("w:lang")
+        r_pr.append(lang)
+    lang.set(qn("w:val"), value)
 
 
 FOOTNOTE_STYLES_XML = f"""
@@ -465,7 +485,12 @@ def _leaves(nodes: list) -> list:
     return out
 
 
-def footnote_texts(mentions: list[dict], index: fallback.SourceIndex, style: str) -> list[dict]:
+def footnote_texts(
+    mentions: list[dict],
+    index: fallback.SourceIndex,
+    style: str,
+    language: str = i18n.DEFAULT,
+) -> list[dict]:
     """The `footnotes-map.json` rows: number, source, form and rendered OSCOLA text (§5.5, D-150).
 
     Empty in the inline style: there are no footnotes to write, so the part `docx validate` requires
@@ -489,7 +514,7 @@ def footnote_texts(mentions: list[dict], index: fallback.SourceIndex, style: str
                 "form": mention["form"],
                 "first_n": mention["first_n"],
                 "pinpoint": mention["pinpoint"],
-                "text": oscola.mention_text(view, mention, style),
+                "text": oscola.mention_text(view, mention, style, language),
             }
         )
     return notes
@@ -510,6 +535,7 @@ class _Body:
         *,
         index: fallback.SourceIndex,
         style: str,
+        language: str = i18n.DEFAULT,
     ) -> None:
         self.doc = doc
         self.mentions = mentions
@@ -517,6 +543,7 @@ class _Body:
         self.on_sources = on_sources
         self.index = index
         self.style = style
+        self.language = language
         self.sources_emitted = False
 
     # -- blocks --
@@ -748,7 +775,8 @@ class _Body:
             # D-150: two adjacent citations of the same source and pinpoint; the second says nothing.
             return
         view = self.index.view(mention["source_id"])
-        text = oscola.mention_text(view, mention, self.style)
+        text = oscola.mention_text(view, mention, self.style, self.language)
+        # D-175a: the anchor is built from the canonical pinpoint, never from its display form.
         url = oscola.anchor_url(view, mention["pinpoint"])
         size = fmt.get("size")
         open_run = paragraph.add_run("(")
@@ -775,19 +803,19 @@ def _plain_paragraph(container, text: str, *, bold=False, first_line=Cm(0), left
     return paragraph
 
 
-def _render_sources(doc, rows: list[dict]) -> None:
+def _render_sources(doc, rows: list[dict], language: str = i18n.DEFAULT) -> None:
     """§Sources at the `<!-- sources: generated -->` marker: the full record of every cited source.
 
     D-150: the body carries compact citations, so everything else — the official title, the
     identifiers, the URL, the retrieval date and the currency status — lives in this annex, numbered
     in citation order and in the same words as the markdown deliverable prints them.
     """
-    _plain_paragraph(doc, SOURCES_HEADING, bold=True)
+    _plain_paragraph(doc, fallback.label("sources_heading", language), bold=True)
     if not rows:
-        _plain_paragraph(doc, "No sources were cited in this draft.")
+        _plain_paragraph(doc, fallback.label("no_sources_cited", language))
         return
     for row in rows:
-        _plain_paragraph(doc, fallback.sources_line(row), first_line=Cm(0))
+        _plain_paragraph(doc, fallback.sources_line(row, language), first_line=Cm(0))
 
 
 def _render_status(doc, status: dict) -> None:
@@ -798,14 +826,17 @@ def _render_status(doc, status: dict) -> None:
     """
     if not status.get("required"):
         return
-    _plain_paragraph(doc, STATUS_HEADING, bold=True)
-    _plain_paragraph(doc, fallback.STATUS_LEAD.format(final_status=status["final_status"]))
+    language = status.get("language") or i18n.DEFAULT
+    _plain_paragraph(doc, fallback.label("status_label", language), bold=True)
+    _plain_paragraph(
+        doc, fallback.label("status_lead", language, final_status=status["final_status"])
+    )
     if status["banners"]:
-        _plain_paragraph(doc, fallback.STATUS_BANNERS_LABEL, bold=True)
+        _plain_paragraph(doc, fallback.label("status_banners_label", language), bold=True)
         for row in status["banners"]:
             _plain_paragraph(doc, row)
     if status["issues"]:
-        _plain_paragraph(doc, fallback.STATUS_ISSUES_LABEL, bold=True)
+        _plain_paragraph(doc, fallback.label("status_issues_label", language), bold=True)
         for row in status["issues"]:
             _plain_paragraph(doc, row)
 
@@ -817,53 +848,70 @@ def _render_appendix(
     unresolved: list[str],
     *,
     currency_unavailable: bool = False,
+    language: str = i18n.DEFAULT,
 ) -> None:
     """«Assumptions & Unverified Sources» — the same three groups, and the same condensed text as
     the markdown fallback: both deliverables carry one appendix (§5.5, D-113)."""
-    bullets = fallback.assumption_bullets(warnings)
+    bullets = fallback.assumption_bullets(warnings, language)
     if not bullets and not unverified and not unresolved and not currency_unavailable:
         return
-    _plain_paragraph(doc, APPENDIX_HEADING, bold=True)
+    _plain_paragraph(doc, fallback.label("appendix_heading", language), bold=True)
     if bullets:
-        _plain_paragraph(doc, fallback.ASSUMPTIONS_LABEL, bold=True)
+        _plain_paragraph(doc, fallback.label("assumptions_label", language), bold=True)
         for bullet in bullets:
             _plain_paragraph(doc, bullet)
     if unverified or currency_unavailable:
-        _plain_paragraph(doc, fallback.UNVERIFIED_LABEL, bold=True)
+        _plain_paragraph(doc, fallback.label("unverified_label", language), bold=True)
         if currency_unavailable:
-            _plain_paragraph(doc, fallback.CURRENCY_UNAVAILABLE_NOTE)
+            _plain_paragraph(doc, fallback.label("currency_unavailable_note", language))
         for row in unverified:
             _plain_paragraph(doc, fallback.unverified_line(row))
     if unresolved:
-        _plain_paragraph(doc, fallback.UNRESOLVED_LABEL, bold=True)
+        _plain_paragraph(doc, fallback.label("unresolved_label", language), bold=True)
         for raw_id in unresolved:
+            # The docx prints the id and the marker plain; the markdown sets them in code spans.
             _plain_paragraph(
                 doc,
-                f"{raw_id} — not in the frozen source pack or the quote registry; "
-                f"marked {oscola.unresolved_text(raw_id)} in the text.",
+                fallback.label(
+                    "unresolved_bullet",
+                    language,
+                    raw_id=raw_id,
+                    marker=oscola.unresolved_text(raw_id),
+                ),
             )
 
 
-BANNER_TITLES = (
-    ("forced_exit", "REVIEWER NOTES NOT FULLY RESOLVED"),
-    ("accepted_early", "USER ACCEPTED EARLY — REMAINING ISSUES"),
-    ("manual_review_required", "MANUAL REVIEW REQUIRED"),
+BANNER_TITLE_PREFIXES: tuple[str, ...] = (
+    "forced_exit",
+    "accepted_early",
+    "manual_review_required",
 )
+"""`final_status` prefixes with a headline of their own; each names its own `memo.banner_titles` key."""
 
 
-def banner_title(final_status: str | None, banners: list[dict]) -> str:
+def banner_title(
+    final_status: str | None, banners: list[dict], language: str = i18n.DEFAULT
+) -> str:
     """The yellow banner's headline for a final status (v1 titles, v2 statuses §2.1 row 15)."""
     status = str(final_status or "")
-    for prefix, title in BANNER_TITLES:
+    code = i18n.normalize(language) or i18n.DEFAULT
+    for prefix in BANNER_TITLE_PREFIXES:
         if status.startswith(prefix):
-            return title
+            return i18n.t(code, f"memo.banner_titles.{prefix}")
     if status.startswith("approved") and banners:
-        return "PIPELINE FALLBACK NOTICE — REVIEW BEFORE CLIENT USE"
-    return "MANUAL REVIEW REQUIRED"
+        return i18n.t(code, "memo.banner_titles.fallback_notice")
+    return i18n.t(code, "memo.banner_titles.manual_review_required")
 
 
-def _render_banner(doc, final_status: str | None, banners: list[dict], reasons: list[str]) -> None:
+def _render_banner(
+    doc,
+    final_status: str | None,
+    banners: list[dict],
+    reasons: list[str],
+    language: str = i18n.DEFAULT,
+) -> None:
     """The yellow status table at the top of the memo (§5.5 «Баннеры статусов — как в v1»)."""
+    code = i18n.normalize(language) or i18n.DEFAULT
     table = doc.add_table(rows=1, cols=1)
     table.alignment = WD_ALIGN_PARAGRAPH.CENTER
     cell = table.cell(0, 0)
@@ -873,22 +921,25 @@ def _render_banner(doc, final_status: str | None, banners: list[dict], reasons: 
     title_paragraph = cell.paragraphs[0]
     _apply_std_paragraph_format(title_paragraph, first_line_indent=Cm(0))
     title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    title_run = title_paragraph.add_run(banner_title(final_status, banners))
+    title_run = title_paragraph.add_run(banner_title(final_status, banners, code))
     _style_run(title_run, bold=True)
 
     left = WD_ALIGN_PARAGRAPH.LEFT
-    subtitle = "Manual check recommended before relying on this memorandum."
+    subtitle = i18n.t(code, "memo.banner_titles.subtitle")
     if final_status:
-        subtitle += f" Final status: {final_status}."
+        subtitle += " " + i18n.t(code, "memo.banner_titles.final_status", final_status=final_status)
     _plain_paragraph(cell, subtitle, align=left)
 
     if banners:
-        _plain_paragraph(cell, "Pipeline fallbacks that fired during this run:", bold=True, align=left)
+        _plain_paragraph(
+            cell, i18n.t(code, "memo.banner_titles.fallbacks_heading"), bold=True, align=left
+        )
         for row in banners:
-            text = row.get("text") if isinstance(row, dict) else str(row)
-            _plain_paragraph(cell, f"- {text}", align=left)
+            _plain_paragraph(cell, f"- {fallbacks.banner_text_for(row, code)}", align=left)
     if reasons:
-        _plain_paragraph(cell, "Reasons recorded for manual review:", bold=True, align=left)
+        _plain_paragraph(
+            cell, i18n.t(code, "memo.banner_titles.reasons_heading"), bold=True, align=left
+        )
         for reason in reasons:
             _plain_paragraph(cell, f"- {reason}", align=left)
     doc.add_paragraph()
@@ -931,14 +982,16 @@ def render(
     final_status_reasons: list | None = None,
     remaining_blocking_issues: list | None = None,
     citation_style: str | None = None,
+    language: str = i18n.DEFAULT,
 ) -> dict:
     """Render one draft into `output_path`; returns the footnote map, unresolved ids and banners."""
     try:
         style = oscola.normalise_style(citation_style) or oscola.DEFAULT_CITATION_STYLE
+        language = i18n.normalize(language) or i18n.DEFAULT
         text = draft_text.replace(MENTION_OPEN, "").replace(MENTION_CLOSE, "")
         scanned = scan_mentions(text, index, style)
-        notes = footnote_texts(scanned["mentions"], index, style)
-        rows = fallback.source_rows(scanned, index)
+        notes = footnote_texts(scanned["mentions"], index, style, language)
+        rows = fallback.source_rows(scanned, index, language)
         unresolved_banner = fallbacks.banner("unresolved_reference_in_fallback")
         banner_id = unresolved_banner["banner_id"] if unresolved_banner else None
         raised = [row for row in (banners or []) if isinstance(row, dict)]
@@ -953,10 +1006,11 @@ def render(
         doc = Document()
         _apply_page_setup(doc)
         _configure_default_style(doc)
+        _declare_language(doc, language)
         _ensure_footnote_styles(doc)
         reasons = [str(row) for row in (final_status_reasons or [])]
         if needs_banner(final_status, raised, reasons):
-            _render_banner(doc, final_status, raised, reasons)
+            _render_banner(doc, final_status, raised, reasons, language)
 
         cited = list(scanned["cited"])
         scanned["text"] = fallback.drop_omitted(scanned["text"], scanned["mentions"])
@@ -964,17 +1018,19 @@ def render(
             doc,
             scanned["mentions"],
             _Numbering(doc),
-            lambda: _render_sources(doc, rows),
+            lambda: _render_sources(doc, rows, language),
             index=index,
             style=style,
+            language=language,
         )
         body.blocks(_markdown(scanned["text"]))
         if not body.sources_emitted:
-            _render_sources(doc, rows)
+            _render_sources(doc, rows, language)
         # D34-11: `Status` before the appendix, built from the very banners this render carries.
         status = fallback.status_inputs(
             {
                 "final_status": final_status,
+                "language": language,
                 "remaining_blocking_issues": list(remaining_blocking_issues or []),
             },
             raised,
@@ -983,14 +1039,17 @@ def render(
         _render_appendix(
             doc,
             list(drafting_warnings or []),
-            index.unverified_rows(),
+            index.unverified_rows(language),
             scanned["unresolved"],
             currency_unavailable=index.currency_unavailable,
+            language=language,
         )
         _attach_footnotes(doc, notes)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(output_path))
-    except stepctx.OutputModifiedAfterPublish:
+    except (stepctx.OutputModifiedAfterPublish, i18n.PackUnavailable):
+        # D-168: an unreadable language pack is not a renderer failure the markdown branch can
+        # absorb — that branch would be unable to write the memo in its language either.
         raise
     except Exception as exc:  # noqa: BLE001 - any renderer failure degrades to the md fallback (§5.5)
         raise RenderError(f"{type(exc).__name__}: {exc}") from exc
@@ -1049,4 +1108,5 @@ def render_workdir(
         + [str(row) for row in (state.get("final_status_reasons") or [])],
         remaining_blocking_issues=state.get("remaining_blocking_issues") or [],
         citation_style=oscola.resolve_style(state),
+        language=fallback.memo_language(state),
     )

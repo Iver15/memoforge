@@ -16,6 +16,10 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 
 from memoforge import limits, modes, schema, state_io, sufficiency, task  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sufficiency"
 TASK_ID = "memo-20260908T120000Z-fixture"
 
@@ -465,6 +469,54 @@ class OutOfScopeGapTest(unittest.TestCase):
                 ["Out of scope for brief mode: No CJEU authority was searched for the oversight duty."],
                 self._messages(work_dir),
             )
+
+    def test_gap_warnings_of_a_german_task_carry_the_german_prefix_and_collapse_with_the_reviewer_line(
+        self,
+    ):
+        """D-175/D-173b: the `memo.warnings` prefix in the memo language; the D-113 pair collapses."""
+        from unittest import mock
+
+        from memoforge import i18n
+
+        with tempfile.TemporaryDirectory() as tmp:
+            packs = Path(tmp) / "packs"
+            packs.mkdir()
+            with mock.patch.object(i18n, "PACK_DIR", packs):
+                _i18n.fake_pack(
+                    packs,
+                    "de",
+                    {"memo.warnings.out_of_scope_prefix": "Außerhalb des {mode}-Modus: "},
+                )
+                work_dir = new_task(Path(tmp) / "work", mode="brief")
+                state_io.write_state(
+                    work_dir, lambda state: state.update(language="de", mode="brief")
+                )
+                gap = "Keine EuGH-Rechtsprechung zur Aufsichtspflicht wurde geprüft."
+                document = dict(
+                    fixture("sufficient"),
+                    blocking_gaps=[
+                        {
+                            "gap": gap,
+                            "target": "case_law",
+                            "status": "missing",
+                            "why_blocking": "Der Anwendungsteil ruhte sonst auf nationalen Entscheidungen.",
+                            "followup_question": None,
+                        }
+                    ],
+                    drafting_warnings=[f"{gap} Behandeln Sie den Punkt als offen."],
+                )
+                self.assertEqual([], schema.validate(document, "research-sufficiency"))
+                state_io.write_json_atomic(work_dir / sufficiency.SUFFICIENCY_PATH, document)
+                result = sufficiency.run_route(route_args(work_dir))
+                self.assertEqual("currency_check", result["next"])
+                rows = state_io.read_state(work_dir)["drafting_warnings"]
+                codes = [row["code"] for row in rows]
+                self.assertEqual(1, codes.count(sufficiency.OUT_OF_SCOPE_CODE), codes)
+                collapsed = [row for row in rows if row["code"] == sufficiency.OUT_OF_SCOPE_CODE]
+                self.assertEqual(1, len(collapsed))
+                self.assertTrue(
+                    collapsed[0]["message"].startswith("Außerhalb des brief-Modus: "), collapsed
+                )
 
 
 class WarningDeduplicationTest(unittest.TestCase):

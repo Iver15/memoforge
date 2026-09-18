@@ -9,12 +9,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import modes, review, schema, state_io, stepctx, task  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import i18n, modes, review, schema, state_io, stepctx, task  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 DRAFT_SHA = "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e"
@@ -253,6 +257,111 @@ class ValidatorTest(unittest.TestCase):
             self.assertTrue(result["downgraded"])
             self.assertEqual("needs_revision", result["verdict"])
             self.assertEqual([], schema.validate(result["document"], "review"))
+
+
+class IssueClientTest(unittest.TestCase):
+    """D-173a: the client-facing sentence of a blocker, only outside English."""
+
+    def test_normalize_issue_keeps_issue_client(self):
+        row = review._normalize_issue({"severity": "blocker", "issue": "x", "issue_client": "Satz."}, "logic")
+        self.assertEqual("Satz.", row["issue_client"])
+
+    def test_an_english_review_loses_a_reviewer_written_client_sentence(self):
+        # An English task's reviewer may emit the schema-valid optional field; validation removes
+        # it silently, so it can never reach the Status section, the summary or the signature.
+        document = fixture("v1-logic-blocker")
+        document["issues"][0]["issue_client"] = "Der Test wird nicht angewendet."
+        result = review.validate_document("logic", document, language="en")
+        self.assertEqual([], result["errors"])
+        rows = [review._normalize_issue(issue, "logic") for issue in result["document"]["issues"]]
+        self.assertFalse(any("issue_client" in row for row in review.deduplicate(rows)))
+
+    def test_a_merged_duplicate_keeps_the_client_sentence(self):
+        payload = {
+            "severity": "blocker",
+            "category": "missing_application",
+            "section_id": "s-4-1",
+            "issue": "The balancing test is stated but never applied to the described facts.",
+            "suggestion": "Apply it.",
+        }
+        first = review._normalize_issue({**payload, "issue_client": "Der Test wird nicht angewendet."}, "logic")
+        second = review._normalize_issue(payload, "counterarguments")
+        merged = review.deduplicate([first, second])
+        self.assertEqual(1, len(merged))
+        self.assertEqual("Der Test wird nicht angewendet.", merged[0]["issue_client"])
+
+    def test_a_merged_duplicate_takes_the_other_sentence_when_its_own_is_missing(self):
+        payload = {
+            "severity": "blocker",
+            "category": "missing_application",
+            "section_id": "s-4-1",
+            "issue": "The balancing test is stated but never applied to the described facts.",
+            "suggestion": "Apply it.",
+        }
+        first = review._normalize_issue(payload, "logic")
+        second = review._normalize_issue({**payload, "issue_client": "Der Test wird nicht angewendet."}, "logic")
+        merged = review.deduplicate([first, second])
+        self.assertEqual(1, len(merged))
+        self.assertEqual("Der Test wird nicht angewendet.", merged[0]["issue_client"])
+
+    def packs(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "de", {"memo.rules.L-07": "Format der Risikozeile"})
+        return packs
+
+    def test_deterministic_blockers_get_a_client_sentence_only_outside_english(self):
+        report = {
+            "draft_sha": DRAFT_SHA,
+            "clean": False,
+            "findings": [
+                {
+                    "rule": "L-07",
+                    "severity": "blocker",
+                    "line": 3,
+                    "section_id": "s-4-1",
+                    "excerpt": "Risk line",
+                    "hint": "Risk line format: the last paragraph of the subsection must start with `Risk: <…>.`",
+                }
+            ],
+        }
+        for language, expected in (("de", "Format der Risikozeile"), ("en", None)):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as tmp:
+                work_dir = new_task(Path(tmp))
+                state_io.write_state(work_dir, lambda state: state.update({"language": language}))
+                (work_dir / "lint.json").write_text(json.dumps(report), encoding="utf-8")
+                state = state_io.read_state(work_dir)
+                with mock.patch.object(i18n, "PACK_DIR", self.packs()):
+                    issues, stale = review._deterministic_issues(work_dir, state, DRAFT_SHA)
+                self.assertEqual([], stale)
+                self.assertEqual(1, len(issues))
+                self.assertEqual(report["findings"][0]["hint"], issues[0]["issue"])
+                if expected is None:
+                    self.assertNotIn("issue_client", issues[0])
+                else:
+                    self.assertEqual(expected, issues[0]["issue_client"])
+
+    def test_synthesized_blockers_get_a_client_sentence_only_outside_english(self):
+        for language, expected in (("de", "Checklistenpunkt LOG-02 konnte nicht geprüft werden."), ("en", None)):
+            with self.subTest(language=language):
+                with mock.patch.object(i18n, "PACK_DIR", self.packs()):
+                    _i18n.fake_pack(
+                        i18n.PACK_DIR,
+                        "de",
+                        {
+                            "memo.rules.L-07": "Format der Risikozeile",
+                            "memo.blockers.hard_fail_unknown": (
+                                "Checklistenpunkt {checklist_id} konnte nicht geprüft werden."
+                            ),
+                        },
+                    )
+                    row = review._unverified_issue("LOG-02", language=language)
+                self.assertIn("Hard-fail checklist item LOG-02", row["issue"])
+                if expected is None:
+                    self.assertNotIn("issue_client", row)
+                else:
+                    self.assertEqual(expected, row["issue_client"])
 
 
 class DeduplicationTest(unittest.TestCase):

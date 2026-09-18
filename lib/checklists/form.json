@@ -73,7 +73,7 @@
   },
   {
     "id": "FRM-13",
-    "text": "English throughout, except quoted source text kept in the language of the source; a non-English quote is followed by an English gloss where the reader needs one. Evidence: quote the non-English passage that is not a source quote or lacks its gloss.",
+    "text": "The memo language throughout, except quoted source text kept in the language of the source; a quote in another language is followed by a gloss in the memo language where the reader needs one. Evidence: quote the passage in another language that is not a source quote or lacks its gloss.",
     "tier": "form",
     "hard_fail": false
   },

@@ -34,8 +34,6 @@ PINPOINT = re.compile(
 )
 BARE_PINPOINT = re.compile(r"^\d+[\w().,\-/ ]*$")
 
-RISK_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?Risk:", re.IGNORECASE)
-
 MANUAL_CHECK_STATUSES: tuple[str, ...] = ("manual_check",)
 
 RAW_TEXT_TIERS: tuple[str, ...] = ("critical", "supporting")
@@ -75,6 +73,15 @@ def resolve_mode(work_dir: str | Path, explicit: str | None = None) -> str:
     except (OSError, ValueError):
         return ""
     return str(state.get("mode") or "").strip().lower()
+
+
+def resolve_language(work_dir: str | Path) -> str:
+    """Memo language of the run, the one the recognizers are built from (D-174); `en` when unreadable."""
+    try:
+        state = state_io.read_state(work_dir)
+    except (OSError, ValueError):
+        return "en"
+    return (state or {}).get("language") or "en"
 
 
 def locate_source(document: dict, source_id: str) -> dict | None:
@@ -121,8 +128,9 @@ def risk_lines(document: dict) -> set[int]:
     citation out of the Risk line.
     """
     numbers: set[int] = set()
+    risk_prefix = document["grammar"].risk_prefix
     for paragraph in document["paragraphs"]:
-        if RISK_PREFIX.match(paragraph["text"]):
+        if risk_prefix.match(paragraph["text"]):
             numbers.update(range(paragraph["start_line"], paragraph["end_line"] + 1))
     return numbers
 
@@ -137,7 +145,7 @@ def read_frozen_pack(work_dir: str | Path) -> dict | None:
 
 def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[dict]:
     """Apply C-01..C-08 to one draft against the registry, the quote store and the snapshot."""
-    document = lint.parse_draft(text)
+    document = lint.parse_draft(text, lint.grammar(resolve_language(work_dir)))
     run_mode = resolve_mode(work_dir, mode)
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)

@@ -17,9 +17,10 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from memoforge import docx, state_io, task  # noqa: E402
+import _i18n  # noqa: E402
+from memoforge import docx, i18n, state_io, task  # noqa: E402
 from memoforge.docx import fallback, oscola, renderer, validate  # noqa: E402
-from test_docx_fallback import issue_step  # noqa: E402
+from test_docx_fallback import RU_DELIVERABLE, issue_step  # noqa: E402
 from test_docx_renderer import sample_index  # noqa: E402
 
 DRAFT = (
@@ -336,7 +337,7 @@ class StatusSectionTest(unittest.TestCase):
             self.tmp / "nostatus.docx",
             {
                 "word/document.xml": lambda text: text.replace(
-                    f"<w:t>{validate.STATUS_HEADING_TEXT}</w:t>", "<w:t>Postscript</w:t>"
+                    validate.status_run(), "<w:t>Postscript</w:t>"
                 )
             },
         )
@@ -351,6 +352,44 @@ class StatusSectionTest(unittest.TestCase):
         self.assertFalse(renderer.footnotes_map(result)["status_required"])
         self.assertTrue(report["valid"], report["details"])
         self.assertNotIn(validate.E_MISSING_STATUS, report["errors"])
+
+
+class LocalizedStatusTest(unittest.TestCase):
+    """D-175: `docx validate` looks for the Status run of the memo language, not for `Status`."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        packs = self.tmp / "i18n"
+        packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(packs, "ru", RU_DELIVERABLE)
+        self.path = self.tmp / "memo.docx"
+        self.result = renderer.render(
+            DRAFT,
+            sample_index(),
+            self.path,
+            citation_style=oscola.STYLE_FOOTNOTES,
+            final_status="forced_exit_on_v1_with_remaining_issues",
+            language="ru",
+        )
+        self.map = renderer.footnotes_map(self.result)
+
+    def test_validate_finds_the_localized_status_section(self):
+        report = validate.validate_path(self.path, footnotes_map=self.map, language="ru")
+        self.assertNotIn(validate.E_MISSING_STATUS, report["errors"])
+        self.assertTrue(report["valid"], report["details"])
+
+    def test_the_english_run_is_not_in_a_russian_document(self):
+        report = validate.validate_path(self.path, footnotes_map=self.map)
+        self.assertIn(validate.E_MISSING_STATUS, report["errors"])
+
+    def test_the_run_the_validator_looks_for_follows_the_pack(self):
+        self.assertEqual("<w:t>Status</w:t>", validate.status_run())
+        self.assertEqual("<w:t>Статус</w:t>", validate.status_run("ru"))
 
 
 class UnreadableTest(unittest.TestCase):
@@ -614,7 +653,7 @@ class CommandTest(unittest.TestCase):
         self.assertIsNone(result["demoted_to"])
 
         markdown = (work_dir / "memo-gdpr.md").read_text(encoding="utf-8")
-        self.assertIn(fallback.STATUS_HEADING, markdown)
+        self.assertIn(fallback.status_heading(), markdown)
         self.assertIn("- blocker · s-1 · Art. 17(1) carries no rule.", markdown)
 
     def test_validate_without_a_docx_is_skipped(self):

@@ -41,6 +41,16 @@ from memoforge.docx import slug_of  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import _i18n  # noqa: E402
+from memoforge import i18n  # noqa: E402
+
+ASSUMPTIONS_MD = f"**{md_fallback.label('assumptions_label')}**"
+UNVERIFIED_MD = f"**{md_fallback.label('unverified_label')}**"
+UNRESOLVED_MD = f"**{md_fallback.label('unresolved_label')}**"
+"""The English appendix sub-headings, bolded the way the markdown deliverable writes them."""
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from test_docx_fallback import LONG_WARNING, warnings_fixture  # noqa: E402
 
 DRAFT = """# Memo
@@ -131,6 +141,12 @@ def render_export(work_dir: Path, step_id: str = "s-render") -> dict:
     return docx.run_render(
         argparse.Namespace(workdir=str(work_dir), step=step_id, attempt=1, draft_sha=None, human=False)
     )
+
+
+def md_fallback_export(work_dir: Path) -> str:
+    """The `memo-<slug>.md` export a `docx render` left in the work dir."""
+    slug = slug_of(state_io.read_state(work_dir), work_dir)
+    return (work_dir / f"memo-{slug}.md").read_text(encoding="utf-8-sig")
 
 
 def forge_render_sha(work_dir: Path, sha: str) -> None:
@@ -904,7 +920,7 @@ class SalvageTest(_WorkDirMixin, unittest.TestCase):
         result = finalize.run_finalize(finalize_args(work_dir, salvage=True))
 
         body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
-        self.assertIn(md_fallback.STATUS_HEADING, body)
+        self.assertIn(md_fallback.status_heading(), body)
         self.assertIn("state.json was unreadable", body)
         self.assertEqual(
             1, [row["banner_id"] for row in result["banners"]].count("state_corrupt")
@@ -1280,7 +1296,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
     def test_a_warning_becomes_one_short_bullet(self):
         work_dir = self.make_appendix_task()
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), md_fallback.ASSUMPTIONS_MD)
+        rows = self.bullets(self.appendix(work_dir), ASSUMPTIONS_MD)
 
         self.assertTrue(rows[0].startswith("Nothing in intake"))
         self.assertTrue(rows[0].endswith("…"), rows[0])
@@ -1293,7 +1309,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
     def test_repeated_warnings_are_listed_once_and_the_list_is_capped(self):
         work_dir = self.make_appendix_task()
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), md_fallback.ASSUMPTIONS_MD)
+        rows = self.bullets(self.appendix(work_dir), ASSUMPTIONS_MD)
 
         self.assertEqual(len([row for row in rows if row.startswith("Nothing in intake")]), 1)
         # 15 warnings, one of them a repeat: 14 bullets, 12 printed and the rest pointed at.
@@ -1314,9 +1330,9 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
     def test_an_unavailable_currency_checker_is_one_line_not_one_per_source(self):
         work_dir = self.make_appendix_task(currency_unavailable=True)
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), md_fallback.UNVERIFIED_MD)
+        rows = self.bullets(self.appendix(work_dir), UNVERIFIED_MD)
 
-        self.assertEqual(rows[0], md_fallback.CURRENCY_UNAVAILABLE_NOTE)
+        self.assertEqual(rows[0], md_fallback.label('currency_unavailable_note'))
         self.assertNotIn("currency unchecked", "\n".join(rows))
         # Only the sources with a problem of their own are still listed.
         self.assertEqual(len(rows), 3)
@@ -1332,16 +1348,16 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir))
         appendix = self.appendix(work_dir)
 
-        self.assertIn(md_fallback.UNRESOLVED_MD, appendix)
+        self.assertIn(UNRESOLVED_MD, appendix)
         self.assertIn("ghost", appendix)
-        self.assertIn(md_fallback.ASSUMPTIONS_MD, appendix)
+        self.assertIn(ASSUMPTIONS_MD, appendix)
 
     def test_a_currency_check_that_ran_keeps_its_per_source_lines(self):
         work_dir = self.make_appendix_task()
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), md_fallback.UNVERIFIED_MD)
+        rows = self.bullets(self.appendix(work_dir), UNVERIFIED_MD)
 
-        self.assertNotIn(md_fallback.CURRENCY_UNAVAILABLE_NOTE, rows)
+        self.assertNotIn(md_fallback.label('currency_unavailable_note'), rows)
         self.assertEqual(len([row for row in rows if "currency unchecked" in row]), 3)
 
 
@@ -1372,8 +1388,8 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         return (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
 
     def status(self, body: str) -> str:
-        self.assertIn(md_fallback.STATUS_HEADING, body)
-        return body.partition(md_fallback.STATUS_HEADING)[2].partition("\n## ")[0]
+        self.assertIn(md_fallback.status_heading(), body)
+        return body.partition(md_fallback.status_heading())[2].partition("\n## ")[0]
 
     def test_the_deliverable_states_the_banners_and_the_blockers(self):
         work_dir = self.make_exited_task()
@@ -1399,7 +1415,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         body = self.deliverable(work_dir)
 
         self.assertLess(
-            body.index(md_fallback.STATUS_HEADING), body.index(md_fallback.APPENDIX_HEADING)
+            body.index(md_fallback.status_heading()), body.index(md_fallback.appendix_heading())
         )
 
     def test_the_summary_lists_every_blocker(self):
@@ -1420,15 +1436,15 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
     def test_an_approved_run_carries_no_status_section(self):
         work_dir = self.make_task(mutate=lambda state: state.update(final_status="approved_on_v2"))
         finalize.run_finalize(finalize_args(work_dir))
-        self.assertNotIn(md_fallback.STATUS_HEADING, self.deliverable(work_dir))
+        self.assertNotIn(md_fallback.status_heading(), self.deliverable(work_dir))
 
     def test_a_status_decided_after_the_export_reaches_a_body_without_an_appendix(self):
         """D-123 N-07: `render_appendix` writes nothing for a clean run — the status still refreshes."""
         work_dir = self.make_task()
         render_export(work_dir)
         exported = (work_dir / "memo-gdpr-transcripts.md").read_text(encoding="utf-8")
-        self.assertNotIn(md_fallback.APPENDIX_HEADING, exported)
-        self.assertNotIn(md_fallback.STATUS_HEADING, exported)
+        self.assertNotIn(md_fallback.appendix_heading(), exported)
+        self.assertNotIn(md_fallback.status_heading(), exported)
         (work_dir / "memo-gdpr-transcripts.docx").unlink()  # the md branch of §2.1 row 15
 
         def decide(state: dict) -> None:
@@ -1448,7 +1464,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         render_export(work_dir)
         exported = (work_dir / "memo-gdpr-transcripts.md").read_text(encoding="utf-8")
         self.assertIn("manual_review_required_on_v1", exported)
-        self.assertNotIn(md_fallback.APPENDIX_HEADING, exported)
+        self.assertNotIn(md_fallback.appendix_heading(), exported)
         (work_dir / "memo-gdpr-transcripts.docx").unlink()
 
         def decide(state: dict) -> None:
@@ -1458,7 +1474,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir))
         body = self.deliverable(work_dir)
 
-        self.assertEqual(1, body.count(md_fallback.STATUS_HEADING))
+        self.assertEqual(1, body.count(md_fallback.status_heading()))
         self.assertIn("forced_exit_on_v2_with_remaining_issues", body)
         self.assertNotIn("manual_review_required_on_v1", body)
 
@@ -1512,7 +1528,7 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir, step="s-export-again"))
 
         self.assertEqual(first, self.deliverable(work_dir))
-        self.assertIn(md_fallback.STATUS_HEADING, first)
+        self.assertIn(md_fallback.status_heading(), first)
 
 
 class McpSoftCapTest(_WorkDirMixin, unittest.TestCase):
@@ -1783,6 +1799,274 @@ class CliSurfaceTest(_WorkDirMixin, unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(printed.strip().splitlines()[0])
         self.assertEqual(payload["current_phase"], "done")
+
+
+class LocalizedTailTest(unittest.TestCase):
+    """D-175: the parse-back of a rendered deliverable runs in the language it was rendered in."""
+
+    RU = {
+        "memo.labels.appendix_heading": "Приложение — допущения",
+        "memo.labels.assumptions_label": "Допущения",
+        "memo.labels.status_label": "Статус",
+        "memo.labels.status_lead": "Итоговый статус: {final_status}. Требуется проверка.",
+        "memo.labels.registered_sources_heading": "Источники (зарегистрированы, не заморожены)",
+        "memo.labels.no_registered_sources": "(источники не регистрировались)",
+    }
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work_dir = Path(tmp.name)
+        self.packs = self.work_dir / "i18n"
+        self.packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", self.RU)
+
+    def state(self) -> dict:
+        return {
+            "language": "ru",
+            "final_status": "forced_exit_on_v1",
+            "drafting_warnings": ["Одно допущение."],
+            "fallback_banners": [],
+            "remaining_blocking_issues": [],
+        }
+
+    def exported(self) -> str:
+        return md_fallback.render(
+            "Тело меморандума.\n",
+            md_fallback.SourceIndex(),
+            drafting_warnings=["Одно допущение."],
+            state=self.state(),
+        )["markdown"]
+
+    def test_finalize_reads_back_a_russian_export(self):
+        exported = self.exported()
+        self.assertIn(i18n.t("ru", "memo.labels.appendix_heading"), exported)
+        rewritten = finalize.condense_appendix(exported, self.work_dir, self.state())
+        self.assertEqual(1, rewritten.count(i18n.t("ru", "memo.labels.status_label")))
+        self.assertEqual(1, rewritten.count(i18n.t("ru", "memo.labels.appendix_heading")))
+        self.assertNotIn(i18n.t("en", "memo.labels.appendix_heading"), rewritten)
+
+    def test_the_status_section_of_a_russian_export_is_dropped_before_it_is_rewritten(self):
+        self.assertNotIn(
+            i18n.t("ru", "memo.labels.status_label"),
+            finalize._without_status(self.exported(), language="ru"),
+        )
+
+    def test_without_status_never_cuts_on_an_empty_lead_prefix(self):
+        _i18n.fake_pack(
+            self.packs,
+            "fr",
+            {
+                "memo.labels.status_label": "Statut",
+                "memo.labels.status_lead": "{final_status} — à vérifier.",
+            },
+        )
+        text = "# T\n\n## Statut\n\nle texte du rédacteur\n"
+        self.assertEqual(text, finalize._without_status(text, language="fr"))
+
+    def test_the_published_source_pack_is_in_the_memo_language(self):
+        rendered = finalize.source_pack_markdown(self.work_dir, language="ru")
+        self.assertIn("# Источники (зарегистрированы, не заморожены)", rendered)
+        self.assertIn("- (источники не регистрировались)", rendered)
+        self.assertNotIn("Sources (registered, not frozen)", rendered)
+
+
+class BannerLanguageSummaryTest(_WorkDirMixin, unittest.TestCase):
+    """D-175: `summary.md` strings and banner rows come from `memo.summary`/`memo.banners`."""
+
+    RU_SUMMARY = {
+        "memo.summary.title": "Сводка запуска memoforge — {task_id}",
+        "memo.summary.status": "- Статус: **{final_status}**",
+        "memo.summary.terminal_phase": "- Терминальная фаза: `{phase}`",
+        "memo.summary.mode": "- Режим: {mode}",
+        "memo.summary.question": "- Вопрос: {question}",
+        "memo.summary.reason": "- Причина, переданная `mf finalize`: {reason}",
+        "memo.summary.salvaged": "- Создано `mf finalize --salvage` (деградированный путь, M9).",
+        "memo.summary.manual_review_reasons": "## Причины ручной проверки",
+        "memo.summary.fallback_banners": "## Баннеры запасных сценариев",
+        "memo.summary.mcp_calls": "## Вызовы MCP",
+        "memo.summary.remaining_blocking_issues": "## Оставшиеся блокирующие замечания",
+        "memo.summary.paths": "## Пути",
+        "memo.summary.work_dir": "- Рабочий каталог: `{path}`",
+        "memo.summary.deliverable": "- Деливерабл: `{name}`",
+        "memo.summary.rendered_from": "- Отрендерено из: `{name}`",
+        "memo.summary.state": "Состояние",
+        "memo.summary.journal": "Журнал",
+        "memo.summary.drafting_warnings": "## Предупреждения для автора",
+        "memo.summary.none": "- нет",
+        "memo.summary.none_yet": "- пока нет",
+        "memo.summary.not_selected": "(не выбран)",
+        "memo.summary.query_unavailable": "(запрос недоступен)",
+        "memo.summary.phase_unknown": "(неизвестна)",
+        "memo.summary.banner_row": "{text} (`{banner_id}`)",
+        "memo.summary.mcp_quota_row": "{server}: {used} из {limit}",
+        "memo.summary.mcp_plain_row": "{server}: {used}",
+        "memo.summary.pack_unavailable": (
+            "Языковой пакет `{code}` не удалось прочитать; сгенерированные метки — на английском."
+        ),
+        "memo.banners.mcp_partial": "Частичное покрытие MCP — доступен только {available}.",
+    }
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", self.RU_SUMMARY)
+
+    def russian_task(self) -> Path:
+        def mutate(state: dict) -> None:
+            state["language"] = "ru"
+
+        return self.make_task(mutate=mutate)
+
+    def test_the_summary_of_a_russian_task_has_no_english_heading(self):
+        work_dir = self.russian_task()
+        finalize.run_finalize(finalize_args(work_dir))
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("Сводка запуска memoforge", summary)
+        self.assertIn("## Причины ручной проверки", summary)
+        self.assertIn("## Баннеры запасных сценариев", summary)
+        self.assertNotIn("# memoforge run summary", summary)
+        self.assertNotIn("## Manual-review reasons", summary)
+        self.assertNotIn("## Fallback banners", summary)
+
+    def test_salvage_with_an_unreadable_pack_delivers_in_english_and_says_so(self):
+        work_dir = self.russian_task()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir, salvage=True))
+        self.assertNotIn("errors", result)
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("# memoforge run summary", summary)
+        self.assertIn("could not be read; generated labels are in English", summary)
+        self.assertIn(result["deliverable"], ("deliverable.md", "deliverable.docx"))
+
+    def test_a_legacy_english_task_with_a_parameterised_banner_without_params_finalizes(self):
+        def mutate(state: dict) -> None:
+            state["fallback_banners"] = [
+                {
+                    "banner_id": "mcp_partial",
+                    "condition_key": "mcp_partial",
+                    "text": "Partial MCP coverage — only legalviz was reachable.",
+                }
+            ]
+            state["final_status"] = SIGNED_OFF
+
+        work_dir = self.make_task(mutate=mutate)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertNotIn("errors", result)
+        self.assert_delivered(work_dir)
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("Partial MCP coverage — only legalviz was reachable.", summary)
+
+
+class SalvageLocalizedExportTest(_WorkDirMixin, unittest.TestCase):
+    """Final review, finding 1 / D-175b: when `--salvage` falls back to English it must not
+    reuse the localized `memo-<slug>.md` export — `condense_appendix` then reads that body
+    back with English headings, so the export's own `## Status` survives and a second,
+    English one is appended. With a draft still on disk the draft is rendered afresh."""
+
+    RU = {
+        "memo.labels.appendix_heading": "Приложение — допущения",
+        "memo.labels.status_label": "Статус",
+        "memo.labels.status_lead": "Итоговый статус: {final_status}. Требуется проверка.",
+    }
+    FORCED = "forced_exit_on_v1"
+    """A non-approved terminal status, so the export really carries a `## Status` section."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        i18n._cache.clear()
+        self.addCleanup(i18n._cache.clear)
+        _i18n.fake_pack(self.packs, "ru", self.RU)
+
+    def russian_export(self) -> Path:
+        """A Russian task whose `memo-<slug>.md` export is on disk and bound to the draft."""
+
+        def mutate(state: dict) -> None:
+            state["language"] = "ru"
+
+        work_dir = self.make_task(final_status=self.FORCED, mutate=mutate)
+        render_export(work_dir)
+        exported = md_fallback_export(work_dir)
+        self.assertIn("## Статус", exported)
+        return work_dir
+
+    def test_salvage_renders_the_draft_afresh_instead_of_the_localized_export(self):
+        work_dir = self.russian_export()
+        i18n._cache.clear()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir, salvage=True))
+        self.assertNotIn("errors", result)
+        self.assertEqual(finalize.DELIVERABLE_MD, result["deliverable"])
+        body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
+        self.assertNotIn("## Статус", body)
+        self.assertEqual(1, body.count(f"## {md_fallback.label('status_label')}"))
+
+    def test_salvage_leaves_the_localized_export_it_bypassed_on_disk(self):
+        """The export's bytes are bound to a draft sha and a `published[]` row (D-50); the
+        English deliverable of a degraded run is no reason to overwrite them."""
+        work_dir = self.russian_export()
+        i18n._cache.clear()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        finalize.run_finalize(finalize_args(work_dir, salvage=True))
+        self.assertIn("## Статус", md_fallback_export(work_dir))
+
+
+class UnreadablePackFinalizeTest(_WorkDirMixin, unittest.TestCase):
+    """Task 3 carry-over: a normal finalize fails when the memo pack cannot be loaded —
+    even when a valid, previously rendered docx exists and no label is looked up on that path."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", {})
+
+    def russian_docx_task(self) -> Path:
+        """A Russian task with a valid, previously rendered docx — not finalized yet."""
+
+        def mutate(state: dict) -> None:
+            state["language"] = "ru"
+
+        work_dir = self.make_task(final_status=SIGNED_OFF, mutate=mutate)
+        render_export(work_dir)
+        self.assertEqual("export", state_io.read_state(work_dir)["current_phase"])
+        return work_dir
+
+    def test_an_existing_russian_docx_with_an_unreadable_pack_fails_without_a_publish_root(self):
+        work_dir = self.russian_docx_task()
+        i18n._cache.clear()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(["language_pack_unavailable: ru"], result["errors"])
+        self.assertNotEqual("done", state_io.read_state(work_dir)["current_phase"])
+
+    def test_an_existing_russian_docx_with_an_unreadable_pack_fails_with_a_publish_root(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.russian_docx_task()
+        state_io.write_state(
+            work_dir, lambda state: state["config"].update(publish_folder=str(root))
+        )
+        i18n._cache.clear()
+        (self.packs / "ru.json").write_text("{not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir, step=None))
+        self.assertEqual(["language_pack_unavailable: ru"], result["errors"])
+        self.assertNotEqual("done", state_io.read_state(work_dir)["current_phase"])
 
 
 if __name__ == "__main__":

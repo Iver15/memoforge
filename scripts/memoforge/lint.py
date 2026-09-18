@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import re
 from pathlib import Path
 
-from . import limits, pylauncher, quotes, schema, sources, state_io, stepctx
+from . import i18n, limits, pylauncher, quotes, schema, sources, state_io, stepctx
 
 LINT_PATH = "lint.json"
 
@@ -15,33 +16,14 @@ Q_TOKEN = re.compile(r"\[\[q:\s*([a-z0-9][a-z0-9._-]*)\s*\]\]")
 ANCHOR = re.compile(r"<!--\s*§(s-[0-9][0-9-]*)\s*-->")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 HEADING_NUMBER = re.compile(r"^(\d+)(?:\.(\d+))?\.?\s+")
-RISK_LINE = re.compile(r"^Risk: (high|medium|low|undetermined)\.")
-"""D-12: the literal Risk-line format — exact case, mandatory period, no bullet or bold prefix."""
+RISK_LEVEL_KEYS: tuple[str, ...] = ("high", "medium", "low", "undetermined")
+"""Keys of `memo.risk.levels`, in the order the Risk-line literal prints them (D-12, D-174)."""
 
-RISK_LIKE = re.compile(r"^\s*(?:[-*+]\s*)?(?:\*\*)?risk\s*:", re.IGNORECASE)
-"""Anything the writer meant as a Risk line; used to tell «malformed» from «missing» (D-12)."""
-
-EXEC_BULLET_RISK = re.compile(r"Risk: (high|medium|low|undetermined)\.\s*$")
-"""D-12: an executive-summary bullet ends with the same literal verdict."""
-
-RISK_LEVELS: tuple[str, ...] = ("high", "medium", "low", "undetermined")
 BULLET = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)")
 SOURCES_MARKER = "<!-- sources: generated -->"
 EM_DASH = "\u2014"
-DISCLAIMER = re.compile(r"disclaimer|assumptions?\b[^.]{0,80}\bnot\b[^.]{0,40}\bconfirm", re.IGNORECASE)
 
-PLACEHOLDERS: tuple[str, ...] = ("TODO", "TBD", "FIXME", "XXX", "PLACEHOLDER", "Lorem ipsum", "[insert")
 PLACEHOLDER_ANGLE = re.compile(r"<[a-z][^<>\n]{2,60}>")
-
-CANONICAL_SECTIONS: dict[str, str] = {
-    "executive summary": "executive_summary",
-    "background and definitions": "background",
-    "facts, assumptions and limitations": "facts",
-    "key assumptions": "assumptions",
-    "conclusion and recommendations": "conclusion",
-    "recommendations": "recommendations",
-}
-"""Canonical names of CONVENTIONS «Канонические имена секций»; compared case- and punctuation-blind."""
 
 SEVERITY: dict[str, str] = {
     # Structure, provenance and freeze rules stop the pipeline (`clean` = no blocker, §5.4, G5).
@@ -69,6 +51,97 @@ TEMPLATE_BRIEF = "executive-brief"
 TEMPLATE_CLASSICAL = "classical-memo"
 
 
+# --- language grammar -----------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class Grammar:
+    """Everything lint and the citation audit recognise by language, built from the pack (D-174).
+
+    The English grammar is today's constants, expression for expression, so an English run keeps
+    its bytes; another language gets the same shapes over its own label, levels and titles.
+    """
+
+    language: str
+    sections: dict[str, str]
+    """Normalized localized title -> canonical kind; the `en` map is the CONVENTIONS list of §4.4."""
+    section_titles: dict[str, str]
+    """Canonical kind -> the title as the pack writes it."""
+    risk_line: re.Pattern
+    risk_like: re.Pattern
+    exec_bullet_risk: re.Pattern
+    risk_prefix: re.Pattern
+    """C-04: the loose Risk-paragraph prefix of `citations.py` over the same label."""
+    risk_literal: str
+    """`Risk: <high|medium|low|undetermined>.` — the form the L-07 and L-13 hints quote."""
+    disclaimer: re.Pattern
+    placeholders: tuple[str, ...]
+    placeholders_ignore_case: bool
+    abbreviations: frozenset[str]
+    ai_tells: tuple[str, ...]
+    off: frozenset[str]
+    """Rule ids the language switches off (`memo.lint_off`; v1: `L-03` for `ru`)."""
+
+
+_GRAMMARS: dict[tuple[str, str], Grammar] = {}
+"""Built grammars by language and pack directory — a temp `PACK_DIR` never collides (D-168)."""
+
+
+def grammar(language: str = "en") -> Grammar:
+    """The `Grammar` of one memo language, built once per language and pack directory (D-174).
+
+    An unreadable `memo` pack raises `i18n.PackUnavailable` and is never quietly replaced by
+    English: a memo in the wrong language is worse than a refusal (D-168).
+    """
+    code = i18n.normalize(language) or i18n.DEFAULT
+    key = (code, str(i18n.PACK_DIR))
+    built = _GRAMMARS.get(key)
+    if built is None:
+        built = _build_grammar(code)
+        _GRAMMARS[key] = built
+    return built
+
+
+def _build_grammar(code: str) -> Grammar:
+    """Compile the recognizers of one language from its pack; the label and levels go through `re.escape`."""
+    titles = {kind: str(title) for kind, title in dict(i18n.node(code, "memo.sections")).items()}
+    label = re.escape(i18n.t(code, "memo.risk.label"))
+    levels = [i18n.t(code, f"memo.risk.levels.{key}") for key in RISK_LEVEL_KEYS]
+    verdicts = "|".join(re.escape(level) for level in levels)
+    return Grammar(
+        language=code,
+        sections={normalize_title(title): kind for kind, title in titles.items()},
+        section_titles=titles,
+        risk_line=re.compile(rf"^{label}: ({verdicts})\."),
+        risk_like=re.compile(rf"^\s*(?:[-*+]\s*)?(?:\*\*)?{label}\s*:", re.IGNORECASE),
+        exec_bullet_risk=re.compile(rf"{label}: ({verdicts})\.\s*$"),
+        risk_prefix=re.compile(rf"^\s*(?:[-*]\s*)?(?:\*\*)?{label}:", re.IGNORECASE),
+        risk_literal=f"{i18n.t(code, 'memo.risk.label')}: <{'|'.join(levels)}>.",
+        disclaimer=re.compile(i18n.t(code, "memo.disclaimer_pattern"), re.IGNORECASE),
+        placeholders=tuple(i18n.node(code, "memo.placeholders")),
+        placeholders_ignore_case=bool(i18n.node(code, "memo.placeholders_ignore_case")),
+        abbreviations=frozenset(i18n.node(code, "memo.abbreviations")),
+        ai_tells=tuple(i18n.node(code, "memo.ai_tells")),
+        off=frozenset(i18n.node(code, "memo.lint_off")),
+    )
+
+
+_grammar = grammar
+"""`parse_draft` binds `grammar` as a parameter name, so its English default arrives through this."""
+
+
+def switched_off(document: dict, rule: str) -> bool:
+    """True when the draft's language switches this rule off (`memo.lint_off`, D-174)."""
+    return rule in document["grammar"].off
+
+
+def section_name(grammar: Grammar, kind: str, english: str) -> str:
+    """The section name an L-12 hint prints: today's English form for `en`, else the pack title."""
+    if grammar.language == "en":
+        return english
+    return grammar.section_titles.get(kind, english)
+
+
 # --- draft parsing --------------------------------------------------------
 
 
@@ -81,8 +154,14 @@ def normalize_title(title: str) -> str:
     return text.strip().rstrip(".:;,! ").lower()
 
 
-def parse_draft(text: str) -> dict:
-    """Headings, sections, blockquotes, paragraphs and citation tokens of one draft."""
+def parse_draft(text: str, grammar: Grammar | None = None) -> dict:
+    """Headings, sections, blockquotes, paragraphs and citation tokens of one draft.
+
+    D-174: `grammar` is the recognizer set of the memo language and travels on the document, so
+    every rule reads it instead of a module constant. The default is English, which is what the
+    structural callers (`anchor_text`, `checked_anchor`) need — they only look at headings.
+    """
+    grammar = _grammar() if grammar is None else grammar
     lines = text.split("\n")
     in_code = False
     code_lines: set[int] = set()
@@ -137,7 +216,7 @@ def parse_draft(text: str) -> dict:
             end = len(lines)
         section = dict(heading)
         section["end_line"] = end
-        section["kind"] = CANONICAL_SECTIONS.get(normalize_title(heading["title"]))
+        section["kind"] = grammar.sections.get(normalize_title(heading["title"]))
         sections.append(section)
 
     for index, section in enumerate(sections):
@@ -158,6 +237,7 @@ def parse_draft(text: str) -> dict:
         "sections": sections,
         "duplicate_sections": duplicate_sections(headings),
         "text": text,
+        "grammar": grammar,
     }
     document["blockquotes"] = collect_blockquotes(document)
     document["paragraphs"] = collect_paragraphs(document)
@@ -393,11 +473,14 @@ def body_words(document: dict) -> int:
 
 def check_l01(document: dict) -> list[dict]:
     """L-01: sentences longer than `limits.MAX_SENTENCE_WORDS` (quotes excluded — they are verbatim)."""
+    if switched_off(document, "L-01"):
+        return []
     out = []
+    abbreviations = document["grammar"].abbreviations
     for paragraph in document["paragraphs"]:
         text = SRC_TOKEN.sub("", paragraph["text"])
         text = Q_TOKEN.sub("", text)
-        for start, end in quotes.sentence_spans(text):
+        for start, end in quotes.sentence_spans(text, abbreviations):
             sentence = text[start:end].strip()
             words = len(sentence.split())
             if words > limits.MAX_SENTENCE_WORDS:
@@ -415,13 +498,16 @@ def check_l01(document: dict) -> list[dict]:
 
 def check_l02(document: dict) -> list[dict]:
     """L-02: paragraphs above the sentence or word cap."""
+    if switched_off(document, "L-02"):
+        return []
     out = []
+    abbreviations = document["grammar"].abbreviations
     for paragraph in document["paragraphs"]:
         if paragraph["bullet"]:
             continue
         text = Q_TOKEN.sub("", SRC_TOKEN.sub("", paragraph["text"]))
         words = len(text.split())
-        sentences = len(quotes.sentence_spans(text))
+        sentences = len(quotes.sentence_spans(text, abbreviations))
         if sentences > limits.MAX_PARAGRAPH_SENTENCES or words > limits.MAX_PARAGRAPH_WORDS:
             out.append(
                 finding(
@@ -438,6 +524,8 @@ def check_l02(document: dict) -> list[dict]:
 
 def check_l03(document: dict) -> list[dict]:
     """L-03: em-dash only in `Term — definition` (§Definitions of `lib/prose-style.md`)."""
+    if switched_off(document, "L-03"):
+        return []
     out = []
     for paragraph in document["paragraphs"]:
         text = paragraph["text"]
@@ -459,9 +547,12 @@ def check_l03(document: dict) -> list[dict]:
 
 
 def check_l04(document: dict) -> list[dict]:
-    """L-04: AI-tells from `lib/ai-tells.txt`."""
+    """L-04: AI-tells from `lib/ai-tells.txt` (`en`) or from `memo.ai_tells` of the pack (D-174)."""
+    if switched_off(document, "L-04"):
+        return []
     out = []
-    tells = ai_tells()
+    grammar = document["grammar"]
+    tells = ai_tells() if grammar.language == "en" else [tell.lower() for tell in grammar.ai_tells]
     for paragraph in document["paragraphs"]:
         lowered = paragraph["text"].lower()
         for tell in tells:
@@ -480,6 +571,8 @@ def check_l04(document: dict) -> list[dict]:
 
 def check_l05(document: dict) -> list[dict]:
     """L-05: H1 -> H2 -> H3 without gaps, no H4+, no heading ending in a question mark."""
+    if switched_off(document, "L-05"):
+        return []
     out = []
     previous = 0
     for heading in document["headings"]:
@@ -552,6 +645,8 @@ def conclusion_bullets(document: dict) -> list[dict]:
 
 def check_l06(document: dict, template: str) -> list[dict]:
     """L-06: bijection Exec Summary <-> analytical subsections <-> Conclusion (§5.4)."""
+    if switched_off(document, "L-06"):
+        return []
     out = []
     analytical = analytical_sections(document)
     conclusions = conclusion_bullets(document)
@@ -607,10 +702,13 @@ def section_paragraphs(document: dict, section: dict) -> list[dict]:
 
 def check_l07(document: dict) -> list[dict]:
     """L-07: the last paragraph of every analytical subsection is the literal Risk line (D-12)."""
+    if switched_off(document, "L-07"):
+        return []
     out = []
+    grammar = document["grammar"]
     for section in analytical_sections(document):
         paragraphs = section_paragraphs(document, section)
-        risk_like = [row for row in paragraphs if RISK_LIKE.match(row["text"])]
+        risk_like = [row for row in paragraphs if grammar.risk_like.match(row["text"])]
         if not paragraphs:
             out.append(
                 finding(
@@ -618,14 +716,14 @@ def check_l07(document: dict) -> list[dict]:
                     section["line"],
                     section["section_id"],
                     section["raw"],
-                    "No Risk line: end the subsection with `Risk: <high|medium|low|undetermined>.` "
+                    f"No Risk line: end the subsection with `{grammar.risk_literal}` "
                     "plus justification and recommendation.",
                 )
             )
             continue
 
         last = paragraphs[-1]
-        match = None if last["bullet"] else RISK_LINE.match(last["text"])
+        match = None if last["bullet"] else grammar.risk_line.match(last["text"])
         if match is None:
             if risk_like:
                 out.append(
@@ -635,7 +733,7 @@ def check_l07(document: dict) -> list[dict]:
                         section["section_id"],
                         risk_like[-1]["text"],
                         "Risk line format: the last paragraph of the subsection must start with "
-                        "`Risk: <high|medium|low|undetermined>.` (exact case, closing period, no "
+                        f"`{grammar.risk_literal}` (exact case, closing period, no "
                         "bullet or bold) and carry the justification and the recommendation.",
                     )
                 )
@@ -646,7 +744,7 @@ def check_l07(document: dict) -> list[dict]:
                         section["line"],
                         section["section_id"],
                         section["raw"],
-                        "No Risk line: end the subsection with `Risk: <high|medium|low|undetermined>.` "
+                        f"No Risk line: end the subsection with `{grammar.risk_literal}` "
                         "plus justification and recommendation.",
                     )
                 )
@@ -663,7 +761,7 @@ def check_l07(document: dict) -> list[dict]:
             )
 
         for paragraph in paragraphs[:-1]:
-            if RISK_LIKE.match(paragraph["text"]):
+            if grammar.risk_like.match(paragraph["text"]):
                 out.append(
                     finding(
                         "L-07",
@@ -678,6 +776,8 @@ def check_l07(document: dict) -> list[dict]:
 
 def check_l08(document: dict, quote_registry: dict, registry: dict) -> tuple[list[dict], list[str]]:
     """L-08: every blockquote carries `[[q:]]`; at most one per analytical subsection (D-164: optional)."""
+    if switched_off(document, "L-08"):
+        return [], []
     out: list[dict] = []
     warnings: list[str] = []
     # §5.4 L-08 / G5: «каждая с `[[q:]]`» is a rule about every blockquote of the document — Context,
@@ -720,6 +820,8 @@ def check_l08(document: dict, quote_registry: dict, registry: dict) -> tuple[lis
 
 def check_l09(document: dict, quote_registry: dict) -> list[dict]:
     """L-09: the same raw fragment is quoted at most once in the draft (§5.4)."""
+    if switched_off(document, "L-09"):
+        return []
     out = []
     seen: dict[tuple, dict] = {}
     for token in document["q_tokens"]:
@@ -750,7 +852,7 @@ def check_l09(document: dict, quote_registry: dict) -> list[dict]:
 
 def check_l10(document: dict, template: str) -> list[dict]:
     """L-10: `executive-brief` word cap = body words + unique `[[src:]]` x 12 (§5.4)."""
-    if template != TEMPLATE_BRIEF:
+    if template != TEMPLATE_BRIEF or switched_off(document, "L-10"):
         return []
     unique_sources = {token["id"] for token in document["src_tokens"]}
     words = body_words(document)
@@ -769,14 +871,35 @@ def check_l10(document: dict, template: str) -> list[dict]:
     ]
 
 
+def placeholder_pattern(placeholder: str) -> str:
+    """Case-sensitive L-11 pattern: a word edge only where the placeholder starts or ends alphanumeric.
+
+    D-174: `[insert` has no left edge and `TODO` has both, so Spanish prose «Todo tratamiento» is
+    not a placeholder while «TODO» still is.
+    """
+    left = r"\b" if placeholder[:1].isalnum() else ""
+    right = r"\b" if placeholder[-1:].isalnum() else ""
+    return left + re.escape(placeholder) + right
+
+
+def placeholder_in(line: str, placeholder: str, ignore_case: bool) -> bool:
+    """L-11 match: today's case-blind substring for `en`, the pattern above for the other languages."""
+    if ignore_case:
+        return placeholder.lower() in line.lower()
+    return re.search(placeholder_pattern(placeholder), line) is not None
+
+
 def check_l11(document: dict) -> list[dict]:
     """L-11: leftover placeholders."""
+    if switched_off(document, "L-11"):
+        return []
     out = []
+    grammar = document["grammar"]
     for number, line in enumerate(document["lines"], start=1):
         if number in document["code_lines"] or line.strip().startswith("<!--"):
             continue
-        for placeholder in PLACEHOLDERS:
-            if placeholder.lower() in line.lower():
+        for placeholder in grammar.placeholders:
+            if placeholder_in(line, placeholder, grammar.placeholders_ignore_case):
                 out.append(
                     finding(
                         "L-11",
@@ -804,7 +927,10 @@ def check_l11(document: dict) -> list[dict]:
 
 def check_l12(document: dict, template: str) -> list[dict]:
     """L-12: canonical section names, their order and the generated-sources marker (CONVENTIONS)."""
+    if switched_off(document, "L-12"):
+        return []
     out = []
+    grammar = document["grammar"]
     h2 = [section for section in document["sections"] if section["level"] == 2]
     kinds = [section["kind"] for section in h2]
     required = ("executive_summary", "facts") if template != TEMPLATE_BRIEF else ()
@@ -812,7 +938,8 @@ def check_l12(document: dict, template: str) -> list[dict]:
 
     for kind in required:
         if kind not in kinds:
-            out.append(finding("L-12", None, None, "", f"Template section «{kind}» is missing."))
+            name = section_name(grammar, kind, kind)
+            out.append(finding("L-12", None, None, "", f"Template section «{name}» is missing."))
     if not h2:
         out.append(finding("L-12", None, None, "", "The draft has no H2 sections."))
     elif h2[-1]["kind"] != closing:
@@ -822,7 +949,8 @@ def check_l12(document: dict, template: str) -> list[dict]:
                 h2[-1]["line"],
                 h2[-1]["section_id"],
                 h2[-1]["raw"],
-                f"The last section must be the «{closing.replace('_', ' ')}» section.",
+                f"The last section must be the «{section_name(grammar, closing, closing.replace('_', ' '))}» "
+                "section.",
             )
         )
 
@@ -846,8 +974,9 @@ def check_l12(document: dict, template: str) -> list[dict]:
 def check_l13(document: dict, template: str) -> list[dict]:
     """L-13: Exec Summary bullets stay under the cap and end with the verdict (D-11: classical only)."""
     out = []
-    if template == TEMPLATE_BRIEF:
+    if template == TEMPLATE_BRIEF or switched_off(document, "L-13"):
         return out
+    grammar = document["grammar"]
     for bullet in exec_summary_bullets(document):
         text = Q_TOKEN.sub("", SRC_TOKEN.sub("", bullet["text"])).strip()
         words = len(text.split())
@@ -861,14 +990,14 @@ def check_l13(document: dict, template: str) -> list[dict]:
                     f"Summary bullet has {words} words; the cap is {limits.EXEC_SUMMARY_BULLET_MAX_WORDS}.",
                 )
             )
-        if EXEC_BULLET_RISK.search(text) is None:
+        if grammar.exec_bullet_risk.search(text) is None:
             out.append(
                 finding(
                     "L-13",
                     bullet["start_line"],
                     bullet["section_id"],
                     text,
-                    "Summary bullet must end with `Risk: <high|medium|low|undetermined>.` "
+                    f"Summary bullet must end with `{grammar.risk_literal}` "
                     "(exact case, closing period).",
                 )
             )
@@ -877,10 +1006,12 @@ def check_l13(document: dict, template: str) -> list[dict]:
 
 def check_l14(document: dict, state: dict) -> list[dict]:
     """L-14: a disclaimer is required when the user never accepted the intake assumptions."""
+    if switched_off(document, "L-14"):
+        return []
     intake = state.get("intake") or {}
     if intake.get("assumptions_accepted") is not False:
         return []
-    if DISCLAIMER.search(document["text"]):
+    if document["grammar"].disclaimer.search(document["text"]):
         return []
     return [
         finding(
@@ -896,6 +1027,8 @@ def check_l14(document: dict, state: dict) -> list[dict]:
 
 def check_l15(document: dict) -> list[dict]:
     """L-15 duplicate_section_anchor: two headings resolve to the same `s-…` id (D34-09)."""
+    if switched_off(document, "L-15"):
+        return []
     out = []
     for clash in document["duplicate_sections"]:
         heading = clash["heading"]
@@ -925,7 +1058,7 @@ def resolve_template(state: dict, explicit: str | None) -> str:
 
 def lint_text(text: str, *, work_dir: str | Path, state: dict, template: str) -> tuple[list[dict], list[str]]:
     """Run all 15 L-rules over one draft; returns findings and an empty warning list (kept for call shape)."""
-    document = parse_draft(text)
+    document = parse_draft(text, grammar((state or {}).get("language") or "en"))
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)
 
@@ -1103,7 +1236,7 @@ def run_anchor(args: argparse.Namespace) -> dict:
     )
     entry = stepctx.publish_file(work_dir, work_file, draft_rel, step_id=args.step)
 
-    document = parse_draft(anchored)
+    document = parse_draft(anchored, grammar((state or {}).get("language") or "en"))
     result = {
         "draft": draft_rel,
         "draft_sha": entry["sha256"],

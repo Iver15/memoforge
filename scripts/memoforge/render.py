@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import events, review, state_io, stepctx
+from . import events, i18n, review, state_io, stepctx
+from .docx import fallback as md_fallback
 
 LAYERS: tuple[str, ...] = ("statutes", "case_law", "doctrine")
 
@@ -32,16 +33,16 @@ def _lines(*parts: object) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
-def _table(header: list[str], rows: list[list[str]]) -> str:
+def _table(header: list[str], rows: list[list[str]], empty: str = "none") -> str:
     if not rows:
-        return "_none_"
+        return f"_{empty}_"
     widths = "|".join(["---"] * len(header))
     body = "\n".join("| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |" for row in rows)
     return "| " + " | ".join(header) + " |\n|" + widths + "|\n" + body
 
 
-def _bullets(items: list[str]) -> str:
-    return "\n".join(f"- {item}" for item in items) if items else "_none_"
+def _bullets(items: list[str], empty: str = "none") -> str:
+    return "\n".join(f"- {item}" for item in items) if items else f"_{empty}_"
 
 
 # --- views ----------------------------------------------------------------
@@ -121,8 +122,14 @@ def render_currency(document: dict) -> str:
     )
 
 
-def render_source_pack(document: dict) -> str:
-    """`research/source-pack.json` → the frozen pack the writer cites from (§5.3)."""
+def render_source_pack(document: dict, language: str = i18n.DEFAULT) -> str:
+    """`research/source-pack.json` → the frozen pack the writer cites from (§5.3).
+
+    D-175: `finalize` publishes this view into `<publish>/…/sources/source-pack.md`, where the
+    client reads it, so it is written in the memo language. `mf render source-pack` leaves the
+    default: `research/source-pack.md` in the work dir is a view for the agents, and those stay
+    English like every other internal artefact.
+    """
     rows = [
         [
             entry.get("source_id", ""),
@@ -135,20 +142,27 @@ def render_source_pack(document: dict) -> str:
         ]
         for entry in document.get("entries", [])
     ]
+    none = md_fallback.label("none", language)
     snapshot = [
-        f"`{row.get('source_id')}` — raw_sha256 {row.get('raw_sha256') or 'none'}"
+        md_fallback.label(
+            "snapshot_row",
+            language,
+            source_id=f"`{row.get('source_id')}`",
+            raw_sha256=row.get("raw_sha256") or none,
+        )
         for row in document.get("snapshot", [])
     ]
     return _lines(
-        "# Source pack (frozen)",
-        f"Frozen at: {document.get('frozen_at', 'n/a')}",
-        "## Entries",
+        f"# {md_fallback.label('source_pack_heading', language)}",
+        md_fallback.label("frozen_at", language, value=document.get("frozen_at", "n/a")),
+        f"## {md_fallback.label('entries_heading', language)}",
         _table(
-            ["source_id", "layer", "tier", "use_in_memo", "weight", "currency", "citation"],
+            list(i18n.node(i18n.normalize(language) or i18n.DEFAULT, "memo.labels.source_pack_columns")),
             rows,
+            none,
         ),
-        "## Snapshot",
-        _bullets(snapshot),
+        f"## {md_fallback.label('snapshot_heading', language)}",
+        _bullets(snapshot, none),
     )
 
 

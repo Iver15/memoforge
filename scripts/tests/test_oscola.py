@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
+from memoforge import i18n  # noqa: E402
 from memoforge.docx import oscola  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "docx"
@@ -693,6 +699,96 @@ class DateTest(unittest.TestCase):
 class UnresolvedTest(unittest.TestCase):
     def test_the_marker_is_the_one_the_fallback_writes(self):
         self.assertEqual("[unresolved: x]", oscola.unresolved_text("x"))
+
+
+RU_CITATION: dict = {
+    "memo.citation.art": "ст.",
+    "memo.citation.arts": "стт.",
+    "memo.citation.para": "п.",
+    "memo.citation.paras": "пп.",
+    "memo.citation.ibid": "там же",
+    "memo.citation.cited_at": "цитируется в ",
+    "memo.citation.also_cited_at": "также цитируется в ",
+    "memo.citation.checked": "проверено ",
+    "memo.citation.currency": "актуальность ",
+    "memo.months": [
+        "января", "февраля", "марта", "апреля", "мая", "июня",
+        "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    ],
+}
+"""A Russian citation vocabulary; everything else in the pack stays the English floor."""
+
+
+class LocalizedCitationTest(unittest.TestCase):
+    """D-175a: the pinpoint is canonical English everywhere but the moment it is printed."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.packs = Path(tmp.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", RU_CITATION)
+
+    def test_pinpoint_labels_are_translated_only_on_display(self):
+        self.assertEqual("ст. 6(1)(f)", oscola.display_pinpoint("art 6(1)(f)", "ru"))
+        self.assertEqual("art 6(1)(f)", oscola.display_pinpoint("art 6(1)(f)", "en"))
+        # The form the tokens, the anchors and the `ibid` decision run on never moves.
+        self.assertEqual("art 6(1)(f)", oscola.normalise_pinpoint("Art. 6(1)(f)"))
+
+    def test_the_plural_label_is_not_taken_for_the_singular_one(self):
+        self.assertEqual("стт. 5, 6", oscola.display_pinpoint("arts 5, 6", "ru"))
+        self.assertEqual("пп. 44, 89", oscola.display_pinpoint("paras 44, 89", "ru"))
+
+    def test_a_pinpoint_without_a_label_is_displayed_as_written(self):
+        self.assertEqual("§ 26", oscola.display_pinpoint("§ 26", "ru"))
+        self.assertEqual("", oscola.display_pinpoint("", "ru"))
+        self.assertEqual(
+            "point 2 of the operative part",
+            oscola.display_pinpoint("point 2 of the operative part", "ru"),
+        )
+
+    def test_a_citation_carries_the_localized_pinpoint(self):
+        self.assertEqual(
+            "GDPR, ст. 88(1)", oscola.short(view(EU_LEGISLATION), "Art. 88(1)", language="ru")
+        )
+        self.assertIn(
+            "ст. 35(3)(a)", oscola.compact(view(EU_LEGISLATION), "art 35(3)(a)", language="ru")
+        )
+
+    def test_ibid_is_decided_on_canonical_pinpoints_and_printed_localized(self):
+        rows = [
+            {"source_id": "a", "pinpoint": "Art. 6", "resolved": True, "raw_id": "a"},
+            {"source_id": "a", "pinpoint": "art 6", "resolved": True, "raw_id": "a"},
+        ]
+        oscola.assign_forms(rows, oscola.STYLE_FOOTNOTES)
+        self.assertEqual(["full", "ibid"], [row["form"] for row in rows])
+        self.assertEqual(
+            "там же",
+            oscola.mention_text(
+                view(EU_LEGISLATION), rows[1], oscola.STYLE_FOOTNOTES, language="ru"
+            ),
+        )
+
+    def test_a_soft_law_date_uses_localized_month_names(self):
+        self.assertEqual("18 июня 2021", oscola.long_date("2021-06-18", "ru"))
+        self.assertEqual("18 June 2021", oscola.long_date("2021-06-18"))
+        self.assertIn("18 июня 2021", oscola.compact(view(SOFT_LAW), language="ru"))
+
+    def test_the_annex_provenance_is_localized_and_the_status_is_not(self):
+        rendered = oscola.sources_entry(row(EU_LEGISLATION), language="ru")
+        self.assertIn("проверено 2026-09-10", rendered)
+        self.assertIn("актуальность unchecked", rendered)
+        self.assertNotIn("checked 2026-09-10", rendered)
+
+    def test_the_identity_of_a_citation_stays_english(self):
+        rendered = oscola.compact(view(CJEU), "para 2", language="ru")
+        self.assertIn("Case C-311/18", rendered)
+        self.assertIn("п. 2", rendered)
+        self.assertEqual(
+            "Schrems II (n 19)", oscola.short(view(CJEU), "", 19, language="ru")
+        )
 
 
 if __name__ == "__main__":

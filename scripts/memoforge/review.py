@@ -8,7 +8,7 @@ import functools
 import re
 from pathlib import Path
 
-from . import events, fallbacks, limits, schema, state_io, stepctx
+from . import events, fallbacks, i18n, limits, schema, state_io, stepctx
 
 REVIEWER_KINDS: tuple[str, ...] = ("logic", "form", "citations", "counterarguments")
 CLIENT_READINESS_KIND = "client-readiness"
@@ -118,8 +118,14 @@ def _blockers(document: dict) -> list[dict]:
     return [issue for issue in document.get("issues", []) if issue.get("severity") == "blocker"]
 
 
-def _unverified_issue(checklist_id: str) -> dict:
-    return {
+def _memo_language(state: dict | None) -> str:
+    """The memo language of a task; anything unusable is English (D-169)."""
+    return i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
+
+
+def _unverified_issue(checklist_id: str, language: str = i18n.DEFAULT) -> dict:
+    code = i18n.normalize(language) or i18n.DEFAULT
+    row = {
         "severity": "blocker",
         "category": UNVERIFIED_HARD_FAIL,
         "section_id": UNVERIFIED_SECTION_ID,
@@ -127,6 +133,10 @@ def _unverified_issue(checklist_id: str) -> dict:
         "suggestion": f"Re-run the reviewer on this draft and grade {checklist_id} as pass or fail.",
         "checklist_id": checklist_id,
     }
+    if code != i18n.DEFAULT:
+        # D-173a: the client-facing sentence of a blocker, in the memo language.
+        row["issue_client"] = i18n.t(code, "memo.blockers.hard_fail_unknown", checklist_id=checklist_id)
+    return row
 
 
 def validate_document(
@@ -135,6 +145,7 @@ def validate_document(
     *,
     current_draft_sha: str | None = None,
     iteration: int | None = None,
+    language: str = i18n.DEFAULT,
 ) -> dict:
     """Validate one review document and return the corrected copy plus the `downgraded` flag (§4.5 п.2)."""
     if kind not in KINDS:
@@ -153,6 +164,12 @@ def validate_document(
         }
 
     corrected = copy.deepcopy(document)
+    if (i18n.normalize(language) or i18n.DEFAULT) == i18n.DEFAULT:
+        # D-173a: English never carries the field — a reviewer that wrote it did nothing wrong,
+        # so it is removed silently and the review stays valid.
+        for issue in corrected.get("issues", []):
+            if isinstance(issue, dict):
+                issue.pop("issue_client", None)
     stub = corrected.get("status") == "failed"
     if corrected.get("reviewer") != expected_reviewer(kind):
         errors.append(f"reviewer_kind_mismatch: {corrected.get('reviewer')!r} != {expected_reviewer(kind)!r}")
@@ -218,7 +235,7 @@ def validate_document(
         }
         for identifier in unverified:
             if identifier not in known:
-                corrected.setdefault("issues", []).append(_unverified_issue(identifier))
+                corrected.setdefault("issues", []).append(_unverified_issue(identifier, language=language))
                 downgraded = True
         if corrected.get("verdict") == "approved":
             corrected["verdict"] = "needs_revision"
@@ -307,6 +324,9 @@ def deduplicate(issues: list[dict]) -> list[dict]:
             if issue.get("issue_category") and not target.get("issue_category"):
                 # D-165: the first participant that classified the issue keeps the classification.
                 target["issue_category"] = issue["issue_category"]
+            if issue.get("issue_client") and not target.get("issue_client"):
+                # D-173a: the survivor keeps its own client sentence, or takes the other's.
+                target["issue_client"] = issue["issue_client"]
             continue
         row = dict(issue)
         row["_tokens"] = tokens
@@ -336,6 +356,9 @@ def _normalize_issue(issue: dict, source: str) -> dict:
         # D-165: the `citations` discriminator of §4.5 п.2 travels into `iterations[].issues[]`,
         # because branch 9 of `revision.decide` matches on it.
         row["issue_category"] = issue["issue_category"]
+    if issue.get("issue_client"):
+        # D-173a: the client-facing sentence of a blocker travels with its finding.
+        row["issue_client"] = issue["issue_client"]
     row["grounded"] = is_grounded(row, source)
     return row
 
@@ -358,6 +381,7 @@ def _deterministic_issues(work_dir: Path, state: dict, draft_sha: str | None) ->
     """Blockers of the current `lint.json`/`citations.json`; stale reports are reported, not used."""
     issues: list[dict] = []
     stale: list[str] = []
+    language = _memo_language(state)
     for name in DETERMINISTIC_REPORTS:
         path = work_dir / name
         if not path.is_file():
@@ -377,18 +401,17 @@ def _deterministic_issues(work_dir: Path, state: dict, draft_sha: str | None) ->
         for finding in report.get("findings", []):
             if finding.get("severity") != "blocker":
                 continue
-            issues.append(
-                _normalize_issue(
-                    {
-                        "severity": "blocker",
-                        "category": finding.get("rule", name),
-                        "section_id": finding.get("section_id"),
-                        "issue": finding.get("hint", ""),
-                        "suggestion": finding.get("hint", ""),
-                    },
-                    DETERMINISTIC,
-                )
-            )
+            payload = {
+                "severity": "blocker",
+                "category": finding.get("rule", name),
+                "section_id": finding.get("section_id"),
+                "issue": finding.get("hint", ""),
+                "suggestion": finding.get("hint", ""),
+            }
+            if language != i18n.DEFAULT:
+                # D-173a: the short rule name in the memo language; the hint stays English.
+                payload["issue_client"] = i18n.t(language, f"memo.rules.{finding.get('rule', name)}")
+            issues.append(_normalize_issue(payload, DETERMINISTIC))
     return issues, stale
 
 
@@ -505,7 +528,7 @@ def _read_review(work_dir: Path, state: dict, iteration: int, kind: str, draft_s
         return {"valid": False, "errors": [f"invalid_json: {exc}"], "stub": False, "document": None}
     if not isinstance(document, dict):
         return {"valid": False, "errors": ["review_not_an_object"], "stub": False, "document": None}
-    return validate_document(kind, document, current_draft_sha=draft_sha)
+    return validate_document(kind, document, current_draft_sha=draft_sha, language=_memo_language(state))
 
 
 def run_aggregate(args: argparse.Namespace) -> dict:
@@ -745,9 +768,12 @@ def run_validate(args: argparse.Namespace) -> dict:
         return {"errors": [f"missing_file: {args.path}"], "kind": args.kind}
 
     draft_sha = args.draft_sha
-    if draft_sha is None and args.workdir:
+    language = i18n.DEFAULT
+    if args.workdir:
         state = state_io.read_state_or_none(args.workdir)
-        draft_sha = (state or {}).get("current_draft_sha")
+        if draft_sha is None:
+            draft_sha = (state or {}).get("current_draft_sha")
+        language = _memo_language(state)
 
     try:
         document = state_io.read_json(path)
@@ -761,6 +787,7 @@ def run_validate(args: argparse.Namespace) -> dict:
         document,
         current_draft_sha=draft_sha,
         iteration=args.iteration,
+        language=language,
     )
     return {
         "kind": args.kind,

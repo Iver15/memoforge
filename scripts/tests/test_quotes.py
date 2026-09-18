@@ -138,6 +138,13 @@ class NormalisationTest(unittest.TestCase):
         self.assertEqual(2, len(spans))
         self.assertEqual("See Art. 6 of the Regulation.", text[spans[0][0] : spans[0][1]])
 
+    def test_sentence_spans_take_the_abbreviations_of_another_language(self):
+        # D-174: the caller passes the language's own set; the default stays the English one, because
+        # a source text is not written in the memo language.
+        text = "Die Verarbeitung ist gem. Art. 6 Abs. 1 DSGVO zulässig."
+        self.assertGreater(len(quotes.sentence_spans(text)), 1)
+        self.assertEqual(1, len(quotes.sentence_spans(text, frozenset({"gem", "art", "abs"}))))
+
     def test_block_boundaries_close_a_sentence(self):
         text = "# Heading\n\n(a) first item;\n(b) second item;\n"
         self.assertEqual(3, len(quotes.sentence_spans(text)))

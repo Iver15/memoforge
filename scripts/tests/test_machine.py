@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -16,6 +17,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, namespace, temp_root  # noqa: E402
+import _i18n  # noqa: E402
 from memoforge import docx as docx_export  # noqa: E402
 from memoforge import (  # noqa: E402
     events,
@@ -2778,6 +2780,139 @@ class KnownBlockersTest(unittest.TestCase):
         self.assertIn("NEW", text)
         self.assertNotEqual(machine.KNOWN_BLOCKERS_NONE, text)
         self.assertIsNotNone(action)
+
+
+class MachineWarningLanguageTest(unittest.TestCase):
+    """D-175: the three code-written `machine.py` warnings are created in the memo language."""
+
+    RU_WARNINGS = {
+        "memo.warnings.no_findings_for_layers": "нет находок по слоям: {layers}",
+        "memo.warnings.continue_with_incomplete_research": (
+            "пользователь решил продолжить при неполном исследовании"
+        ),
+        "memo.warnings.currency_unchecked": "актуальность источника не удалось проверить",
+    }
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.packs = self.root / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(machine.i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", self.RU_WARNINGS)
+
+    def _state(self, phase: str) -> tuple:
+        from memoforge import modes, state_io, task as _task
+
+        work_dir = self.root / f"memo-20260908T120000Z-w-{phase.replace('_', '-')}"
+        _task.create_work_dir_tree(work_dir)
+        state = _task.build_initial_state(
+            task_id=work_dir.name,
+            user_query="How long may the client keep customer records?",
+            language="ru",
+            work_dir=work_dir,
+            output_folder=self.root,
+            config=modes.resolve_config("full"),
+        )
+        state["current_phase"] = phase
+        state_io.create_state(work_dir, state)
+        return work_dir, state
+
+    def test_a_partially_failed_research_dispatch_warns_in_russian(self):
+        work_dir, state = self._state("research")
+        slot = {
+            "slot": "doctrine",
+            "status": "fail",
+            "attempt": 1,
+            "agent_type": "memoforge:legal-researcher",
+        }
+        other = {
+            "slot": "statutes",
+            "status": "ok",
+            "attempt": 1,
+            "agent_type": "memoforge:legal-researcher",
+        }
+        step_id = "s-001"
+
+        def seed(current: dict) -> None:
+            current["current_phase"] = "research"
+            current["steps"] = [
+                {
+                    "step_id": step_id,
+                    "kind": "dispatch",
+                    "phase": "research",
+                    "attempt": 1,
+                    "reason": "initial",
+                    "status": "ok",
+                    "agents": [slot, other],
+                }
+            ]
+
+        machine.state_io.write_state(work_dir, seed)
+        machine.plan_research(work_dir, machine.state_io.read_state(work_dir))
+        warnings = machine.state_io.read_state(work_dir)["drafting_warnings"]
+        found = [row for row in warnings if row["code"] == "research_layer_missing"]
+        self.assertEqual(1, len(found), warnings)
+        self.assertEqual("нет находок по слоям: doctrine", found[0]["message"])
+        self.assertEqual("research_sufficiency", machine.state_io.read_state(work_dir)["current_phase"])
+
+    def test_accepting_insufficient_research_warns_in_russian(self):
+        work_dir, state = self._state("research_insufficient_pending")
+        gate = machine.plan_research_insufficient_pending(
+            work_dir, machine.state_io.read_state(work_dir)
+        )
+        self.assertEqual("gate-text", gate["kind"])
+        machine.gates.run_parse(
+            namespace(
+                workdir=str(work_dir), gate=None, text="continue",
+                step=gate["step_id"], attempt=gate["attempt"], generation=0,
+            )
+        )
+        machine.run_next(namespace(workdir=str(work_dir)))
+        warnings = machine.state_io.read_state(work_dir)["drafting_warnings"]
+        found = [row for row in warnings if row["code"] == "insufficient_research_accepted"]
+        self.assertEqual(1, len(found), warnings)
+        self.assertEqual(
+            "пользователь решил продолжить при неполном исследовании", found[0]["message"]
+        )
+
+    def test_an_unavailable_currency_checker_warns_in_russian(self):
+        work_dir, state = self._state("currency_check")
+
+        def seed(current: dict) -> None:
+            current["current_phase"] = "currency_check"
+            agent = {
+                "slot": "currency",
+                "status": "fail",
+                "attempt": 1,
+                "agent_type": "memoforge:currency-checker",
+            }
+            current["steps"] = [
+                {
+                    "step_id": "s-010",
+                    "kind": "dispatch",
+                    "phase": "currency_check",
+                    "attempt": 1,
+                    "reason": "initial",
+                    "status": "fail",
+                    "agents": [agent],
+                }
+            ]
+
+        machine.state_io.write_state(work_dir, seed)
+        machine.plan_currency_check(work_dir, machine.state_io.read_state(work_dir))
+        # The failure writes the unchecked report, the warning and the currency gate answer.
+        gate = machine.run_next(namespace(workdir=str(work_dir)))
+        while gate["kind"] == "script":
+            machine.run_command(list(gate["command"]))
+            gate = machine.run_next(namespace(workdir=str(work_dir)))
+        warnings = machine.state_io.read_state(work_dir)["drafting_warnings"]
+        found = [row for row in warnings if row["code"] == "currency_unchecked"]
+        self.assertEqual(1, len(found), warnings)
+        self.assertEqual("актуальность источника не удалось проверить", found[0]["message"])
 
 
 if __name__ == "__main__":
