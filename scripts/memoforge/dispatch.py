@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from string import Template
 
-from . import limits, pylauncher, routing, schema, state_io
+from . import i18n, limits, pylauncher, routing, schema, state_io
 
 SUBAGENT_PREFIX = "memoforge:"
 """Plugin-qualified subagent type of every `Agent` call issued by `next` (§3.1)."""
@@ -252,6 +252,42 @@ _DEFAULT_EXTRAS: dict[str, str] = {
 }
 
 
+SECTION_KINDS: tuple[str, ...] = (
+    "executive_summary",
+    "background",
+    "facts",
+    "assumptions",
+    "conclusion",
+    "recommendations",
+)
+"""The six section kinds of `${section_titles}`, one line per kind (D-173)."""
+
+
+def language_context(state: dict) -> dict:
+    """The five `${…}` language variables every dispatch prompt substitutes (D-173).
+
+    `memo_language_name`/`ui_language_name` are the `LANGUAGE_NAMES` display names of the
+    memo and interface languages; `section_titles` is one ``<kind>: `<title>` `` line per
+    kind from the memo pack; `risk_line_example` is `<label>: <medium level>.` and
+    `risk_levels` the four level words, comma-separated. Findings stay English — only the
+    memo itself follows these values. For `en` this renders `English`, the six English
+    titles, `Risk: medium.` and `high, medium, low, undetermined`.
+    """
+    memo = i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
+    ui = i18n.normalize((state or {}).get("ui_language")) or i18n.DEFAULT
+    titles = dict(i18n.node(memo, "memo.sections"))
+    label = i18n.t(memo, "memo.risk.label")
+    levels = dict(i18n.node(memo, "memo.risk.levels"))
+    ordered = [str(levels[key]) for key in ("high", "medium", "low", "undetermined")]
+    return {
+        "memo_language_name": i18n.LANGUAGE_NAMES[memo],
+        "ui_language_name": i18n.LANGUAGE_NAMES[ui],
+        "section_titles": "\n".join(f"{kind}: `{titles[kind]}`" for kind in SECTION_KINDS),
+        "risk_line_example": f"{label}: {levels['medium']}.",
+        "risk_levels": ", ".join(ordered),
+    }
+
+
 def build_context(
     work_dir: str | os.PathLike,
     state: dict,
@@ -302,6 +338,9 @@ def build_context(
         "primary_output": outputs[0]["work_path"] if outputs else "",
         "primary_output_schema": str(outputs[0]["schema"] or "") if outputs else "",
     }
+    # D-173: the memo language of the run — every prompt substitutes these, also the ones
+    # whose template text does not use them, so `substitute` never raises on a missing name.
+    context.update(language_context(state))
     for key, value in _DEFAULT_EXTRAS.items():
         context.setdefault(key, value)
     for key, value in (extra or {}).items():

@@ -22,6 +22,11 @@ First action (Bash, before any other tool call):
 `verdict` is `client_ready`, `needs_final_polish` or `manual_review_required`. Every issue carries a
 `section_id`: the list is handed to the writer verbatim as the polish instructions.
 
+The memo itself is written in English. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in English saying what the client must check before relying on the memo.
+
 ## Write
 
 - `steps/s-042/a1/client_readiness/final-client-readiness.json` (schema `client-readiness` — `{SCHEMAS}\client-readiness.schema.json`)

@@ -59,6 +59,8 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "logic
 }
 ```
 
+The draft under review is written in the memo language named in your dispatch prompt; the `Risk: …` forms above are the English example. Your findings stay in English.
+
 ## Rules
 
 - `section_id` is the anchor of the section the finding sits in — `s-4` for a `##` section, `s-4-1` for a `###` subsection — as inserted by `mf draft anchor`. Use `document` only for something that belongs to no section.

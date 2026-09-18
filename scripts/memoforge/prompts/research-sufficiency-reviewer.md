@@ -28,8 +28,15 @@ sentence in `out_of_scope_gaps[]`, which the memo carries as a caveat, and not a
 entry — this mode runs no researcher for it.
 `drafting_warnings[]` is addressed to the client and is printed in the memo: state the limitation
 as the client should read it, with no instruction to the writer and no protocol file name
-(`statutes.json` and the like). `blocking_gaps[].why_blocking` may stay technical — only the
-pipeline reads it. Do not repeat a warning you already wrote as a gap: one of the two, not both.
+(`statutes.json` and the like). `blocking_gaps[].why_blocking` may stay technical, but it is written
+in ${memo_language_name} too — the run summary prints it after the gap. Do not repeat a warning you already wrote as a gap: one of the two, not both.
+
+The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in ${memo_language_name} saying what the client must check before relying on the memo.
+`drafting_warnings[]`, `blocking_gaps[].gap`, `why_blocking` and `out_of_scope_gaps[]` are written
+in ${memo_language_name} — they are printed in the memo as written.
 
 ## Write
 

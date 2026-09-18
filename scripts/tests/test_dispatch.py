@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
@@ -15,7 +17,9 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, temp_root  # noqa: E402
-from memoforge import dispatch, machine, modes, preflight, routing, state_io, task  # noqa: E402
+from memoforge import dispatch, i18n, machine, modes, preflight, routing, state_io, task  # noqa: E402
+
+import _i18n  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "prompts"
 UPDATE = os.environ.get("MF_UPDATE_GOLDEN") == "1"
@@ -790,6 +794,94 @@ class RetrySpecTest(unittest.TestCase):
         self.assertIn("`research/statutes.json`, `research/case_law.json`", prompt)
         self.assertNotIn("lists every token and its source", prompt)
         self.assertIn("proposition", prompt)
+
+
+class MemoLanguageTest(unittest.TestCase):
+    """D-173: every dispatch prompt carries the memo language; findings stay English."""
+
+    PARAGRAPH = (
+        "The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,\n"
+        "`suggestion` and `reasoning` are always English, whatever the memo language. When the memo\n"
+        "language above is not English, a finding with `severity: blocker` also carries `issue_client` —\n"
+        "one sentence in ${memo_language_name} saying what the client must check before relying on the memo."
+    )
+
+    def test_the_paragraph_is_identical_across_the_eight_language_prompts(self):
+        """The reviewer paragraph is one text, pasted word for word (D-173)."""
+        names = [
+            "memo-writer",
+            "logic-reviewer",
+            "form-reviewer",
+            "citation-auditor",
+            "counterargument-reviewer",
+            "client-readiness-reviewer",
+            "revision-mediator",
+            "research-sufficiency-reviewer",
+        ]
+        for name in names:
+            with self.subTest(prompt=name):
+                text = dispatch.prompt_path(name).read_text(encoding="utf-8-sig")
+                self.assertIn(self.PARAGRAPH, text.replace("\r\n", "\n"))
+
+    def test_the_writer_prompt_adds_headings_risk_line_pinpoints_and_quotes(self):
+        text = dispatch.prompt_path("memo-writer").read_text(encoding="utf-8-sig")
+        for token in ("${section_titles}", "${risk_line_example}", "${risk_levels}"):
+            self.assertIn(token, text)
+        self.assertIn("art 6", text)
+        self.assertIn("language of the source", text)
+
+    def test_the_sufficiency_prompt_puts_the_printed_fields_in_the_memo_language(self):
+        text = dispatch.prompt_path("research-sufficiency-reviewer").read_text(encoding="utf-8-sig")
+        for field in ("`drafting_warnings[]`", "`blocking_gaps[].gap`", "`why_blocking`",
+                       "`out_of_scope_gaps[]`", "${memo_language_name}"):
+            self.assertIn(field, text)
+
+    def _render(self, language: str, make_spec) -> str:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "ru", _i18n.RU)
+        with mock.patch.object(i18n, "PACK_DIR", packs):
+            work_dir = temp_root(self) / TASK_ID
+            work_dir.mkdir(parents=True, exist_ok=True)
+            state = _state("brief", work_dir)
+            state["language"] = language
+            agents = dispatch.render_agents(
+                work_dir, state, step_id="s-017", attempt=1, specs=[make_spec(work_dir, state)],
+                position=9, total=12,
+            )
+            return agents[0]["prompt"]
+
+    def _writer_prompt(self, language: str) -> str:
+        return self._render(
+            language,
+            lambda work_dir, state: machine.writer_spec(
+                work_dir, state, task="draft", version=1, canonical="drafts/v1.md",
+                instructions="none", seed=False,
+            ),
+        )
+
+    def test_the_russian_writer_prompt_names_russian_sections_and_risk_words(self):
+        prompt = self._writer_prompt("ru")
+        self.assertIn("Russian", prompt)
+        for title in ("Резюме", "Контекст", "Факты", "Допущения", "Выводы", "Рекомендации"):
+            self.assertIn(title, prompt)
+        self.assertIn("Риск: средний.", prompt)
+        for level in ("высокий", "средний", "низкий", "не определён"):
+            self.assertIn(level, prompt)
+
+    def test_the_english_writer_prompt_renders_the_english_forms(self):
+        prompt = self._writer_prompt("en")
+        self.assertIn("English", prompt)
+        self.assertIn("Executive summary", prompt)
+        self.assertIn("Risk: medium.", prompt)
+        for level in ("high", "medium", "low", "undetermined"):
+            self.assertIn(level, prompt)
+
+    def test_no_prompt_contains_an_unsubstituted_variable(self):
+        for language in ("en", "ru"):
+            with self.subTest(language=language):
+                self.assertNotIn("${", self._writer_prompt(language))
 
 
 if __name__ == "__main__":

@@ -28,6 +28,11 @@ Every issue carries `issue_category`: `source_drift`, `source_pack_mismatch` or
 `unsupported_claim`. Existence, verbatim accuracy and currency are already decided by
 `mf draft audit-citations`; do not re-litigate them.
 
+The memo itself is written in English. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in English saying what the client must check before relying on the memo.
+
 ## Write
 
 - `steps/s-042/a1/citations/v1-citations.json` (schema `review` — `{SCHEMAS}\review.schema.json`)

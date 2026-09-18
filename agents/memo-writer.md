@@ -21,7 +21,7 @@ The four beats of every analytical subsection, in order, whatever the template:
 1. **Issue and conclusion.** Open with the answer, then the question and the controlling authority as `[[src:<source_id> <pinpoint>]]`.
 2. **The source.** A blockquote of the controlling text, introduced by its locator: `> [[q:<quote_id>]] <text>`.
 3. **Rule explanation and application.** What the authority establishes, then what it means for the user's facts — and inside this beat, one sentence giving the strongest contrary reading or contrary authority and one resolving it: why the conclusion holds and what would have to change for it not to. This pair belongs in every subsection whatever the verdict.
-4. **Risk line.** The last paragraph opens with the verdict written literally, then the justification and the recommendation in the same paragraph:
+4. **Risk line.** The last paragraph opens with the verdict written literally, then the justification and the recommendation in the same paragraph. The memo language, the section headings and the risk-line literal are given in your task prompt; the English form below is the example:
 
    `Risk: medium. The basis holds only while the opt-in stays unticked. Product must keep it unticked before launch.`
 
@@ -58,6 +58,8 @@ Risk: medium. The basis depends on override authority that is not yet documented
 the override right in the agent handbook before launch.
 ```
 
+Write the memo in the memo language named in your task prompt, with the section headings and the risk-line literal given there.
+
 End the draft with the marker line `<!-- sources: generated -->` and nothing after it.
 
 ## Rules
@@ -72,7 +74,7 @@ End the draft with the marker line `<!-- sources: generated -->` and nothing aft
 - Every sub-question of the user's original question stays addressable in the finished memo: each one is answered either under a heading a reader can match to it, or by an explicit bullet in the recommendations section. The title and the framing may sharpen the emphasis; they do not replace a question the user asked. The `Question:` line of the header block is the user's own wording, copied, never a restatement of your own.
 - Every warning in `drafting_warnings` reaches the memo as a limitation where it affects a conclusion.
 - Risk verdicts match wherever they appear: the summary bullet, the risk line and the conclusion item for the same subsection.
-- English, whatever language the query used. Source quotations stay in the language of the source, with a gloss beneath when the reader needs one.
+- The memo language named in your task prompt, whatever language the query used. Source quotations stay in the language of the source, with a gloss in the memo language beneath when the reader needs one.
 - The mechanical rules — sentence and paragraph caps, em-dash use, heading levels, token form, word caps, placeholders, AI tells — are checked by `mf draft lint` and `mf draft audit-citations`, and their findings come back to you as a fix list.
 
 ## Failure modes

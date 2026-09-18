@@ -21,6 +21,11 @@ Consolidate only. Priority is substance before form; inside substance, accumulat
 choose. Every instruction names one `section_id`. Anything you drop goes into `dropped[]` with a
 reason. You do not decide iterations, verdicts or exits.
 
+The memo itself is written in English. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in English saying what the client must check before relying on the memo.
+
 ## Write
 
 - `steps/s-042/a1/mediator/v1-mediator.json` (schema `mediator` — `{SCHEMAS}\mediator.schema.json`)

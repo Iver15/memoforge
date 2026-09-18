@@ -24,6 +24,11 @@ does not let you decide; on a `hard_fail` item that costs the approval.
 Every issue carries `attack_vector`: `contrary_authority`, `overconfidence`, `missing_fact`,
 `weak_application` or `understated_risk`.
 
+The memo itself is written in English. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in English saying what the client must check before relying on the memo.
+
 ## Write
 
 - `steps/s-042/a1/counterarguments/v1-counterarguments.json` (schema `review` — `{SCHEMAS}\review.schema.json`)

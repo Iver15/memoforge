@@ -33,5 +33,16 @@ lists shorter candidates — pick one or shorten the fragment). Never write a bl
 at most one per subsection. Otherwise state the provision in your own words with the citation. Do not
 write the Sources section.
 
+The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
+`suggestion` and `reasoning` are always English, whatever the memo language. When the memo
+language above is not English, a finding with `severity: blocker` also carries `issue_client` —
+one sentence in ${memo_language_name} saying what the client must check before relying on the memo.
+Section headings follow these exactly:
+${section_titles}
+The risk line follows ${risk_line_example}
+exactly, with one of ${risk_levels} as the verdict. Pinpoints in `[[src:<id> <pinpoint>]]` stay in
+the English machine form (`art 6`, `para 3`) whatever the memo language. Quotations stay in the
+language of the source, with a gloss in ${memo_language_name} where the reader needs one.
+
 Last action (Bash, after the draft is written):
 `${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state done`
