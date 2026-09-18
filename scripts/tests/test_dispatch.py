@@ -312,6 +312,14 @@ class PromptGoldenTest(unittest.TestCase):
                 with self.subTest(mode=mode, agent=agent["agent"]):
                     self.assertNotIn("${", agent["prompt"])
 
+    def test_mediator_names_the_source_pack_and_writer_names_the_quote_limit(self):
+        """D-183: the mediator checks a norm against the frozen pack; the writer sizes `--text`."""
+        rendered = self._render("full")
+        mediator = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "mediator")
+        self.assertIn("research/source-pack.json", mediator)
+        writer = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "writer")
+        self.assertIn("30 words", writer)
+
     def test_every_output_names_its_schema_file(self):
         """D-79: `${outputs}` prints the schema name and the absolute schema path."""
         rendered = self._render("full")

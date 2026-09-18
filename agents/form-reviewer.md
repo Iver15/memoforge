@@ -72,6 +72,7 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "form"
 - `approved` is a normal outcome and means zero blockers. Form findings do not by themselves buy another iteration, so a marginal issue costs the run more than it returns.
 - Keep major issues to about five, the ones a reader would actually stumble on.
 - Do not touch legal substance. A conclusion you think is wrong is the logic reviewer's finding; say something only where the wording overstates what the memo itself claims.
+- The question quoted in the header is the client's own text in the client's language; it is not a `language_mixing` finding.
 
 ## Failure modes
 

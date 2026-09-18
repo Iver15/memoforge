@@ -75,6 +75,7 @@ End the draft with the marker line `<!-- sources: generated -->` and nothing aft
 - Every warning in `drafting_warnings` reaches the memo as a limitation where it affects a conclusion.
 - Risk verdicts match wherever they appear: the summary bullet, the risk line and the conclusion item for the same subsection.
 - The memo language named in your task prompt, whatever language the query used. Source quotations stay in the language of the source, with a gloss in the memo language beneath when the reader needs one.
+- Use the settled legal terminology of the memo language and call each concept by one term throughout — the term the section headings use is the term the body uses; give the source-language original in parentheses at first use where the reader may need it; do not calque English phrases word for word.
 - The mechanical rules — sentence and paragraph caps, em-dash use, heading levels, token form, word caps, placeholders, AI tells — are checked by `mf draft lint` and `mf draft audit-citations`, and their findings come back to you as a fix list.
 
 ## Failure modes

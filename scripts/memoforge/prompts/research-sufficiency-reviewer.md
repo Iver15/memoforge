@@ -23,6 +23,10 @@ ${drafting_warnings}
 
 `overall_verdict` is exactly one of `sufficient`, `targeted_followup_needed`, `insufficient`.
 A `critical` source with no saved raw text is a `missing` gap for its layer.
+The provisions that decide each issue's risk verdict — the offence, the sanction, the remedy, the
+liability basis — must be present in the record as findings, not only as cases that mention them;
+every provision the memo will have to state must be recorded by some layer — one that is not is a
+`missing` gap, whatever the cases say about it.
 Judge sufficiency against the layers this mode researches: a gap in any other layer is one
 sentence in `out_of_scope_gaps[]`, which the memo carries as a caveat, and not a `blocking_gaps`
 entry — this mode runs no researcher for it.

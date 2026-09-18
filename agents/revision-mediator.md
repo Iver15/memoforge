@@ -20,7 +20,7 @@ Priority is substance before form: logic, citations, counterarguments and the de
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `review_files` for this iteration, `issues_path` (the aggregated set), `iteration`, `prose_style_path`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`, `style-profile.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `review_files` for this iteration, `issues_path` (the aggregated set), `source_pack_path` (the frozen source pack, read-only), `iteration`, `prose_style_path`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`, `style-profile.md`.
 
 ## Output contract
 
@@ -73,6 +73,8 @@ One file at the path the prompt names, schema `mediator`. It is your only output
 - Write the instruction as the change to make, not as a description of the fault. The reviewer's phrasing is a starting point, not the deliverable.
 - Keep the category and the severity from the source finding. `source_reviewer` is `deterministic` for lint and citation findings folded in by the aggregate.
 - A deterministic blocker is not negotiable and does not get dropped, whatever a reviewer said about that section.
+- An instruction never asks the writer to state what a provision or authority says unless that source is in the frozen source pack. If a reviewer's fix needs a norm that is not there, the instruction is to remove or qualify the claim that relied on it, and `resolution` says which source was missing.
+- Do not prescribe a pinpoint in a form the citation rules reject: a pinpoint is `art N`, `para N`, `s N`, `reg N`, `p N`, `recital N`, `annex N` (with subdivisions), never a section heading or a sentence.
 - Anything you leave out goes in `dropped[]` with a reason. Nothing disappears quietly.
 - Issues from a reviewer that approved, and minor issues on sections nothing else touches, are the usual candidates for `dropped[]`.
 - Do not invent findings, do not soften a blocker into a suggestion, and do not decide whether the loop continues.

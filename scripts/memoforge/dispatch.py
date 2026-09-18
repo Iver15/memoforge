@@ -247,6 +247,11 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "claim_pairs": "`citations.json`",
     "review_files": "`reviews/`",
     "issues_path": "`state.iterations[]`",
+    # D-183: the mediator checks a norm against the frozen pack, read-only; the style of the path
+    # follows `issues_path` — a bare default the planner extras override, so `substitute` never fails.
+    "source_pack_path": "research/source-pack.json",
+    # D-183: `${quote_max_words}` of the writer's `--text`; the only reader of `QUOTE_DEFAULT_MAX_WORDS`.
+    "quote_max_words": str(limits.QUOTE_DEFAULT_MAX_WORDS),
     "polish_budget": "0",
     "known_blockers": "none",  # D-119: filled in only when the review loop already aggregated some
 }
@@ -348,6 +353,12 @@ def build_context(
     # D34-17: `${drafting_warnings}` belongs to `dispatch` — a caller cannot express the list in
     # one extra, so the structured block is rendered from state and overrides whatever it passed.
     context["drafting_warnings"] = warning_lines(state.get("drafting_warnings"))
+    # D-183: the paths and the limits below are the same for every run — `${source_pack_path}` is the
+    # mediator's frozen pack (`research/source-pack.json` under `work_dir`), `${quote_max_words}` the
+    # writer's `--text` ceiling (`limits.QUOTE_DEFAULT_MAX_WORDS`). Same path style as `issues_path`:
+    # a bare default the planner extras may override with the rendered per-iteration value.
+    context["source_pack_path"] = f"{context['work_dir']}/research/source-pack.json"
+    context["quote_max_words"] = str(limits.QUOTE_DEFAULT_MAX_WORDS)
     return context
 
 

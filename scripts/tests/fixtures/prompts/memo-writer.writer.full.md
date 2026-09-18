@@ -28,8 +28,9 @@ states a fact for the client goes into Key assumptions as one sentence, in your 
 
 Cite with `[[src:<source_id> <pinpoint>]]`. A quotation is optional: when the exact words of a provision or
 a judgment matter, quote them as `> [[q:<quote_id>]] <text>` with the `quote_id` from
-`{MF} quote extract --workdir {WORK_DIR} --source <source_id> --text "<fragment>"` (a `too_long` answer
-lists shorter candidates — pick one or shorten the fragment). Never write a blockquote without `[[q:]]`;
+`{MF} quote extract --workdir {WORK_DIR} --source <source_id> --text "<fragment>"` (`--text` is at
+most 30 words; a `too_long` answer returns `candidates` — take one of them or
+shorten the fragment; never send the same text twice). Never write a blockquote without `[[q:]]`;
 at most one per subsection. Otherwise state the provision in your own words with the citation. Do not
 write the Sources section.
 
@@ -48,6 +49,10 @@ The risk line follows Risk: medium.
 exactly, with one of high, medium, low, undetermined as the verdict. Pinpoints in `[[src:<id> <pinpoint>]]` stay in
 the English machine form (`art 6`, `para 3`) whatever the memo language. Quotations stay in the
 language of the source, with a gloss in English where the reader needs one.
+Use the settled legal terminology of English and call each concept by one term
+throughout — the term a section heading above uses is the term the body uses;
+give the source-language original in parentheses at first use where the reader may need it; do not
+calque English phrases word for word.
 
 Last action (Bash, after the draft is written):
 `{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot writer --state done`
