@@ -32,7 +32,11 @@ A subagent's answer is a proposal too: only `mf report` decides whether its file
 - `$ARGUMENTS` empty → print, then END the turn:
   `Usage: /memoforge:memo "<your legal question>". To resume a task: /memoforge:continue [task_id]. To see tasks: /memoforge:status.`
 - `$ARGUMENTS` starts with a gate keyword — `cancel`, `proceed`, `continue`, `approve`, `edit:`, or an answer token such as `1A` / `2C` / `3:` — **and** `mf task resolve` finds an unfinished task: this is a gate reply, not a new question. Follow `skills/continue/SKILL.md` instead of creating a task.
-- Otherwise it is a new question: `mf task new --query "$ARGUMENTS"`, then the loop. Print its absolute `work_dir` once as a single chat line (`Working folder: <work_dir>`) — inside a hosted VM that path is the only way the user finds the deliverable.
+- Otherwise it is a new question: `mf task new --query "$ARGUMENTS" --detected-language <code>`, then the loop. Print its absolute `work_dir` once as a single chat line (`Working folder: <work_dir>`) — inside a hosted VM that path is the only way the user finds the deliverable.
+  - `--detected-language <code>` — always; `<code>` is the language the user wrote the question in, one of `en de fr es ru`. Any other language: omit the flag.
+  - `--language <code>` — **only** when the user explicitly asked for the memo in a language ("memo in German", «мемо на немецком»); never inferred from the language of the question. A language outside the five: do not create the task, say which five are available.
+  - The answer carries `language`, `ui_language` and `language_source`. When `language` is not `en`, or differs from the language the user wrote in, say it once in one short line: `Memo language: German`.
+- At the plan gate an `Edit` answer that asks for another memo language is not an edit for the planner: run `mf task language --workdir W --memo <code>`, then re-issue the gate with `mf next`. The error `language_locked` means the plan was already approved — tell the user the memo language is fixed.
 
 ## The loop
 
@@ -85,7 +89,7 @@ Only when an answer carries a `dashboard` key — the option is on by default, a
 
 ## Options
 
-The seven plugin options (`dashboard`, `output_folder`, `publish_folder`, `writer_model`, `source_review_gate`, `stop_guard`, `websearch_autoallow`) come from the host's plugin settings where it has a UI for them and from `options.json` where it has none; `task new` reports the level each value came from in `options_source`. If the user asks where a setting came from, run `mf config show`; to change one, `mf config set <key> <value>` (and `mf config unset <key>` to drop it). Never edit `options.json` by hand and never mention options the user did not ask about.
+The ten plugin options (`output_folder`, `publish_folder`, `writer_model`, `source_review_gate`, `citation_style`, `memo_language`, `ui_language`, `dashboard`, `stop_guard`, `websearch_autoallow`) come from the host's plugin settings where it has a UI for them and from `options.json` where it has none; `task new` reports the level each value came from in `options_source`. If the user asks where a setting came from, run `mf config show`; to change one, `mf config set <key> <value>` (and `mf config unset <key>` to drop it). Never edit `options.json` by hand and never mention options the user did not ask about.
 
 ## Parallel dispatch — the one rule about concurrency
 

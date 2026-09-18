@@ -11,6 +11,8 @@ from pathlib import Path
 from . import (
     events,
     gates,
+    i18n,
+    lint,
     machine,
     modes,
     phases,
@@ -360,8 +362,17 @@ QUOTE_FRAGMENT = (
 )
 
 
-def fixture_draft(work_dir: Path, state: dict, version: int, existing: str | None) -> str:
-    """A classical-memo / executive-brief draft that satisfies the L-rules of §5.4."""
+def fixture_draft(
+    work_dir: Path, state: dict, version: int, existing: str | None, language: str = "en"
+) -> str:
+    """A classical-memo / executive-brief draft that satisfies the L-rules of §5.4.
+
+    D-178a: headings, the risk lines and the disclaimer come from the memo language pack, so
+    a dry run in another language lints clean; for `en` every byte is today's literal.
+    """
+    grammar = lint.grammar(language)
+    titles = grammar.section_titles
+    risk_line = f"{i18n.t(language, 'memo.risk.label')}: {i18n.t(language, 'memo.risk.levels.medium')}."
     if existing:
         # A later version is a targeted edit: change one sentence so the sha differs from the seed.
         marker = "The client keeps records for seven years, which exceeds that period."
@@ -399,11 +410,11 @@ def fixture_draft(work_dir: Path, state: dict, version: int, existing: str | Non
     ]
     if not brief:
         lines += [
-            "## 1. Executive summary",
+            "## 1. " + titles["executive_summary"],
             "",
-            "- Records may not be kept beyond the purpose that justified them. Risk: medium.",
+            "- Records may not be kept beyond the purpose that justified them. " + risk_line,
             "",
-            "## 2. Facts, assumptions and limitations",
+            "## 2. " + titles["facts"],
             "",
             "The client keeps customer records for seven years. We assume the records hold personal "
             "data. The memo is limited to that assumption.",
@@ -422,20 +433,40 @@ def fixture_draft(work_dir: Path, state: dict, version: int, existing: str | Non
         "years, which exceeds that period. A contrary reading is that tax law compels the longer "
         "period, and that reading fails here because the tax duty covers other data.",
         "",
-        "Risk: medium. The exposure turns on the tax carve-out. Counsel must confirm the tax basis "
-        "before the next audit.",
+        risk_line + " " + RISK_JUSTIFICATION[language],
         "",
-        "## 4. " + ("Recommendations" if brief else "Conclusion and recommendations"),
+        "## 4. " + (titles["recommendations"] if brief else titles["conclusion"]),
         "",
         "- Confirm the tax basis for the seven-year period before the next audit; owner: counsel.",
         "",
-        "Assumptions in this memo were applied without confirmation and a disclaimer therefore "
-        "applies: the retention conclusion is not confirmed by the client.",
+        i18n.t(language, "memo.probe_disclaimer"),
         "",
         "<!-- sources: generated -->",
         "",
     ]
     return "\n".join(lines)
+
+
+RISK_JUSTIFICATION: dict[str, str] = {
+    "en": "The exposure turns on the tax carve-out. Counsel must confirm the tax basis before the next audit.",
+    "de": (
+        "Die Exposition hängt an der Steuerausnahme. Der Mandant muss die steuerliche Grundlage "
+        "vor der nächsten Prüfung bestätigen."
+    ),
+    "fr": (
+        "L'exposition dépend de l'exception fiscale. Le client doit confirmer le fondement fiscal "
+        "avant le prochain audit."
+    ),
+    "es": (
+        "La exposición depende de la excepción fiscal. El cliente debe confirmar el fundamento "
+        "fiscal antes de la próxima auditoría."
+    ),
+    "ru": (
+        "Риск зависит от налогового исключения. Клиент должен подтвердить налоговое основание "
+        "до следующей проверки."
+    ),
+}
+"""D-178a: the justification and recommendation behind the fixture Risk line, per language."""
 
 
 # --- fixture agents --------------------------------------------------------
@@ -470,7 +501,10 @@ def run_fixture_agent(work_dir: Path, state: dict, step: dict, agent: dict) -> N
     elif name == "memo-writer":
         target = next(iter(outputs.values()))
         existing = target.read_text(encoding="utf-8-sig") if target.is_file() else None
-        text = fixture_draft(work_dir, state, int(state.get("current_iteration") or 1), existing)
+        language = i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
+        text = fixture_draft(
+            work_dir, state, int(state.get("current_iteration") or 1), existing, language
+        )
         target.parent.mkdir(parents=True, exist_ok=True)
         state_io.write_bytes_atomic(target, text.encode("utf-8"))
     elif name == "revision-mediator":
@@ -516,13 +550,14 @@ GATE_REPLIES: dict[str, str] = {
 # --- the dry run -----------------------------------------------------------
 
 
-def _new_task(root: Path, mode: str) -> Path:
+def _new_task(root: Path, mode: str, language: str = "en", ui_language: str = "en") -> Path:
     work_dir = root / f"memo-20260908T120000Z-dry-run-{mode}"
     task.create_work_dir_tree(work_dir)
     state = task.build_initial_state(
         task_id=work_dir.name,
         user_query="How long may the client keep customer records?",
-        language="en",
+        language=language,
+        ui_language=ui_language,
         work_dir=work_dir,
         output_folder=root,
         config=modes.resolve_config(None, {}),
@@ -735,16 +770,24 @@ def dry_run_errors(final_phase, g2_exceeded: dict, invariants: list) -> list[str
 
 
 def run_dry_run(args: argparse.Namespace) -> dict:
-    """`mf probe dry-run --mode full|brief [--workdir W]` (§9 «Сквозной dry-run»)."""
+    """`mf probe dry-run --mode full|brief [--workdir W] [--language L] [--ui-language U]` (§9, D-178a)."""
     mode = str(args.mode).lower()
     if mode not in modes.MODES:
         return {"errors": [f"unknown_mode: {args.mode!r}"]}
+    language = i18n.normalize(getattr(args, "language", None) or "en")
+    if language is None:
+        return {"errors": [f"unknown_language: {getattr(args, 'language', None)!r}"]}
+    ui_language = i18n.normalize(getattr(args, "ui_language", None) or "en")
+    if ui_language is None:
+        return {"errors": [f"unknown_language: {getattr(args, 'ui_language', None)!r}"]}
+    if not i18n.available(language):
+        return {"errors": [f"language_pack_unavailable: {language}"]}
     if args.workdir:
         root = Path(args.workdir)
         root.mkdir(parents=True, exist_ok=True)
-        return dry_run(_new_task(root, mode), mode)
+        return dry_run(_new_task(root, mode, language, ui_language), mode)
     with tempfile.TemporaryDirectory(prefix="mf-dry-run-") as tmp:
-        return dry_run(_new_task(Path(tmp), mode), mode)
+        return dry_run(_new_task(Path(tmp), mode, language, ui_language), mode)
 
 
 def run_probe(args: argparse.Namespace) -> dict:
@@ -773,6 +816,17 @@ def register(subparsers) -> None:
     dry.add_argument("--mode", required=True, choices=sorted(modes.MODES))
     dry.add_argument("--workdir", default=None, help="keep the run in this folder instead of a temp dir")
     dry.add_argument("--seed", type=int, default=0, help="accepted for reproducibility; fixtures are fixed")
+    dry.add_argument(
+        "--language",
+        default=None,
+        help="memo language, one of en|de|fr|es|ru (default en, D-178a)",
+    )
+    dry.add_argument(
+        "--ui-language",
+        dest="ui_language",
+        default=None,
+        help="interface language, one of en|de|fr|es|ru (default en, D-178a)",
+    )
     dry.set_defaults(func=run_dry_run)
 
     for name in sorted(PROBES):

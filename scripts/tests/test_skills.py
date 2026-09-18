@@ -294,6 +294,26 @@ class WorkDirLineTest(unittest.TestCase):
         self.assertIn("options_source", text)
 
 
+class MemoLanguageRouteTest(unittest.TestCase):
+    """Final review, finding 3 / D-178: per-task memo language is reachable from the chat.
+
+    Without these flags on `task new` the `memo_language=auto` option and "memo in German"
+    can never resolve to anything but English, which is what README.md promises they do.
+    """
+
+    MEMO = SKILLS / "memo" / "SKILL.md"
+
+    def test_both_routers_pass_the_two_language_flags_to_task_new(self):
+        for path in (ROUTER, self.MEMO):
+            text = read(path)
+            with self.subTest(file=path.name):
+                self.assertIn("--detected-language", text)
+                self.assertIn("--language", text)
+
+    def test_the_router_reference_names_the_language_change_at_the_gate(self):
+        self.assertIn("task language", read(ROUTER))
+
+
 class TerminalCopyTest(unittest.TestCase):
     """D-109: the terminal step hands the published folder to the user's own connected folder."""
 

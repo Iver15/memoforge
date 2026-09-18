@@ -186,6 +186,56 @@ class DryRunTest(unittest.TestCase):
                 self.assertNotIn("docx_export_failed", banners)
 
 
+class ProbeLanguageTest(unittest.TestCase):
+    """D-178a: `mf probe dry-run` runs in another memo language and stays green in English."""
+
+    def _run(self, mode: str, language: str) -> dict:
+        root = temp_root(self)
+        return probe.run_dry_run(
+            namespace(mode=mode, workdir=str(root), seed=0, language=language, ui_language="en")
+        )
+
+    def test_brief_in_russian_reaches_approved_on_v1(self):
+        result = self._run("brief", "ru")
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        self.assertEqual("approved_on_v1", result["final_status"], result)
+        state = state_io.read_state(Path(result["work_dir"]))
+        self.assertEqual("ru", state["language"])
+
+    def test_full_in_german_reaches_approved_on_v1(self):
+        result = self._run("full", "de")
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        self.assertEqual("approved_on_v1", result["final_status"], result)
+        state = state_io.read_state(Path(result["work_dir"]))
+        self.assertEqual("de", state["language"])
+
+    def test_the_russian_deliverable_carries_the_russian_risk_line_and_sources(self):
+        result = self._run("brief", "ru")
+        self.assertEqual("approved_on_v1", result["final_status"], result.get("errors"))
+        work_dir = Path(result["work_dir"])
+        state = state_io.read_state(work_dir)
+        deliverable = work_dir / state["final_docx_path"] if state.get("final_docx_path") else None
+        if deliverable is not None and deliverable.suffix == ".docx":
+            from docx import Document as _DocxDocument
+
+            text = "\n".join(paragraph.text for paragraph in _DocxDocument(deliverable).paragraphs)
+        else:
+            candidates = list(work_dir.glob("deliverable.*"))
+            self.assertTrue(candidates, "M9: a terminal phase needs a deliverable")
+            text = candidates[0].read_text(encoding="utf-8-sig")
+        self.assertIn("Риск:", text)
+        self.assertIn("Источники", text)
+        self.assertNotIn("## Sources", text)
+
+    def test_english_dry_runs_are_unchanged(self):
+        for mode in ("full", "brief"):
+            with self.subTest(mode=mode):
+                root = temp_root(self)
+                result = probe.run_dry_run(namespace(mode=mode, workdir=str(root), seed=0))
+                self.assertEqual("done", result["final_phase"], result.get("errors"))
+                self.assertTrue(result["ok"], result)
+
+
 class EntryPointTest(unittest.TestCase):
     """§5.1/§5.5: the CLI runs `__main__.py` as a plain file — imports must behave as in-process.
 

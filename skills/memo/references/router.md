@@ -4,7 +4,7 @@
 
 ## 1. Get `work_dir`
 
-- `/memoforge:memo "<query>"` → `<mf> task new --query "$ARGUMENTS"`.
+- `/memoforge:memo "<query>"` → `<mf> task new --query "$ARGUMENTS" --detected-language <code>`, `<code>` = the language the user wrote the question in, one of `en de fr es ru` (any other language → omit the flag). Add `--language <code>` **only** when they asked for the memo in a language ("memo in German") — never inferred from the question; a language outside the five → do not create the task, name the five. The answer carries `language`, `ui_language`, `language_source`; when `language` is not `en`, or differs from the language of the question, say it once: `Memo language: German`.
 - `/memoforge:continue [task_id] [reply…]` → `<mf> task resolve [task_id]` (no id = last unfinished task).
 - Both answer JSON with `work_dir`; `task resolve` also gives `current_phase`, `gate`, `cancel_requested`.
 - Print that absolute path once, as one chat line: `Working folder: <work_dir>`. In a hosted VM it is the only way the user reaches the deliverable. `task new` also answers `options_source` (where each plugin option came from — `mf config show` explains it); say nothing about it unless asked.
@@ -46,6 +46,8 @@ Print `text` verbatim first — it is what the user decides on: the plan digest 
 <mf> report --workdir W --step s-004 --attempt 1 --generation 0 \
      --answers '{"Plan":"Approve","Mode":"Full","Style":"my-firm","Sources":"Continue"}'
 ```
+
+An `Edit` answer that asks for another memo language is not an edit for the planner: run `<mf> task language --workdir W --memo <code>`, then re-issue the gate with `<mf> next`. The error `language_locked` means the plan was already approved — tell the user the memo language is fixed.
 
 If the AskUserQuestion tool itself errors in this same turn, switch channel: `<mf> report --workdir W --step s-004 --attempt 1 --status no_answer`; `next` then returns the equivalent `gate-text` at `generation 1`. A **text** answer from the user to this gate needs no switch — hand it straight to `gate parse` (D-34), which bumps the generation itself.
 
