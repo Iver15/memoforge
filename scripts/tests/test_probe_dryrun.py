@@ -189,10 +189,12 @@ class DryRunTest(unittest.TestCase):
 class ProbeLanguageTest(unittest.TestCase):
     """D-178a: `mf probe dry-run` runs in another memo language and stays green in English."""
 
-    def _run(self, mode: str, language: str) -> dict:
+    def _run(self, mode: str, language: str, ui_language: str = "en") -> dict:
         root = temp_root(self)
         return probe.run_dry_run(
-            namespace(mode=mode, workdir=str(root), seed=0, language=language, ui_language="en")
+            namespace(
+                mode=mode, workdir=str(root), seed=0, language=language, ui_language=ui_language
+            )
         )
 
     def test_brief_in_russian_reaches_approved_on_v1(self):
@@ -234,6 +236,186 @@ class ProbeLanguageTest(unittest.TestCase):
                 result = probe.run_dry_run(namespace(mode=mode, workdir=str(root), seed=0))
                 self.assertEqual("done", result["final_phase"], result.get("errors"))
                 self.assertTrue(result["ok"], result)
+
+
+class CrossedLanguageDryRunTest(unittest.TestCase):
+    """Plan 56 task 6 (D-178a): crossed memo/UI languages — the probe answers the plan gate
+    with the emitted localized labels, and the deliverable follows the memo language."""
+
+    def _run(self, mode: str, language: str, ui_language: str) -> dict:
+        root = temp_root(self)
+        return probe.run_dry_run(
+            namespace(
+                mode=mode, workdir=str(root), seed=0, language=language, ui_language=ui_language
+            )
+        )
+
+    def test_brief_ru_memo_de_ui_reaches_approved_on_v1(self):
+        result = self._run("brief", "ru", "de")
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        self.assertEqual("approved_on_v1", result["final_status"], result)
+        work_dir = Path(result["work_dir"])
+        state = state_io.read_state(work_dir)
+        self.assertEqual(("ru", "de"), (state["language"], state["ui_language"]))
+        # The plan gate was answered with the emitted German labels, stored canonical.
+        iterations = machine.plan_gate_iterations(state)
+        self.assertTrue(iterations, "the plan gate left no iteration")
+        self.assertEqual("approve", iterations[-1].get("action"), iterations[-1])
+        answers = iterations[-1].get("answers") or {}
+        self.assertEqual("Approve", answers.get("Plan"), answers)
+        self.assertEqual("Brief", answers.get("Mode"), answers)
+        self.assertNotIn("Genehmigen", json.dumps(answers), answers)
+        # The deliverable follows the memo language, not the UI language.
+        text = self._deliverable_text(work_dir, state)
+        self.assertIn("Риск:", text)
+        self.assertIn("Источники", text)
+        self.assertNotIn("## Sources", text)
+        self.assertNotIn("Risiko:", text)
+        self.assertNotIn("## Quellen", text)
+
+    def test_full_de_memo_ru_ui_reaches_approved_on_v1(self):
+        result = self._run("full", "de", "ru")
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        self.assertEqual("approved_on_v1", result["final_status"], result)
+        work_dir = Path(result["work_dir"])
+        state = state_io.read_state(work_dir)
+        self.assertEqual(("de", "ru"), (state["language"], state["ui_language"]))
+        iterations = machine.plan_gate_iterations(state)
+        self.assertTrue(iterations, "the plan gate left no iteration")
+        self.assertEqual("approve", iterations[-1].get("action"), iterations[-1])
+        answers = iterations[-1].get("answers") or {}
+        self.assertEqual("Approve", answers.get("Plan"), answers)
+        self.assertEqual("Full", answers.get("Mode"), answers)
+        self.assertNotIn("Утвердить", json.dumps(answers), answers)
+        # The deliverable follows the memo language, not the UI language.
+        text = self._deliverable_text(work_dir, state)
+        self.assertIn("Risiko:", text)
+        self.assertIn("Quellen", text)
+        self.assertNotIn("## Sources", text)
+        self.assertNotIn("Риск:", text)
+        self.assertNotIn("Источники", text)
+
+    @staticmethod
+    def _deliverable_text(work_dir: Path, state: dict) -> str:
+        """The finished deliverable as text (docx paragraphs, else the md fallback)."""
+        deliverable = work_dir / state["final_docx_path"] if state.get("final_docx_path") else None
+        if deliverable is not None and deliverable.suffix == ".docx":
+            from docx import Document as _DocxDocument
+
+            return "\n".join(paragraph.text for paragraph in _DocxDocument(deliverable).paragraphs)
+        candidates = list(work_dir.glob("deliverable.*"))
+        assert candidates, "M9: a terminal phase needs a deliverable"
+        return candidates[0].read_text(encoding="utf-8-sig")
+
+    def test_the_plan_gate_questions_follow_the_ui_language_not_the_memo_language(self):
+        for mode, language, ui_language, yes, no in (
+            ("brief", "ru", "de", "Genehmigen", "Утвердить"),
+            ("full", "de", "ru", "Утвердить", "Genehmigen"),
+        ):
+            with self.subTest(mode=mode, language=language, ui_language=ui_language):
+                driver = Driver(temp_root(self), mode=mode, slug=f"crossed-{language}-{ui_language}")
+                state_io.write_state(
+                    driver.work_dir,
+                    lambda current: current.update(
+                        {"language": language, "ui_language": ui_language}
+                    ),
+                )
+                action = driver.run_until("plan_approval_pending")
+                self.assertEqual("gate-auq", action["kind"], action)
+                labels = [
+                    option["label"]
+                    for question in action["questions"]
+                    for option in question["options"]
+                ]
+                self.assertIn(yes, labels, action["questions"])
+                self.assertNotIn(no, json.dumps(action["questions"], ensure_ascii=False))
+                fallback = action["text_fallback"]
+                self.assertIn(yes, fallback)
+                self.assertNotIn(no, fallback)
+                self.assertNotIn("Approve this research plan?", fallback)
+
+
+class SufficiencyFollowupProbeTest(unittest.TestCase):
+    """Plan 56 task 6: a fixture sufficiency verdict that opens gate 7 under `ui_language=ru`.
+
+    The emitted text is Russian and the fixture answer `proceed` closes the gate — the
+    text channel is untranslated by design, so `GATE_REPLIES` keeps the canonical token.
+    """
+
+    SUFFICIENCY = {
+        "reviewer": "research_sufficiency",
+        "overall_verdict": "targeted_followup_needed",
+        "blocking_gaps": [
+            {
+                "gap": "The retention period the client applies is unknown.",
+                "target": "user",
+                "status": "missing",
+                "why_blocking": "The conclusion turns on it.",
+                "followup_question": {
+                    "question": "Какой срок хранения применяет клиент?",
+                    "header": "Period",
+                    "options": [
+                        {"label": "Пять лет", "description": "Законодательный минимум."},
+                        {"label": "Семь лет", "description": "Налоговое правило."},
+                    ],
+                    "default_assumption_if_skipped": "Семь лет.",
+                },
+            },
+        ],
+        "drafting_warnings": [],
+    }
+
+    def test_gate_7_under_ru_ui_prints_russian_and_proceed_closes_it(self):
+        driver = Driver(temp_root(self), slug="gate-7-ru")
+        state_io.write_state(
+            driver.work_dir, lambda current: current.update({"ui_language": "ru"})
+        )
+        action = driver.run_until("research_sufficiency")
+        agent = action["agents"][0]
+        target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        state_io.write_json_atomic(target, self.SUFFICIENCY)
+        machine.run_agent_log(
+            namespace(
+                workdir=str(driver.work_dir),
+                step=action["step_id"],
+                attempt=action["attempt"],
+                slot=agent["slot"],
+                state="done",
+                detail=None,
+                mcp=None,
+            )
+        )
+        driver.report(action["step_id"], action["attempt"], agent=agent["slot"])
+        gate = driver.next()
+        while gate["kind"] == "script":
+            driver.act(gate)
+            gate = driver.next()
+        self.assertEqual("research_sufficiency_followup_pending", gate["phase"])
+        self.assertEqual("gate-text", gate["kind"])
+        self.assertIn("оставило пробелы", gate["text"])
+        self.assertIn("`1A 2C 3: свободный текст`", gate["text"])
+        self.assertNotIn("Research left gaps", gate["text"])
+        # The agent-written fields are Russian (only the internal `header` stays English);
+        # none of the English fixture prose leaks into the emitted gate.
+        self.assertIn("Какой срок хранения применяет клиент?", gate["text"])
+        self.assertIn("Пять лет", gate["text"])
+        self.assertIn("Семь лет", gate["text"])
+        self.assertIn("Законодательный минимум.", gate["text"])
+        self.assertIn("Налоговое правило.", gate["text"])
+        self.assertIn("Если пропустить, примем: Семь лет.", gate["text"])
+        for english in (
+            "Which retention period does the client apply today?",
+            "Five years",
+            "Seven years",
+            "Statutory minimum.",
+            "Tax rule.",
+        ):
+            self.assertNotIn(english, gate["text"])
+        self.assertEqual("proceed", probe.GATE_REPLIES["research_sufficiency_followup_pending"])
+        driver.act(gate)
+        state = driver.state()
+        self.assertEqual("answered", (state.get("sufficiency_followup") or {}).get("status"))
 
 
 class EntryPointTest(unittest.TestCase):

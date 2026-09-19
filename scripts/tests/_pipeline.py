@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import tempfile
@@ -106,11 +105,12 @@ class Driver:
             self.report(action["step_id"], action["attempt"])
             return
         if kind == "gate-auq":
-            answers = json.dumps({"Plan": "Approve", "Mode": self.mode.capitalize()})
             self.report(
                 action["step_id"],
                 action["attempt"],
-                answers=answers,
+                answers=probe._plan_answers(
+                    self.work_dir, state_io.read_state(self.work_dir), self.mode
+                ),
                 generation=action.get("generation", 0),
             )
             return

@@ -543,8 +543,26 @@ GATE_REPLIES: dict[str, str] = {
     "research_sufficiency_followup_pending": "proceed",
     "research_insufficient_pending": "continue",
     "source_review_pending": "continue",
-    "plan_approval_pending": "approve",
 }
+"""Text-gate answers of the dry run (D-178a): the text channel is untranslated by design, so
+these stay the canonical tokens. The plan gate (`gate-auq`) is answered from the emitted
+AUQ instead — see `_plan_answers` — and has no entry here."""
+
+
+def _plan_answers(work_dir: Path, state: dict, mode: str) -> str:
+    """The dry-run answer to the plan gate, in the emitted AUQ's own words (D-178a).
+
+    The option whose canonical value is `Approve` (and `Brief`/`Full` per `mode`) is picked
+    from `build_auq(...)["canonical"]`, and the *localized* header/label is sent back — never
+    the literal `Approve`. `parse_auq` maps it to the canonical English the machine stores.
+    """
+    auq = gates.build_auq(work_dir, state)
+    canonical = auq[gates.AUQ_CANONICAL]
+    by_value = {value: header for header, value in canonical.items()}
+    mode_label = next(
+        header for header, value in canonical.items() if value == mode.capitalize()
+    )
+    return json.dumps({by_value["Plan"]: by_value["Approve"], by_value["Mode"]: mode_label})
 
 
 # --- the dry run -----------------------------------------------------------
@@ -610,7 +628,6 @@ def _dry_run(work_dir: Path, mode: str) -> dict:
     counts = {"next": 0, "report": 0, "agent": 0, "script": 0, "gate": 0, "inline": 0}
     trace: list[dict] = []
     invariants: list[str] = []
-    plan_answers = json.dumps({"Plan": "Approve", "Mode": mode.capitalize()})
 
     for _ in range(MAX_LOOP):
         action = machine.run_next(_namespace(workdir=str(work_dir)))
@@ -660,7 +677,7 @@ def _dry_run(work_dir: Path, mode: str) -> dict:
                     attempt=action["attempt"],
                     agent=None,
                     status="ok",
-                    answers=plan_answers,
+                    answers=_plan_answers(work_dir, state_io.read_state(work_dir), mode),
                     generation=action.get("generation", 0),
                     stdout=None,
                 )

@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from memoforge import cli, events, i18n, limits, phases, schema, state_io, task  # noqa: E402
 import _i18n  # noqa: E402
+from _pipeline import Driver as _Driver  # noqa: E402
+from _pipeline import temp_root  # noqa: E402
 
 ENV_KEYS = (
     "CLAUDE_PLUGIN_DATA",
@@ -736,6 +738,64 @@ class LanguageOptionsTest(unittest.TestCase):
         self.assertEqual("en", state_io.read_state(work)["language"])
         writes_after = len([e for e in events.read_events(work) if e["event"] == "state_written"])
         self.assertEqual(writes_before, writes_after, "the refused call wrote nothing")
+
+    def test_a_state_written_before_plan_54_resumes_in_english(self):
+        """Plan 56 task 6: a legacy state (`language: "en"`, no `ui_language`) resumed with
+        `mf next` renders English gates and persists the English dashboard document.
+
+        The state goes through the real `mf next` path: step 0 publishes the dashboard
+        (English title/description), the fixture agents drive the run to the first gate
+        (English text), and once the page URL is known a later `mf next` persists
+        `dashboard/patch.json` — asserted here from disk, not via an in-process call.
+        """
+        from memoforge import machine as _machine
+
+        driver = _Driver(temp_root(self), slug="legacy-en")
+        state_io.write_state(
+            driver.work_dir,
+            lambda current: (
+                current.pop("ui_language", None),
+                current.update({"language": "en"}),
+            ),
+        )
+        self.assertNotIn("ui_language", state_io.read_state(driver.work_dir))
+        # Step 0 through the real path: the dashboard publish block is English.
+        first = _machine.run_next(argparse.Namespace(workdir=str(driver.work_dir), human=False))
+        self.assertNotIn("errors", first, first)
+        publish = (first.get("dashboard") or {}).get("publish") or {}
+        self.assertEqual(f"memoforge · {driver.work_dir.name}", publish.get("title"), publish)
+        self.assertEqual("Live progress of a memoforge run", publish.get("description"))
+        # Drive to the first gate through the real path: its text is English.
+        action = driver.run_until("intake_questions_pending")
+        self.assertEqual("gate-text", action["kind"], action)
+        text = action.get("text_fallback") or action.get("text") or ""
+        self.assertIn("Please answer, in the form `1A 2C 3: free text`:", text)
+        self.assertIn("Everything else is assumed as follows:", text)
+        self.assertIn("`proceed` accepts every assumption as written.", text)
+        # Publish the page, then read the document the machine persisted at step 0's path.
+        published = task.run_dashboard(
+            argparse.Namespace(
+                workdir=str(driver.work_dir), url="https://example.test/legacy", unavailable=None,
+                human=False,
+            )
+        )
+        self.assertNotIn("errors", published, published)
+        answered = _machine.run_next(
+            argparse.Namespace(workdir=str(driver.work_dir), human=False)
+        )
+        self.assertNotIn("errors", answered, answered)
+        persisted = (answered.get("dashboard") or {}).get("write_db") or {}
+        patch_path = Path(persisted.get("file_path") or "")
+        self.assertEqual(Path("dashboard") / "patch.json", Path(*patch_path.parts[-2:]), persisted)
+        self.assertEqual(driver.work_dir / "dashboard" / "patch.json", patch_path)
+        document = state_io.read_json(patch_path)
+        self.assertEqual(document["labels"], _machine.i18n_en.EN["ui"]["dashboard"])
+        self.assertEqual("Your turn", document["status_label"])
+        self.assertEqual("Your turn", document["labels"]["card_your_turn"])
+        self.assertNotIn("memo_language", document.get("plan") or {})
+        timeline_text = " ".join(row.get("text") or "" for row in document["timeline"])
+        self.assertNotIn("Ваш ход", timeline_text)
+        self.assertNotIn("Утверждение", timeline_text)
 
 
 class ProjectFolderTaskTest(unittest.TestCase):

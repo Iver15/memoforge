@@ -1964,6 +1964,23 @@ class BannerLanguageSummaryTest(_WorkDirMixin, unittest.TestCase):
         summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
         self.assertIn("Partial MCP coverage — only legalviz was reachable.", summary)
 
+    def test_a_legacy_task_without_ui_language_finalizes_in_english(self):
+        """Plan 56 task 6: a state written before plan 54 (`language: "en"`, no
+        `ui_language`) finalizes — English gates, English dashboard patch, deliverable."""
+        def mutate(state: dict) -> None:
+            state.pop("ui_language", None)
+            state["language"] = "en"
+            state["final_status"] = SIGNED_OFF
+
+        work_dir = self.make_task(mutate=mutate)
+        state = state_io.read_state(work_dir)
+        self.assertNotIn("ui_language", state)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertNotIn("errors", result)
+        self.assert_delivered(work_dir)
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        self.assertIn("# memoforge run summary", summary)
+
 
 class SalvageLocalizedExportTest(_WorkDirMixin, unittest.TestCase):
     """Final review, finding 1 / D-175b: when `--salvage` falls back to English it must not
