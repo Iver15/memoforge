@@ -458,6 +458,31 @@ class C06Test(CitationsTestCase):
             with self.subTest(pinpoint=pinpoint):
                 self.assertFalse(citations.pinpoint_ok(pinpoint))
 
+    def test_cyrillic_pinpoint_forms(self):
+        # D-186: the pinpoint is written as the Russian source numbers it. Fix round 1: the
+        # number fragment is strict — `ст. 10а` accepted, `ст. foo 152` rejected. `BARE_PINPOINT`
+        # is unchanged, so `pinpoint_ok("152")` stays True (established behaviour).
+        for pinpoint in ("ст. 152", "ст. 10а", "п. 2 ст. 152", "ч. 1 ст. 14.3", "абз. 2 п. 1 ст. 10",
+                         "пп. 3 п. 1 ст. 8"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertTrue(citations.pinpoint_ok(pinpoint))
+        for pinpoint in ("ст. foo 152", "foo 152"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertFalse(citations.pinpoint_ok(pinpoint))
+
+    def test_capitalised_cyrillic_pinpoint_forms(self):
+        # D-186 fix round 2: a sentence-initial label is the same pinpoint — `docx/oscola.py` has
+        # always recognised `Ст. 152`, and C-06 must not call it malformed.
+        for pinpoint in ("Ст. 152", "П. 2 ст. 152", "Ч. 1 ст. 14.3", "Ст. 10А"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertTrue(citations.pinpoint_ok(pinpoint))
+        for pinpoint in ("Ст. foo 152", "ст. foo 152", "foo 152"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertFalse(citations.pinpoint_ok(pinpoint))
+        # The Cyrillic grammar itself never matches a bare number; `152` stays BARE_PINPOINT's.
+        self.assertIsNone(citations.CYRILLIC_PINPOINT.match("152"))
+        self.assertTrue(citations.pinpoint_ok("152"))
+
 
 class C07Test(CitationsTestCase):
     def test_uncited_rule_source_is_a_major_informational_finding(self):

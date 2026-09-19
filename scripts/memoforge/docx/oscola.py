@@ -357,6 +357,9 @@ def long_date(value: object, language: str = i18n.DEFAULT) -> str:
 
 # --- pinpoints -------------------------------------------------------------
 
+CYRILLIC_PINPOINT_RE = re.compile(r"^(?:ст|п(?:п)?|ч|абз)\.?\s", re.IGNORECASE)
+"""D-186: a Russian pinpoint is printed as the source numbers it, in every memo language."""
+
 _PINPOINT_LABELS: tuple[tuple[str, str], ...] = (
     (r"art(?:icle)?s", "arts"),
     (r"art(?:icle)?", "art"),
@@ -387,6 +390,8 @@ def normalise_pinpoint(value: object) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip().strip(",;")
     if not text:
         return ""
+    if CYRILLIC_PINPOINT_RE.match(text):
+        return text  # D-186: a Cyrillic pinpoint keeps the labels the source used
     sign = _SECTION_SIGN_RE.match(text)
     if sign:
         return f"{sign.group(1)} {text[sign.end():].strip()}".strip()
@@ -414,6 +419,8 @@ def display_pinpoint(pinpoint: str, language: str = i18n.DEFAULT) -> str:
     printed as the draft wrote it.
     """
     text = str(pinpoint or "")
+    if CYRILLIC_PINPOINT_RE.match(text):
+        return text  # D-186: printed as written in every language; `Art. 152(2)` is out of v1
     match = _DISPLAY_LABEL_RE.match(text)
     if match is None:
         return text

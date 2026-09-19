@@ -803,5 +803,44 @@ class LocalizedCitationTest(unittest.TestCase):
         )
 
 
+class CyrillicPinpointTest(unittest.TestCase):
+    """D-186: a Cyrillic pinpoint is printed as written in every memo language."""
+
+    def test_a_cyrillic_pinpoint_is_not_normalised_away(self):
+        self.assertEqual("п. 2 ст. 152", oscola.normalise_pinpoint("п.  2 ст. 152"))
+
+    def test_a_cyrillic_pinpoint_is_displayed_as_written(self):
+        for language in ("ru", "en", "de"):
+            with self.subTest(language=language):
+                self.assertEqual("п. 2 ст. 152", oscola.display_pinpoint("п. 2 ст. 152", language))
+
+    def test_a_capitalised_cyrillic_pinpoint_is_printed_as_written(self):
+        self.assertEqual("Ст. 152", oscola.normalise_pinpoint("Ст.  152"))
+        self.assertEqual("П. 2 ст. 152", oscola.display_pinpoint("П. 2 ст. 152", "en"))
+
+    def test_a_russian_statute_renders_with_the_cyrillic_text_intact(self):
+        statute = {
+            "layer": "statutes",
+            "title": "Гражданский кодекс РФ (часть первая)",
+            "citation_form": "Гражданский кодекс РФ (часть первая), ст. 152",
+        }
+        self.assertEqual(
+            "Гражданский кодекс РФ (часть первая), п. 2 ст. 152",
+            oscola.compact(view(statute), "п. 2 ст. 152"),
+        )
+
+    def test_a_russian_decision_renders_with_the_cyrillic_text_intact(self):
+        decision = {
+            "layer": "case_law",
+            "title": "Определение СКЭС ВС РФ от 12.03.2024 № 305-ЭС23-12345",
+            "citation_form": "Определение СКЭС ВС РФ от 12.03.2024 № 305-ЭС23-12345 по делу № А40-1",
+            "meta": {"court": "СКЭС ВС РФ", "year": "2024"},
+        }
+        self.assertEqual(
+            "Определение СКЭС ВС РФ от 12.03.2024 № 305-ЭС23-12345 по делу № А40-1, п. 2",
+            oscola.compact(view(decision), "п. 2"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

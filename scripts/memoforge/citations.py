@@ -27,6 +27,23 @@ SEVERITY_BY_MODE: dict[str, dict[str, str]] = {BRIEF_MODE: {"C-07": "info"}}
 """D34-10: in `brief` the pack is wider than 1 200 words can carry, so an uncited rule source is
 informational; in `full` it stays the `major` of §5.4."""
 
+CYRILLIC_PINPOINT = re.compile(
+    r"^(?:ст|пп|п|ч|абз)\.?\s*\d+(?:[.\-]\d+)*[а-яa-z]?(?:\([^()\s]+\))*"
+    r"(?:[\s,]+(?:ст|пп|п|ч|абз)\.?\s*\d+(?:[.\-]\d+)*[а-яa-z]?(?:\([^()\s]+\))*)*\s*$",
+    re.IGNORECASE,
+)
+"""D-186: the pinpoint as the Russian source numbers it — `п. 2 ст. 152`, `ч. 1 ст. 14.3`.
+
+Fix round 1: the number fragment is strict — digits with dots/hyphens, an optional trailing
+letter (`10а`, `152.1`, `10-1`) and optional `(…)` subdivisions; `ст. foo 152` is rejected.
+`пп` precedes `п` in the alternation so the two-letter label matches as one group.
+
+Fix round 2: `re.IGNORECASE`, as in `docx/oscola.py::CYRILLIC_PINPOINT_RE` — a sentence-initial
+`Ст. 152` is the same pinpoint and was drawing a C-06 major while the renderer printed it happily.
+The case fold reaches the trailing letter too (`ст. 10А` as well as `ст. 10а`); it does not loosen
+the number fragment, so `ст. foo 152` stays rejected and a bare `152` is still `BARE_PINPOINT`'s.
+"""
+
 PINPOINT = re.compile(
     r"^(?:art(?:icle)?|s|ss|sec(?:tion)?|§{1,2}|para(?:graph)?s?|recital|rec|ch(?:apter)?|annex|"
     r"sch(?:edule)?|pp?|page|reg(?:ulation)?|rule|point|r)\b\.?\s*[\w().,\-/ ]*\d",
@@ -110,7 +127,7 @@ def pinpoint_ok(pinpoint: str) -> bool:
     text = pinpoint.strip()
     if not text:
         return False
-    return bool(PINPOINT.match(text) or BARE_PINPOINT.match(text))
+    return bool(PINPOINT.match(text) or BARE_PINPOINT.match(text) or CYRILLIC_PINPOINT.match(text))
 
 
 def exec_summary_lines(document: dict) -> set[int]:
