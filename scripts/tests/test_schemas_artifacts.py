@@ -524,5 +524,21 @@ class SourcesSchemaTest(unittest.TestCase):
         self.assertTrue(errors_for("sources", payload))
 
 
+class McpProbeRuServersTest(unittest.TestCase):
+    """D-184: the RU servers are keys of `mcp-probe` — a document carrying them validates."""
+
+    def test_a_probe_document_carrying_casus_and_fas_validates(self):
+        document = {
+            "namespaces": {
+                "casus": "mcp__claude_ai_CasusLegal",
+                "fas": "mcp__plugin_memoforge_fas-search",
+                "other": [],
+            },
+            "status": {"casus": "ok", "fas": "ok"},
+            "probed_at": "2026-09-18T10:00:00Z",
+        }
+        self.assertEqual([], errors_for("mcp-probe", document))
+
+
 if __name__ == "__main__":
     unittest.main()

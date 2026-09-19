@@ -73,6 +73,12 @@ PREFLIGHT_URLS: dict[str, str] = {
         "?Applikation=BrKons&Titel=Datenschutzgesetz&DokumenteProSeite=Ten"
     ),
     "ris.bka.gv.at": "https://www.ris.bka.gv.at/Bundesrecht/",
+    # RU — the web channels are the primary statute source (D-185)
+    "www.consultant.ru": (
+        "https://www.consultant.ru/document/cons_doc_LAW_5142/1de6cd3cbb386056a2ecd2c64ff087b13c8de585/"
+    ),
+    "base.garant.ru": "https://base.garant.ru/10164072/63f1429d78ff04df7c3513d140a5b10a/",
+    "sudact.ru": "https://sudact.ru/regular/doc/",
     # national supervisory authorities — the doctrine row of a member state
     "bfdi.bund.de": "https://www.bfdi.bund.de/DE/Home/home_node.html",
     "datenschutzkonferenz-online.de": "https://www.datenschutzkonferenz-online.de/",
@@ -114,6 +120,9 @@ PREFLIGHT_ALTERNATIVES: dict[str, str] = {
     "normattiva.it": "the OpenAPI route on api.normattiva.it: mf sources fetch --method POST --json",
     "data.bka.gv.at": "ogd.ris.bka.gv.at/Dokumente/… taken from the API answer",
     "ris.bka.gv.at": "the OGD API on data.bka.gv.at",
+    "www.consultant.ru": "base.garant.ru, or ldh_search on RU/PravoGovRu",
+    "base.garant.ru": "www.consultant.ru, or ldh_search on RU/PravoGovRu",
+    "sudact.ru": "casus_casuslegal_search_practice, fas_search_fas_cases, or ldh_search on RU/Sudact",
     "bfdi.bund.de": "ldh_search on DE/BfDI, DE/LDI-NRW",
     "datenschutzkonferenz-online.de": "ldh_search on DE/BfDI, DE/LDI-NRW",
     "cnil.fr": "ldh_search on the FR sources",

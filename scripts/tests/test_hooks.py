@@ -261,8 +261,9 @@ class AllowlistFileTest(unittest.TestCase):
         # group and the Austrian supervisory authority; D-145 nets 92 - 3 + 1 = 90 —
         # `data.bka.gv.at` in, `api.legalviz.eu` out, `ecfr.gov`/`federalregister.gov` to
         # `optional`; D-148 adds the nine-host `legislature-api` group, 90 + 9 = 99;
-        # D-162 returns the two US regulation API hosts to the active set, 99 + 2 = 101.
-        self.assertEqual(len(hosts), 101)
+        # D-162 returns the two US regulation API hosts to the active set, 99 + 2 = 101;
+        # D-185 adds the seven-host `ru` group, 101 + 7 = 108.
+        self.assertEqual(len(hosts), 108)
         self.assertIn("europa.eu", hosts)
         self.assertNotIn("justia.com", hosts)
 
@@ -324,6 +325,22 @@ class AllowlistFileTest(unittest.TestCase):
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
         self.assertNotIn("lex.lab.i.ai.gov.uk", hosts)
 
+    def test_the_russian_portals_the_routing_table_points_at_are_allowlisted(self):
+        # D-185: the RU rows fetch consultant.ru, base.garant.ru, sudact.ru, zakon.ru,
+        # cyberleninka.ru and cite the Supreme Court's own portal.
+        hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
+        for host in (
+            "consultant.ru",
+            "www.consultant.ru",
+            "base.garant.ru",
+            "sudact.ru",
+            "zakon.ru",
+            "cyberleninka.ru",
+            "vsrf.ru",
+        ):
+            with self.subTest(host=host):
+                self.assertIn(host, hosts)
+
     def test_the_uk_portals_the_routing_table_points_at_are_allowlisted(self):
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
         self.assertIn("legislation.gov.uk", hosts)
@@ -344,7 +361,7 @@ class AllowlistFileTest(unittest.TestCase):
 
     def test_every_group_of_the_file_is_labelled(self):
         raw = (PLUGIN_ROOT / "hooks" / "allowlist.txt").read_text(encoding="utf-8-sig")
-        for group in ("eu", "legislature", "legislature-api", "dpa", "us", "intl", "ngo", "optional"):
+        for group in ("eu", "legislature", "legislature-api", "ru", "dpa", "us", "intl", "ngo", "optional"):
             self.assertIn(f"# group: {group}", raw)
 
     def test_comments_are_stripped_and_hosts_are_lowercase(self):
@@ -666,6 +683,12 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 ("mcp__plugin_memoforge_lex__lookup_legislation", "lex"),
                 ("mcp__Lex_API__search_for_legislation_sections", "lex"),
                 ("mcp__eurlex__get_case_law", "legalviz"),
+                # D-184: CasusLegal (RU) announces itself as `CasusLegal`/`Casus`,
+                # FAS advertising practice (RU) as `fas-search`.
+                ("mcp__plugin_memoforge_casus__casuslegal_search_practice", "casus"),
+                ("mcp__claude_ai_CasusLegal__casuslegal_find_term", "casus"),
+                ("mcp__plugin_memoforge_fas-search__search_fas_cases", "fas"),
+                ("mcp__claude_ai_fas_search__get_case_details", "fas"),
             )
         ):
             with self.subTest(tool_name=tool_name):
@@ -696,6 +719,10 @@ class ProgressLoggerTest(_EnvMixin, unittest.TestCase):
                 "lex",
                 "lex",
                 "legalviz",
+                "casus",
+                "casus",
+                "fas",
+                "fas",
             ],
             servers,
         )

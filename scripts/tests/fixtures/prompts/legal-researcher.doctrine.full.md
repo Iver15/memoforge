@@ -16,7 +16,10 @@ First action (Bash, before any other tool call):
 - issues: i1: How long may the client keep customer records?
 - jurisdictions: EU
 - available legal MCP namespaces: `unknown`
-- tool order and preferred domains: EU: WebSearch > ldh_search > WebFetch (domains: edpb.europa.eu, europa.eu)
+- tool order, preferred domains, LDH corpora and the note per jurisdiction: 
+  - EU: WebSearch > ldh_search > WebFetch (domains: edpb.europa.eu, europa.eu)
+    LDH sources: EU/EDPB, EU/GDPRhub
+    EDPB via LDH with a mandatory WebFetch fallback to edpb.europa.eu.
 - source access today (portals probed before this dispatch; use the alternative, do not retry): not checked
 - follow-up prompts from an earlier pass: none
 - your earlier findings for this layer: none - first pass of this layer
@@ -29,7 +32,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot doctrine --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot doctrine --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex|casus|fas> --detail <tool>`
 
 ## Register before you cite
 

@@ -873,6 +873,21 @@ class SourcesCoverageTest(unittest.TestCase):
         portals = {"publications.europa.eu": "ok", "eur-lex.europa.eu": "waf_challenge"}
         self.assertEqual([], gates.coverage_gaps({}, ["statutes"], ["EU"], portals))
 
+    def test_a_specialist_server_does_not_cover_the_ru_case_law_row(self):
+        """D-184a: FAS answers advertising questions only, so it is not coverage of the row."""
+        portals = {"sudact.ru": "blocked"}
+        gaps = gates.coverage_gaps({"fas": "mcp__x"}, ["case_law"], ["RU"], portals)
+        self.assertEqual([("case_law", "RU")], [(row["layer"], row["jurisdiction"]) for row in gaps])
+        self.assertEqual(["CasusLegal (RU)", "Legal Data Hunter"], gaps[0]["servers"])
+        self.assertNotIn("FAS advertising practice (RU)", gaps[0]["servers"])
+        self.assertEqual(["sudact.ru"], gaps[0]["portals"])
+
+    def test_a_general_server_covers_the_ru_case_law_row(self):
+        portals = {"sudact.ru": "blocked"}
+        self.assertEqual(
+            [], gates.coverage_gaps({"fas": "mcp__x", "casus": "mcp__y"}, ["case_law"], ["RU"], portals)
+        )
+
     def test_a_blocked_portal_and_no_server_names_both_in_the_question(self):
         """US doctrine routes to no database at all: only the preflight can call it a gap."""
         root = self.work_dir({})
@@ -1200,11 +1215,11 @@ _EN_PLAN = "\n".join(
         "Style: Which writing style should the memo follow?",
         "  options: my-firm / standard",
         (
-            "Sources: Source coverage may be limited. Estimated 20 legal-source calls against the daily quotas of "
-            "ldh, courtlistener (135 in total; a quota is an upper bound, not a remaining count). No legal database "
-            "is connected for statutes in EU (LegalViz, Legal Data Hunter). No legal database is connected for "
-            "case_law in EU (LegalViz, JusticeLibre (FR), Legal Data Hunter). No legal database is connected for "
-            "doctrine in EU (Legal Data Hunter)."
+            "Sources: Source coverage may be limited. Estimated 20 legal-source calls against the daily quotas "
+            "of ldh, courtlistener (135 in total; a quota is an upper bound, not a remaining count). "
+            "No legal database is connected for statutes in EU (LegalViz, Legal Data Hunter). No legal "
+            "database is connected for case_law in EU (LegalViz, JusticeLibre (FR), Legal Data Hunter). "
+            "No legal database is connected for doctrine in EU (Legal Data Hunter)."
         ),
         "  options: Continue / Cancel",
         "",

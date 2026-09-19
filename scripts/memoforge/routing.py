@@ -22,6 +22,8 @@ MCP_SERVERS: dict[str, str] = {
     "opencaselaw": "opencaselaw",
     "fedregs": "federal-regulations",
     "lex": "lex",
+    "casus": "casus",
+    "fas": "fas-search",
 }
 """Routing alias -> bundled server of `.mcp.json`, and the key of that server in `intake/mcp-probe.json`.
 
@@ -41,8 +43,19 @@ MCP_SERVER_LABELS: dict[str, str] = {
     "opencaselaw": "OpenCaseLaw (CH)",
     "fedregs": "Federal Regulations (US)",
     "lex": "Lex (UK, i.AI)",
+    "casus": "CasusLegal (RU)",
+    "fas": "FAS advertising practice (RU)",
 }
 """How a server is named to the user — in the `Sources` question of the plan gate (§2.4)."""
+
+SPECIALIST_SERVERS: tuple[str, ...] = ("fas",)
+"""D-184a: a specialist server answers one subject area only and never counts as coverage of a row.
+
+FAS holds advertising, unfair-competition and antimonopoly decisions alone, so a Russian case-law
+question outside those subjects is unserved even with `fas` connected. `row_servers` keeps naming
+it — budgets, the intake digest and the researcher's routing block still route to it — and only
+`gates.coverage_gaps` drops it, so «FAS is up» never silences the `Sources` question (§2.4).
+"""
 
 
 def row_servers(layer: str, jurisdiction: object) -> list[str]:
@@ -98,6 +111,9 @@ def routing_digest(connected: dict, exhausted: object = ()) -> str:
 # --- jurisdiction codes ---------------------------------------------------
 
 JURISDICTION_ALIASES: dict[str, str] = {
+    "RUS": "RU",
+    "RF": "RU",
+    "RUSSIA": "RU",
     "GB": "UK",
     "GBR": "UK",
     "UNITED KINGDOM": "UK",
@@ -563,8 +579,40 @@ lines of `routing_digest` (D-110): the intake analyst is told about EU/UK/US, no
 `case_law` holds France alone (D-148): the other states' own courts stay off-table, and
 `known: False` says so."""
 
+_RU_TOOL_NAMES_NOTE = (
+    "The tool names in this row are the vendor's documented ones; the exact names are the tools "
+    "the host exposes under that server's namespace — mcp__…casus__casuslegal_search_practice in "
+    "Claude Code, an opaque connector namespace in Cowork — so match by tool suffix and call what "
+    "the host offers when the two differ; intake/mcp-probe.json records the namespaces, not the "
+    "tool names."
+)
+"""D-187a: the researcher's fallback for a tool name that moved — the host's own tool list.
+
+The RU rows used to send it to `intake/mcp-probe.json` for the name itself, which that document
+has never carried (`namespaces` and `status` only, and its schema is closed).
+"""
+
 EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
     "statutes": {
+        "RU": {
+            "tools": ["ldh_search", "WebFetch"],
+            "ldh_sources": ["RU/PravoGovRu"],
+            "domains": ["www.consultant.ru", "base.garant.ru"],
+            "note": (
+                "LDH's RU/PravoGovRu corpus carries the official pravo.gov.ru texts with date "
+                "filters — the first stop; pravo.gov.ru itself does not answer WebFetch — never "
+                "fetch it. consultant.ru's free section serves article pages "
+                "(www.consultant.ru/document/cons_doc_LAW_<id>/<hash>/ — the current wording with "
+                "the amendment history inside the document), base.garant.ru is the second copy "
+                "for verification; Plenum rulings and practice reviews of the Supreme Court are "
+                "indexed there as ordinary documents (vsrf.ru has no stable document ids). "
+                "Register with --raw-file. " + _RU_TOOL_NAMES_NOTE + " Write the pinpoint exactly "
+                "as the source numbers it — ст. 152, "
+                "п. 2 ст. 152, ч. 1 ст. 14.3, абз. 2 п. 1 ст. 10 (Cyrillic labels ст, п, пп, ч, "
+                "абз, each with its number) — never art 152(2); the statute's registered citation "
+                "form is the Russian one (Гражданский кодекс РФ (часть первая), ст. 152)."
+            ),
+        },
         "CH": {
             "tools": [
                 "opencaselaw_get_law",
@@ -588,6 +636,42 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
         },
     },
     "case_law": {
+        "RU": {
+            "tools": [
+                "casus_casuslegal_search_practice",
+                "casus_casuslegal_find_term",
+                "casus_casuslegal_get_case_details",
+                "casus_casuslegal_browse_practice",
+                "fas_search_fas_cases",
+                "fas_get_case_details",
+                "fas_get_filter_options",
+                "ldh_search",
+                "WebFetch",
+            ],
+            "ldh_sources": ["RU/Sudact"],
+            "domains": ["sudact.ru"],
+            "note": (
+                "CasusLegal is the paid higher-courts corpus (КС/ВС/ВАС) — search_practice with "
+                "mode hybrid/semantic/bm25 and an article filter (article=\"ст. 619 ГК\"), find_term "
+                "for a fixed phrase, get_case_details(case_id) for the exact quote in sections (a "
+                "КС act carries its position inline); read constitutional_context and "
+                "latest_practice, not only results; specialised corpora sip_* (intellectual "
+                "property court) and kas_* (administrative chamber) have the same tool shapes. "
+                + _RU_TOOL_NAMES_NOTE + " The FAS server "
+                "(free, 8,000 decisions of the Federal Antimonopoly Service and its regional "
+                "offices under the Law on Advertising, 20 calls/min and 300/day per IP shared "
+                "with other users) is for advertising, unfair-competition and antimonopoly "
+                "questions only: search_fas_cases (semantic, filters year/region/article), "
+                "get_case_details, get_filter_options first to learn the filter values; cite a "
+                "decision by the office, date and case number. LDH's RU/Sudact covers "
+                "general-jurisdiction and arbitration courts 2021–2026; sudact.ru pages for a "
+                "decision by case number; kad.arbitr.ru is captcha-gated — not a source. Register "
+                "the decision's citation form in Russian (Определение СКЭС ВС РФ от 12.03.2024 "
+                "№ 305-ЭС23-12345 по делу № А40-…; Постановление Пленума ВС РФ от … № …) and "
+                "pinpoint by п. N (пункт мотивировочной части) where the text is numbered, else "
+                "no pinpoint; a FAS decision is cited by the office, date and case number."
+            ),
+        },
         "CH": {
             "tools": [
                 "opencaselaw_search_decisions",
@@ -609,6 +693,15 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
         },
     },
     "doctrine": {
+        "RU": {
+            "tools": ["WebSearch", "WebFetch"],
+            "ldh_sources": [],
+            "domains": ["zakon.ru", "cyberleninka.ru"],
+            "note": (
+                "Commentary and articles; consultant.ru's free section sometimes carries "
+                "commentaries — cite the author and the outlet. " + _RU_TOOL_NAMES_NOTE
+            ),
+        },
         "CH": {
             "tools": [
                 "opencaselaw_get_doctrine",

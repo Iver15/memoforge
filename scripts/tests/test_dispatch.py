@@ -17,7 +17,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, temp_root  # noqa: E402
-from memoforge import dispatch, i18n, machine, modes, preflight, routing, state_io, task  # noqa: E402
+from memoforge import dispatch, gates, i18n, machine, modes, preflight, routing, state_io, task  # noqa: E402
 
 import _i18n  # noqa: E402
 
@@ -802,6 +802,117 @@ class RetrySpecTest(unittest.TestCase):
         self.assertIn("`research/statutes.json`, `research/case_law.json`", prompt)
         self.assertNotIn("lists every token and its source", prompt)
         self.assertIn("proposition", prompt)
+
+
+class RoutingParameterTest(unittest.TestCase):
+    """D-187a: `${routing}` hands over every routed row whole — tools, LDH corpora and the note."""
+
+    def _work_dir(self, *codes: str) -> tuple[Path, dict]:
+        root = temp_root(self)
+        work_dir = root / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        state_io.write_json_atomic(work_dir / "plan.json", {
+            "classification": "regulatory_analysis",
+            "jurisdictions": list(codes),
+            "doctrine_required": True,
+            "estimated_complexity": "high",
+            "issues": [
+                {
+                    "issue_id": "i1",
+                    "title": "Protection of business reputation",
+                    "question": "What must the client take down?",
+                    "jurisdictions": list(codes),
+                }
+            ],
+        })
+        return work_dir, state
+
+    def _routing(self, layer: str, *codes: str) -> str:
+        work_dir, state = self._work_dir(*codes)
+        return machine.researcher_specs(work_dir, state, [layer])[0]["extra"]["routing"]
+
+    def test_the_russian_statute_row_reaches_the_researcher_whole(self):
+        text = self._routing("statutes", "RU")
+        self.assertIn("RU: ldh_search > WebFetch", text)
+        self.assertIn("(domains: www.consultant.ru, base.garant.ru)", text)
+        self.assertIn("LDH sources: RU/PravoGovRu", text)
+        self.assertIn("п. 2 ст. 152", text)
+
+    def test_the_russian_case_law_row_names_the_corpus_and_the_fas_restriction(self):
+        text = self._routing("case_law", "RU")
+        self.assertIn("LDH sources: RU/Sudact", text)
+        self.assertIn("fas_search_fas_cases", text)
+        self.assertIn("search_fas_cases (semantic, filters year/region/article)", text)
+        self.assertIn("kad.arbitr.ru is captcha-gated", text)
+
+    def test_the_row_note_survives_into_the_rendered_prompt(self):
+        work_dir, state = self._work_dir("RU")
+        specs = machine.researcher_specs(work_dir, state, ["case_law"])
+        prompt = dispatch.render_agents(
+            work_dir, state, step_id="s-092", attempt=1, specs=specs, position=5, total=13
+        )[0]["prompt"]
+        self.assertIn("RU/Sudact", prompt)
+        self.assertIn("fas_search_fas_cases", prompt)
+        self.assertNotIn("${routing}", prompt)
+
+    def test_every_jurisdiction_keeps_its_tool_line_and_gains_its_own_note(self):
+        text = self._routing("statutes", "EU", "UK", "US")
+        for code in ("EU", "UK", "US"):
+            row = routing.route("statutes", code)
+            head = f"{code}: {' > '.join(row['tools'])} (domains: {', '.join(row['domains'])})"
+            with self.subTest(jurisdiction=code):
+                self.assertIn(head, text)
+                self.assertIn(row["note"], text)
+        self.assertIn("LDH sources: EU/EUR-Lex, EU/ConsolidatedLegislation", text)
+        self.assertIn("LDH sources: UK/Legislation", text)
+
+    def test_a_row_without_corpora_prints_no_ldh_sources_line(self):
+        text = self._routing("case_law", "US")
+        self.assertIn("US: courtlistener_search", text)
+        self.assertNotIn("LDH sources:", text)
+
+
+class McpNamespaceFieldTest(unittest.TestCase):
+    """D-187a: `${mcp_namespaces}` names every bundled server the probe found, in table order."""
+
+    def _namespaces(self, namespaces: dict) -> str:
+        root = temp_root(self)
+        work_dir = root / TASK_ID
+        (work_dir / "intake").mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        state_io.write_json_atomic(work_dir / gates.PLAN_PATH, {
+            "classification": "regulatory_analysis",
+            "jurisdictions": ["RU"],
+            "doctrine_required": False,
+            "estimated_complexity": "medium",
+            "issues": [{"issue_id": "i1", "title": "t", "question": "q", "jurisdictions": ["RU"]}],
+        })
+        state_io.write_json_atomic(work_dir / gates.MCP_PROBE_PATH, {"namespaces": namespaces})
+        return machine.researcher_specs(work_dir, state, ["statutes"])[0]["extra"]["mcp_namespaces"]
+
+    def test_a_probe_with_only_the_russian_servers_names_both_namespaces(self):
+        field = self._namespaces(
+            {"casus": "mcp__plugin_memoforge_casus", "fas": "mcp__plugin_memoforge_fas-search",
+             "other": []}
+        )
+        self.assertEqual("mcp__plugin_memoforge_casus, mcp__plugin_memoforge_fas-search", field)
+
+    def test_every_connected_server_is_listed_in_the_table_order(self):
+        probed = {alias: f"mcp__plugin_memoforge_{name}" for alias, name in routing.MCP_SERVERS.items()}
+        field = self._namespaces({**probed, "other": ["mcp__house_server"]})
+        self.assertEqual(
+            list(probed.values()) + ["mcp__house_server"], field.split(", ")
+        )
+
+    def test_a_probe_with_only_ldh_and_courtlistener_is_unchanged(self):
+        field = self._namespaces(
+            {"ldh": "mcp__ldh", "courtlistener": "mcp__courtlistener", "other": []}
+        )
+        self.assertEqual("mcp__ldh, mcp__courtlistener", field)
+
+    def test_a_probe_that_found_nothing_still_says_none(self):
+        self.assertEqual("none", self._namespaces({"other": []}))
 
 
 class MemoLanguageTest(unittest.TestCase):

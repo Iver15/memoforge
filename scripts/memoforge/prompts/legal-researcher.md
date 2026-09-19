@@ -16,7 +16,7 @@ First action (Bash, before any other tool call):
 - issues: ${issues}
 - jurisdictions: ${jurisdictions}
 - available legal MCP namespaces: `${mcp_namespaces}`
-- tool order and preferred domains: ${routing}
+- tool order, preferred domains, LDH corpora and the note per jurisdiction: ${routing}
 - source access today (portals probed before this dispatch; use the alternative, do not retry): ${source_access}
 - follow-up prompts from an earlier pass: ${followup_prompts}
 - your earlier findings for this layer: ${previous_findings}
@@ -29,7 +29,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
+`${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex|casus|fas> --detail <tool>`
 
 ## Register before you cite
 

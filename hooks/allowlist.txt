@@ -11,7 +11,7 @@
 # trackers the research layers actually cite. Law-firm blogs and commentary publishers are
 # deliberately absent — a user grants those in `~/.claude/settings.json`.
 #
-# 101 hosts active + 3 in the `optional` group (off by default) = 104: the v1 `hooks.json` list, the
+# 108 hosts active + 3 in the `optional` group (off by default) = 111: the v1 `hooks.json` list, the
 # LegalViz reader of D-105 and the `legislature` group (plus the Austrian DPA) of D34-02, as
 # corrected by the reachability sweep of D-145 and extended by the `legislature-api` group of D-148.
 
@@ -64,6 +64,16 @@ courdecassation.fr
 # Switzerland — the Fedlex source_url of `opencaselaw_get_law` and the Federal Supreme Court.
 fedlex.admin.ch
 bger.ch
+
+# group: ru — Russian statute books, case-law portals and commentary outlets (D-185).
+# consultant.ru covers cons_doc_LAW article pages; pravo.gov.ru is not fetched (D-185).
+consultant.ru
+www.consultant.ru
+base.garant.ru
+sudact.ru
+zakon.ru
+cyberleninka.ru
+vsrf.ru
 
 # group: dpa — national data-protection authorities (EU/EEA/UK/CH) and the German Länder
 aepd.es

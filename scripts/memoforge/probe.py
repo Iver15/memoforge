@@ -152,6 +152,8 @@ def fixture_mcp_probe() -> dict:
             "opencaselaw": "mcp__plugin_memoforge_opencaselaw",
             "fedregs": "mcp__plugin_memoforge_federal-regulations",
             "lex": "mcp__plugin_memoforge_lex",
+            "casus": "mcp__plugin_memoforge_casus",
+            "fas": "mcp__plugin_memoforge_fas-search",
             "other": [],
         },
         # D-147: the smoke call the orchestrator makes per connected server.
@@ -164,6 +166,8 @@ def fixture_mcp_probe() -> dict:
             "opencaselaw": "ok",
             "fedregs": "ok",
             "lex": "ok",
+            "casus": "ok",
+            "fas": "ok",
         },
         "probed_at": events.utc_now(),
     }

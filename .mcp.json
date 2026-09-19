@@ -31,6 +31,14 @@
     "lex": {
       "type": "http",
       "url": "https://lex.lab.i.ai.gov.uk/mcp"
+    },
+    "casus": {
+      "type": "http",
+      "url": "https://mcp.casus.legal/one/mcp"
+    },
+    "fas-search": {
+      "type": "http",
+      "url": "https://search.delay-rag.ru/mcp/"
     }
   }
 }

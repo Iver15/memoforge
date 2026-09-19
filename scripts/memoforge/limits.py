@@ -174,13 +174,21 @@ MCP_PROVIDER_DAILY_LIMITS: dict[str, int] = {  # S3
     "opencaselaw": 60,
     "fedregs": 60,
     "lex": 60,
+    "casus": 100,
+    "fas": 300,
 }
 """Upper bound of the provider's own daily quota; the real remainder is unknown (§4.3).
 
-LegalViz, UK Legal, JusticeLibre, OpenCaseLaw, Federal Regulations and Lex are free hosted servers
+LegalViz, UK Legal, JusticeLibre, OpenCaseLaw, Federal Regulations, Lex and CasusLegal are free
+hosted servers
 that publish no quota at
 all, so 60 is a safety ceiling rather than a modelled remainder — the run may not plan past it
-(D-105, D-107, D-148, D-160, D-161). The Legal Data Hunter free plan died on the **second** `resolve_reference`
+(D-105, D-107, D-148, D-160, D-161, D-184). CasusLegal publishes no quota; its ceiling is 100
+as an orientation, not a modelled remainder. FAS publishes 20/min and 300/day per IP, shared
+across cloud clients, so 300 is the orientation all the same — but neither server joins
+`MCP_QUOTA_SERVERS`: the per-jurisdiction quota filtering is out of scope, so the plan-gate
+estimate keeps comparing against `ldh` and `courtlistener` only (D-184, fix round 1).
+The Legal Data Hunter free plan died on the **second** `resolve_reference`
 of one real run (code `-32029`) and on the **fifteenth** of another, so the quota floats and its
 ceiling stays 10, not 20 (D-122, analysis/39 §9.3).
 """

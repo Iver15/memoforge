@@ -766,13 +766,22 @@ def coverage_gaps(
     nothing was measured. Once the preflight has spoken, a row whose only route is a portal and
     whose every portal is blocked is a real gap — that is what makes the `Sources` question fire on
     a dead portal instead of only on a missing database.
+
+    D-184a: a `routing.SPECIALIST_SERVERS` entry (FAS, advertising and antimonopoly only) is left
+    out of both the coverage test and the label list — it cannot answer the general question the row
+    stands for. A row whose only servers are specialist ones and whose portals were never checked
+    reads as a row with no server at all: never a gap, as nothing was measured.
     """
     statuses = portals if isinstance(portals, dict) else {}
     gaps: list[dict] = []
     for layer in layers:
         for code in jurisdictions:
             row = routing.route(layer, code)
-            servers = routing.row_servers(layer, code)
+            servers = [
+                alias
+                for alias in routing.row_servers(layer, code)
+                if alias not in routing.SPECIALIST_SERVERS
+            ]
             checked = [host for host in row["domains"] if statuses.get(host)]
             if any(namespaces.get(alias) for alias in servers):
                 continue

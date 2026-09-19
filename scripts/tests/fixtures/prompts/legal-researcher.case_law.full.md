@@ -16,7 +16,10 @@ First action (Bash, before any other tool call):
 - issues: i1: How long may the client keep customer records?
 - jurisdictions: EU
 - available legal MCP namespaces: `unknown`
-- tool order and preferred domains: EU: legalviz_get_case_law > legalviz_get_citing_provisions > justicelibre_search_cjue > justicelibre_get_decision_cjue > ldh_resolve_reference > ldh_search > WebFetch (domains: publications.europa.eu, eur-lex.europa.eu)
+- tool order, preferred domains, LDH corpora and the note per jurisdiction: 
+  - EU: legalviz_get_case_law > legalviz_get_citing_provisions > justicelibre_search_cjue > justicelibre_get_decision_cjue > ldh_resolve_reference > ldh_search > WebFetch (domains: publications.europa.eu, eur-lex.europa.eu)
+    LDH sources: EU/CURIA
+    legalviz_get_case_law and legalviz_get_citing_provisions find which CJEU judgments interpret the provision (case number, ECLI, date, name, articles) — they answer with that metadata, not with the judgment text; read the judgment itself through ldh_resolve_reference / ldh_search on EU/CURIA or a WebFetch of its CELEX text. justicelibre_search_cjue and justicelibre_get_decision_cjue are the alternative text source for a CJEU judgment when Cellar and LDH are both unavailable; the citation stays the CELEX address. A judgment carries the CELEX form 6<year>CJ<number> (C-252/21 is 62021CJ0252) on both hosts: https://publications.europa.eu/resource/celex/62021CJ0252 with Accept: application/xhtml+xml, and https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62021CJ0252. Cellar serves the older judgments too and stays up while EUR-Lex is in a WAF window, so it comes first. curia.europa.eu is off the table altogether: liste.jsf, celex.jsf, document.jsf and showPdf.jsf all answer with the same 130 KB JavaScript shell for every case number, so it is neither a document nor a citation.
 - source access today (portals probed before this dispatch; use the alternative, do not retry): not checked
 - follow-up prompts from an earlier pass: none
 - your earlier findings for this layer: none - first pass of this layer
@@ -29,7 +32,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot case_law --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot case_law --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex|casus|fas> --detail <tool>`
 
 ## Register before you cite
 

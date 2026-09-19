@@ -16,7 +16,10 @@ First action (Bash, before any other tool call):
 - issues: i1: How long may the client keep customer records?
 - jurisdictions: EU
 - available legal MCP namespaces: `unknown`
-- tool order and preferred domains: EU: legalviz_resolve > legalviz_get_law_part > ldh_resolve_reference > ldh_search > WebFetch (domains: publications.europa.eu, eur-lex.europa.eu)
+- tool order, preferred domains, LDH corpora and the note per jurisdiction: 
+  - EU: legalviz_resolve > legalviz_get_law_part > ldh_resolve_reference > ldh_search > WebFetch (domains: publications.europa.eu, eur-lex.europa.eu)
+    LDH sources: EU/EUR-Lex, EU/ConsolidatedLegislation
+    legalviz_resolve (or legalviz_search_eu_law when only a title or keyword is known) turns the reference into a CELEX id, then legalviz_get_law_part with part=structure for the table of contents and one more call for the pinpointed article, version=<date> for a point-in-time reading; never pull a whole act, take get_law_part slices. legalviz_get_law_part with version="current" also reports the consolidated CELEX it read in versionCelex — for the AI Act that is 02024R1689-20260727, as amended by Regulation (EU) 2026/1744 (Digital Omnibus on AI, CELEX 32026R1744). If LegalViz is unavailable, ldh_resolve_reference with hint_country=EU and a minimal result_detail for metadata and status, then the article text via ldh_search with a pinpoint or a WebFetch of Cellar, https://publications.europa.eu/resource/celex/<CELEX>, sent with Accept: application/xhtml+xml and Accept-Language: eng — without that Accept header Cellar answers with 60 MB of RDF, and with text/html it answers 404. The pinpoint anchors id="art_N" exist only on the consolidated CELEX 0YYYYRNNNN-YYYYMMDD, not on the OJ form. eur-lex.europa.eu is the fallback behind Cellar: when it answers HTTP 202 with x-amzn-waf-action: challenge, retrying is useless — switch to Cellar or LegalViz.
 - source access today (portals probed before this dispatch; use the alternative, do not retry): not checked
 - follow-up prompts from an earlier pass: none
 - your earlier findings for this layer: none - first pass of this layer
@@ -29,7 +32,7 @@ set for it. Find the official portal for that jurisdiction yourself, read the pr
 register it with `--tool WebFetch <domain>`.
 
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
-`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot statutes --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex> --detail <tool>`
+`{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot statutes --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex|casus|fas> --detail <tool>`
 
 ## Register before you cite
 

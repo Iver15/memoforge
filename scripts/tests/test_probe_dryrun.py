@@ -61,6 +61,15 @@ class DryRunTest(unittest.TestCase):
         self.assertEqual("done", result["final_phase"], result["invariants"])
         self.assertTrue(result["ok"], result)
 
+    def test_the_dry_run_probe_document_carries_the_ru_servers(self):
+        """D-184: the fixture `intake/mcp-probe.json` names `casus` and `fas` as connected."""
+        result = self._run("brief")
+        document = state_io.read_json(Path(result["work_dir"]) / "intake" / "mcp-probe.json")
+        self.assertEqual("mcp__plugin_memoforge_casus", document["namespaces"]["casus"])
+        self.assertEqual("mcp__plugin_memoforge_fas-search", document["namespaces"]["fas"])
+        self.assertEqual("ok", document["status"]["casus"])
+        self.assertEqual("ok", document["status"]["fas"])
+
     def test_g2_ceilings_hold_in_both_modes(self):
         for mode in ("full", "brief"):
             with self.subTest(mode=mode):

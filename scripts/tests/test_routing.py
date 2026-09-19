@@ -252,7 +252,7 @@ class MemberStateTest(unittest.TestCase):
     def test_an_unknown_jurisdiction_is_the_only_row_without_a_preferred_domain(self):
         # The researcher prompt reads "no preferred domain" as "off-table"; keep the two in step.
         for layer in routing.LAYERS:
-            for code in ("EU", "UK", "US", "CH") + routing.MEMBER_STATES + ("ZZ", "PL"):
+            for code in ("EU", "UK", "US", "CH", "RU") + routing.MEMBER_STATES + ("ZZ", "PL"):
                 with self.subTest(layer=layer, jurisdiction=code):
                     row = routing.route(layer, code)
                     self.assertEqual(row["known"], bool(row["domains"]))
@@ -296,7 +296,7 @@ class ExtraJurisdictionTest(unittest.TestCase):
 
     def test_switzerland_is_not_smuggled_into_the_member_states(self):
         self.assertNotIn("CH", routing.MEMBER_STATES)
-        self.assertEqual(["CH"], sorted(routing.EXTRA_JURISDICTION_ROWS["statutes"]))
+        self.assertEqual(["CH", "RU"], sorted(routing.EXTRA_JURISDICTION_ROWS["statutes"]))
 
     def test_every_layer_of_the_extra_table_is_a_known_row(self):
         for layer in routing.LAYERS:
@@ -365,6 +365,96 @@ class ExtraJurisdictionTest(unittest.TestCase):
         allowed = MemberStateTest.allowlisted_hosts()
         for layer in routing.LAYERS:
             for domain in routing.route(layer, "CH")["domains"]:
+                with self.subTest(layer=layer, domain=domain):
+                    suffixes = [
+                        host for host in allowed if domain == host or domain.endswith("." + host)
+                    ]
+                    self.assertTrue(suffixes, f"{domain} is not in hooks/allowlist.txt")
+
+
+class RuJurisdictionTest(unittest.TestCase):
+    """D-185: Russia is not an EU member state, so it sits beside `MEMBER_STATE_ROWS` like CH."""
+
+    def test_russia_is_not_smuggled_into_the_member_states(self):
+        self.assertNotIn("RU", routing.MEMBER_STATES)
+        self.assertEqual(["CH", "RU"], sorted(routing.EXTRA_JURISDICTION_ROWS["statutes"]))
+
+    def test_russian_spellings_normalise_to_ru(self):
+        for spelling in ("RUS", "RF", "RUSSIA", "ru"):
+            with self.subTest(spelling=spelling):
+                self.assertEqual("RU", routing.normalize_jurisdiction(spelling))
+
+    def test_every_layer_of_the_russian_table_is_a_known_row(self):
+        for layer in routing.LAYERS:
+            with self.subTest(layer=layer):
+                row = routing.route(layer, "RU")
+                self.assertTrue(row["known"])
+                self.assertTrue(row["domains"])
+                self.assertTrue(row["note"])
+
+    def test_russian_statutes_start_at_the_ldh_pravogovru_corpus(self):
+        row = routing.route("statutes", "RU")
+        self.assertEqual(["ldh_search", "WebFetch"], row["tools"])
+        self.assertEqual(["RU/PravoGovRu"], row["ldh_sources"])
+        self.assertEqual(["www.consultant.ru", "base.garant.ru"], row["domains"])
+        self.assertIn("RU/PravoGovRu", row["note"])
+        self.assertIn("--raw-file", row["note"])
+
+    def test_the_russian_statute_note_names_the_free_sections_and_the_pinpoint_form(self):
+        note = routing.route("statutes", "RU")["note"]
+        self.assertIn("www.consultant.ru/document/cons_doc_LAW_", note)
+        self.assertIn("base.garant.ru", note)
+        self.assertIn("pravo.gov.ru", note)
+        self.assertIn("п. 2 ст. 152", note)
+        self.assertIn("Гражданский кодекс РФ (часть первая), ст. 152", note)
+
+    def test_russian_case_law_names_the_casus_and_fas_tools_first(self):
+        row = routing.route("case_law", "RU")
+        self.assertEqual(
+            [
+                "casus_casuslegal_search_practice",
+                "casus_casuslegal_find_term",
+                "casus_casuslegal_get_case_details",
+                "casus_casuslegal_browse_practice",
+                "fas_search_fas_cases",
+                "fas_get_case_details",
+                "fas_get_filter_options",
+                "ldh_search",
+                "WebFetch",
+            ],
+            row["tools"],
+        )
+        self.assertEqual(["RU/Sudact"], row["ldh_sources"])
+        self.assertEqual(["sudact.ru"], row["domains"])
+        note = row["note"]
+        self.assertIn("RU/Sudact", note)
+
+    def test_every_russian_note_sends_a_moved_tool_name_to_the_host_tool_list(self):
+        """D-187a: the probe records namespaces and status, never tool names — so it is not the
+        fallback for a name that differs from the vendor's documentation."""
+        for layer in routing.LAYERS:
+            note = routing.route(layer, "RU")["note"]
+            with self.subTest(layer=layer):
+                self.assertIn("the exact names are the tools the host exposes under that", note)
+                self.assertIn("match by tool suffix", note)
+                self.assertIn("records the namespaces, not the tool names", note)
+                self.assertNotIn("Exact tool names are in intake/mcp-probe.json", note)
+
+    def test_russian_doctrine_reads_the_commentary_outlets(self):
+        row = routing.route("doctrine", "RU")
+        self.assertEqual(["WebSearch", "WebFetch"], row["tools"])
+        self.assertEqual([], row["ldh_sources"])
+        self.assertEqual(["zakon.ru", "cyberleninka.ru"], row["domains"])
+
+    def test_the_russian_rows_never_reach_the_intake_digest(self):
+        # D-110: the digest is EU/UK/US only, whatever `route()` merges in behind it.
+        self.assertNotIn("RU ", routing.routing_digest({"casus": "x", "fas": "y", "ldh": "z"}))
+        self.assertNotIn("casus", routing.routing_digest({"casus": "x", "fas": "y", "ldh": "z"}))
+
+    def test_every_routed_domain_of_the_russian_table_is_auto_allowed(self):
+        allowed = MemberStateTest.allowlisted_hosts()
+        for layer in routing.LAYERS:
+            for domain in routing.route(layer, "RU")["domains"]:
                 with self.subTest(layer=layer, domain=domain):
                     suffixes = [
                         host for host in allowed if domain == host or domain.endswith("." + host)
@@ -623,6 +713,11 @@ class McpServerAliasTest(unittest.TestCase):
         # D-161: Lex (UK legislation, explanatory notes and amendments by i.AI), hosted keyless.
         self.assertEqual("lex", routing.MCP_SERVERS["lex"])
         self.assertEqual("https://lex.lab.i.ai.gov.uk/mcp", manifest["lex"]["url"])
+        # D-184: CasusLegal + FAS advertising practice (RU), following the CH template.
+        self.assertEqual("casus", routing.MCP_SERVERS["casus"])
+        self.assertEqual("fas-search", routing.MCP_SERVERS["fas"])
+        self.assertEqual("https://mcp.casus.legal/one/mcp", manifest["casus"]["url"])
+        self.assertEqual("https://search.delay-rag.ru/mcp/", manifest["fas-search"]["url"])
 
     def test_every_server_is_named_for_the_sources_question_of_the_plan_gate(self):
         self.assertEqual(sorted(routing.MCP_SERVERS), sorted(routing.MCP_SERVER_LABELS))
@@ -630,10 +725,12 @@ class McpServerAliasTest(unittest.TestCase):
         self.assertEqual("OpenCaseLaw (CH)", routing.MCP_SERVER_LABELS["opencaselaw"])
         self.assertEqual("Federal Regulations (US)", routing.MCP_SERVER_LABELS["fedregs"])
         self.assertEqual("Lex (UK, i.AI)", routing.MCP_SERVER_LABELS["lex"])
+        self.assertEqual("CasusLegal (RU)", routing.MCP_SERVER_LABELS["casus"])
+        self.assertEqual("FAS advertising practice (RU)", routing.MCP_SERVER_LABELS["fas"])
 
     def test_every_mcp_tool_of_the_table_starts_with_a_known_alias(self):
         for layer in routing.LAYERS:
-            for code in ("EU", "UK", "US", "ZZ", "CH") + routing.MEMBER_STATES:
+            for code in ("EU", "UK", "US", "ZZ", "CH", "RU") + routing.MEMBER_STATES:
                 for tool in routing.route(layer, code)["tools"]:
                     if tool in ("WebFetch", "WebSearch"):
                         continue
@@ -699,10 +796,14 @@ class EstimateTest(unittest.TestCase):
         self.assertEqual(60, estimate["provider_daily_limits"]["uklegal"])
         self.assertEqual(60, estimate["provider_daily_limits"]["fedregs"])
         self.assertEqual(60, estimate["provider_daily_limits"]["lex"])
+        # D-184: CasusLegal publishes no quota (100); FAS publishes 300/day but stays out of
+        # `MCP_QUOTA_SERVERS` (fix round 1) — both ceilings are an orientation only.
+        self.assertEqual(100, estimate["provider_daily_limits"]["casus"])
+        self.assertEqual(300, estimate["provider_daily_limits"]["fas"])
 
     def test_a_free_server_does_not_move_the_quota_verdict(self):
         # D-166: only the quota servers count — a free server never trips `exceeds`.
-        for name in ("legalviz", "uklegal", "fedregs", "lex"):
+        for name in ("legalviz", "uklegal", "fedregs", "lex", "casus", "fas"):
             with self.subTest(server=name):
                 verdict = routing.budget_verdict(["statutes", "case_law", "doctrine"], 30, {name: 8})
                 self.assertEqual(0, verdict["daily_upper_bound"])

@@ -212,7 +212,7 @@ class UrlTableTest(unittest.TestCase):
         """
         known: set = {"mf sources fetch", "WebFetch", "WebSearch"}
         for layer in routing.LAYERS:
-            for code in list(routing.ROUTING[layer]) + list(routing.MEMBER_STATES):
+            for code in list(routing.ROUTING[layer]) + list(routing.MEMBER_STATES) + ["CH", "RU"]:
                 row = routing.route(layer, code)
                 known.update(row["tools"])
                 known.update(row["domains"])
@@ -233,6 +233,35 @@ class UrlTableTest(unittest.TestCase):
         note = routing.route("statutes", "IT")["note"]
         self.assertIn("api.normattiva.it", note)
         self.assertIn("--method POST --json", note)
+
+
+class RuPreflightTest(unittest.TestCase):
+    """D-185: the RU web channels are the primary statute source, so the intake block reports them."""
+
+    def test_the_russian_statute_hosts_have_probe_urls(self):
+        self.assertTrue(preflight.PREFLIGHT_URLS["www.consultant.ru"].startswith("https://"))
+        self.assertTrue(preflight.PREFLIGHT_URLS["base.garant.ru"].startswith("https://"))
+        self.assertTrue(preflight.PREFLIGHT_URLS["sudact.ru"].startswith("https://"))
+        # Fix round 1: the Sudact probe is the document-search page, verified live.
+        self.assertIn("/regular/doc/", preflight.PREFLIGHT_URLS["sudact.ru"])
+
+    def test_a_russian_plan_probes_the_russian_statute_hosts(self):
+        hosts = preflight.plan_hosts(
+            {"jurisdictions": ["RU"], "doctrine_required": True, "issues": []}
+        )
+        for host in ("www.consultant.ru", "base.garant.ru", "sudact.ru"):
+            with self.subTest(host=host):
+                self.assertIn(host, hosts)
+
+    def test_the_russian_statute_alternatives_point_at_each_other(self):
+        self.assertIn("base.garant.ru", preflight.PREFLIGHT_ALTERNATIVES["www.consultant.ru"])
+        self.assertIn("www.consultant.ru", preflight.PREFLIGHT_ALTERNATIVES["base.garant.ru"])
+
+    def test_the_sudact_alternative_points_at_the_bundled_tools(self):
+        alternative = preflight.PREFLIGHT_ALTERNATIVES["sudact.ru"]
+        self.assertIn("casus", alternative)
+        self.assertIn("fas", alternative)
+        self.assertIn("RU/Sudact", alternative)
 
 
 class PlanHostsTest(unittest.TestCase):

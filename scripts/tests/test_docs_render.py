@@ -97,6 +97,8 @@ class PermissionsTest(unittest.TestCase):
         self.assertIn("mcp__plugin_memoforge_courtlistener__*", text)
         self.assertIn("mcp__plugin_memoforge_federal-regulations__*", text)
         self.assertIn("mcp__plugin_memoforge_lex__*", text)
+        self.assertIn("mcp__plugin_memoforge_casus__*", text)
+        self.assertIn("mcp__plugin_memoforge_fas-search__*", text)
         self.assertIn("scripts/mf *", text)
         allow_block = text.split("```json", 1)[1].split("```", 1)[0]
         self.assertNotIn("Agent(", allow_block, "globs for Agent are not confirmed (§8.2)")

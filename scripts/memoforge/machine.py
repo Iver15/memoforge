@@ -2203,19 +2203,24 @@ def inline_spec(work_dir: Path, state: dict, phase: str, step_id: str, attempt: 
                 "UK Legal (`uk-legal-mcp`), JusticeLibre (French law), OpenCaseLaw (Swiss law), "
                 "Federal Regulations (US CFR via eCFR and the Federal Register), "
                 "Lex (UK legislation, explanatory notes and amendments, by i.AI), "
+                "CasusLegal (Russian case law and commentary), "
+                "FAS advertising practice (Russian FAS decisions on advertising law), "
                 "any other legal server). Then make exactly ONE cheap call per connected server and "
                 'record what came back: LegalViz `resolve("Regulation (EU) 2016/679")`, UK Legal '
                 '`legislation_search("Data Protection Act 2018", limit 1)`, CourtListener `search` '
                 'for a case you know exists, LDH `discover_sources("EU")`, JusticeLibre '
                 '`get_law_article(code="CT", num="L1121-1")`, OpenCaseLaw '
-                '`get_law(sr_number="220", article="328b")`. Write both as '
+                '`get_law(sr_number="220", article="328b")`, CasusLegal '
+                '`casuslegal_find_term` with a two-word phrase, FAS `get_filter_options`. Write both as '
                 '`mcp-probe` JSON: {"namespaces": {"ldh": "<namespace or null>", '
                 '"courtlistener": "<namespace or null>", "legalviz": "<namespace or null>", '
                 '"uklegal": "<namespace or null>", "justicelibre": "<namespace or null>", '
                 '"opencaselaw": "<namespace or null>", "fedregs": "<namespace or null>", '
-                '"lex": "<namespace or null>", "other": ["<namespace>", …]}, '
+                '"lex": "<namespace or null>", "casus": "<namespace or null>", '
+                '"fas": "<namespace or null>", "other": ["<namespace>", …]}, '
                 '"status": {"ldh": "ok|quota|auth|error|absent", "courtlistener": …, '
-                '"legalviz": …, "uklegal": …, "justicelibre": …, "opencaselaw": …, "fedregs": …, "lex": …}}. `ok` only '
+                '"legalviz": …, "uklegal": …, "justicelibre": …, "opencaselaw": …, "fedregs": …, '
+                '"lex": …, "casus": …, "fas": …}}. `ok` only '
                 "when the call returned a real answer: a quota or rate-limit refusal is `quota`, a "
                 "401/OAuth refusal is `auth`, any other failure is `error`, a server that is not "
                 "connected is `absent`. One call each, no retries — a server that is not `ok` is "
@@ -2318,12 +2323,17 @@ def _mcp_probe(work_dir: Path) -> dict | None:
 
 
 def _mcp_namespaces(work_dir: Path) -> str:
-    """The probed MCP namespaces, read against `published[]` (D-41, D-60)."""
+    """The probed MCP namespaces, read against `published[]` (D-41, D-60).
+
+    D-187a: every bundled server of `routing.MCP_SERVERS`, in table order, then whatever the probe
+    filed under `other`. The list used to name two aliases, so a session with the other bundled
+    servers connected — and a purely RU session, with casus and fas alone — was told `none`.
+    """
     probe = _mcp_probe(work_dir)
     if probe is None:
         return "unknown"
     namespaces = probe.get("namespaces") or {}
-    names = [str(namespaces.get(key)) for key in ("ldh", "courtlistener") if namespaces.get(key)]
+    names = [str(namespaces.get(alias)) for alias in routing.MCP_SERVERS if namespaces.get(alias)]
     names += [str(name) for name in (namespaces.get("other") or [])]
     return ", ".join(names) if names else "none"
 
@@ -2474,6 +2484,27 @@ def target_layers(work_dir: Path, state: dict) -> list[str]:
     return layers
 
 
+def _routing_table(rows: list[dict]) -> str:
+    """`${routing}` — one indented block per routed row: tools, LDH corpora, then the row's note.
+
+    D-187a: the tool line used to be the whole parameter, so everything else the routing table
+    carries — which LDH corpus answers for that jurisdiction, which portal is captcha-gated or
+    behind a WAF, how a pinpoint is written there — never reached the researcher, whatever the
+    jurisdiction. The head keeps the shape it always had; the corpora and the note follow it.
+    """
+    lines: list[str] = []
+    for row in rows:
+        head = f"{row['jurisdiction'] or 'any'}: {' > '.join(row['tools'])}"
+        if row["domains"]:
+            head += f" (domains: {', '.join(row['domains'])})"
+        lines.append(f"  - {head}")
+        if row["ldh_sources"]:
+            lines.append(f"    LDH sources: {', '.join(row['ldh_sources'])}")
+        if row["note"]:
+            lines.append(f"    {row['note']}")
+    return ("\n" + "\n".join(lines)) if lines else "none"
+
+
 def research_layers(work_dir: Path, state: dict) -> list[str]:
     """Layers whose findings the downstream consumers may name: what was actually dispatched (§2.1)."""
     dispatched = [
@@ -2505,12 +2536,7 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
     source_access = preflight.source_access_line(work_dir, state)
     specs = []
     for layer in layers:
-        rows = routing.routing_for([layer], plan.get("jurisdictions") or [])
-        table = "; ".join(
-            f"{row['jurisdiction'] or 'any'}: {' > '.join(row['tools'])}"
-            + (f" (domains: {', '.join(row['domains'])})" if row["domains"] else "")
-            for row in rows
-        )
+        table = _routing_table(routing.routing_for([layer], plan.get("jurisdictions") or []))
         gaps = gaps_by_layer.get(layer) or []
         previous = f"research/{layer}.json"
         previous_findings = (

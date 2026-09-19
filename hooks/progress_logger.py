@@ -48,6 +48,11 @@ MCP_ALIAS_SPELLINGS: tuple[tuple[str, str], ...] = (
     ("justicelibre", "justicelibre"),
     ("opencaselaw", "opencaselaw"),
     ("swisscaselaw", "opencaselaw"),
+    # D-184: the manifest names in Claude Code, `CasusLegal`/`Casus` and `fas-search` as Cowork connectors.
+    ("casuslegal", "casus"),
+    ("casus", "casus"),
+    ("fassearch", "fas"),
+    ("fas", "fas"),
     # D-160: the manifest name in Claude Code, the `serverInfo.name` in Cowork.
     ("federalregulationsmcpserver", "fedregs"),
     ("federalregulations", "fedregs"),

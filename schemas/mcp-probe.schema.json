@@ -20,6 +20,8 @@
         "opencaselaw": { "$ref": "#/$defs/namespace_or_null" },
         "fedregs": { "$ref": "#/$defs/namespace_or_null" },
         "lex": { "$ref": "#/$defs/namespace_or_null" },
+        "casus": { "$ref": "#/$defs/namespace_or_null" },
+        "fas": { "$ref": "#/$defs/namespace_or_null" },
         "other": {
           "type": "array",
           "items": { "$ref": "#/$defs/namespace" }
@@ -38,7 +40,9 @@
         "justicelibre": { "$ref": "#/$defs/server_status" },
         "opencaselaw": { "$ref": "#/$defs/server_status" },
         "fedregs": { "$ref": "#/$defs/server_status" },
-        "lex": { "$ref": "#/$defs/server_status" }
+        "lex": { "$ref": "#/$defs/server_status" },
+        "casus": { "$ref": "#/$defs/server_status" },
+        "fas": { "$ref": "#/$defs/server_status" }
       }
     },
     "probed_at": { "$ref": "#/$defs/timestamp" }
