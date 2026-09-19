@@ -45,7 +45,7 @@ The CLI, the hooks and the status line are stdlib-only, so the plugin installs a
 
 ### Connect the legal databases
 
-The plugin registers eight MCP servers through `.mcp.json`:
+The plugin registers ten MCP servers through `.mcp.json`:
 
 - `legal-data-hunter` — multi-jurisdictional statutes, case law and regulator guidance (230+ jurisdictions).
 - `courtlistener` — US case law, plus the citation check that says whether a US citation exists at all.
@@ -55,10 +55,12 @@ The plugin registers eight MCP servers through `.mcp.json`:
 - `opencaselaw` — [OpenCaseLaw](https://github.com/jonashertner/opencaselaw), free and keyless, CC0 data: Swiss federal law by SR number and article (with the consolidations already scheduled), a million decisions back to 1875 with their official headnotes, and the commentary literature.
 - `federal-regulations` — [federal-regulations-mcp-server](https://github.com/cyanheads/federal-regulations-mcp-server), free and keyless: the Code of Federal Regulations from eCFR, section by section and as of a date, and the Federal Register's proposed and final rules by number or search. The U.S. Code itself is read from govinfo.gov.
 - `lex` — [Lex](https://github.com/i-dot-ai/lex) by i.AI (the UK government's AI incubator, with The National Archives and the Ministry of Justice), free and keyless: Acts and SIs by citation or search, the explanatory note of a section, and the amendments that changed it. An experimental service — the plugin uses it for explanatory notes and amendment history and keeps `uk-legal` first for statutes and judgments.
+- `casus` — [CasusLegal](https://mcp.casus.legal/), a paid Russian connector: legal positions of the Constitutional, Supreme and former Supreme Arbitration Courts with hybrid search, a phrase index, full case texts and the specialised IP-court and administrative-chamber corpora. Sign in with your CasusLegal account (Claude Desktop: Settings → Connectors → custom connector `https://mcp.casus.legal/one/mcp`; Claude Code: `claude mcp add --transport http casus https://mcp.casus.legal/one/mcp`).
+- `fas-search` — [FAS advertising practice](https://blog.delay-rag.ru/mcp-konniektor-k-poisku-po-praktikie-fas/), free and keyless: 8,000 decisions of the Russian Federal Antimonopoly Service and its regional offices under the Law on Advertising (20 calls a minute, 300 a day per IP, shared by cloud clients). Used for advertising, unfair-competition and antimonopoly questions only.
 
-Click **Connect** on each in the plugin panel; the first call may open an OAuth sign-in (LegalViz, UK Legal, JusticeLibre and OpenCaseLaw need no key). Skipping this is supported — research falls back to WebFetch against official portals, and the memo carries a banner asking you to verify each citation.
+Click **Connect** on each in the plugin panel; the first call may open an OAuth sign-in (LegalViz, UK Legal, JusticeLibre, OpenCaseLaw and the FAS server need no key; CasusLegal needs a paid account). Skipping this is supported — research falls back to WebFetch against official portals, and the memo carries a banner asking you to verify each citation.
 
-**More jurisdictions.** The bundled eight cover the EU, the UK, the US, France and Switzerland. For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
+**More jurisdictions.** The bundled ten cover the EU, the UK, the US, France, Switzerland and Russia (higher-court practice through CasusLegal, FAS advertising practice, Legal Data Hunter's pravo.gov.ru and Sudact corpora, and the free article pages of consultant.ru and base.garant.ru). For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
 
 ### Ask
 
@@ -195,7 +197,7 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
   "WebFetch(domain:*.noyb.eu)", "mcp__plugin_memoforge_legal-data-hunter__*", "mcp__plugin_memoforge_courtlistener__*",
   "mcp__plugin_memoforge_legalviz__*", "mcp__plugin_memoforge_uk-legal__*", "mcp__plugin_memoforge_justicelibre__*",
   "mcp__plugin_memoforge_opencaselaw__*", "mcp__plugin_memoforge_federal-regulations__*",
-  "mcp__plugin_memoforge_lex__*",
+  "mcp__plugin_memoforge_lex__*", "mcp__plugin_memoforge_casus__*", "mcp__plugin_memoforge_fas-search__*",
   "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/mf *)"
 ]}}
 ```
