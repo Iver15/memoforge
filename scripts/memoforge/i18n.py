@@ -54,6 +54,17 @@ def normalize(code: object) -> str | None:
     return text if text in LANGUAGES else None
 
 
+def ui_language(state: dict | None) -> str:
+    """The interface language of one task (D-176): `state.ui_language`, else English.
+
+    A state written before plan 54 carries no `ui_language` at all, and an unusable value never
+    reaches the interface: both degrade to `en`, the floor every pack falls back to (D-168).
+    """
+    if not isinstance(state, dict):
+        return DEFAULT
+    return normalize(state.get("ui_language")) or DEFAULT
+
+
 def _pack_path(code: str) -> Path:
     return (PACK_DIR / f"{code}.json").resolve()
 

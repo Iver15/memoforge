@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
@@ -14,8 +16,10 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import _i18n  # noqa: E402
 from _pipeline import Driver, temp_root  # noqa: E402
-from memoforge import events, gates, limits, machine, probe, state_io  # noqa: E402
+from memoforge import events, gates, i18n, limits, machine, phases, probe  # noqa: E402
+from memoforge import state_io, style_profile  # noqa: E402
 
 
 def parse_args(driver: Driver, action: dict, text: str, **overrides) -> argparse.Namespace:
@@ -1115,6 +1119,471 @@ class AuqChannelSwitchTest(unittest.TestCase):
         self.assertEqual(["stale_generation"], answer["errors"])
         row = machine.step_row(driver.state(), action["step_id"], action["attempt"])
         self.assertEqual(0, row["generation"])
+
+
+_EN_INTAKE = "\n".join(
+    [
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui 1A 2C`.",
+        "",
+        "Please answer, in the form `1A 2C 3: free text`:",
+        "",
+        "1. Fixture question 1: which assumption applies?",
+        "   A) Option A — The first documented assumption.",
+        "   B) Option B — The alternative documented assumption.",
+        "",
+        "2. Fixture question 2: which assumption applies?",
+        "   A) Option A — The first documented assumption.",
+        "   B) Option B — The alternative documented assumption.",
+        "",
+        "Everything else is assumed as follows:",
+        "- Fixture question 3: which assumption applies? — assuming: Option A applies. (confidence: medium)",
+        "  If that is wrong: The retention period would be shorter.",
+        "",
+        "`proceed` accepts every assumption as written. `cancel` stops the task.",
+    ]
+) + "\n"
+
+_EN_SUFFICIENCY_FOLLOWUP = "\n".join(
+    [
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui 1A`.",
+        "",
+        "Research left gaps only you can close. Answer as `1A 2C 3: free text`:",
+        "",
+        "1. Which retention period applies?",
+        "   A) Five years — Statutory minimum.",
+        "   B) Seven years — Tax rule.",
+        "   Skipped, we assume: Five years.",
+        "",
+        "`proceed` accepts the assumptions above. `cancel` stops the task.",
+    ]
+) + "\n"
+
+_EN_INSUFFICIENT = "\n".join(
+    [
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui continue`.",
+        "",
+        "Research did not reach the bar for a client-ready memo.",
+        "",
+        "Open gaps:",
+        "- no findings for layer(s): doctrine",
+        "",
+        "`continue` drafts anyway, with the gaps written into the memo as caveats.",
+        "`cancel` stops the task.",
+    ]
+) + "\n"
+
+_EN_PLAN = "\n".join(
+    [
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui approve full`.",
+        "",
+        "Plan — regulatory_analysis, jurisdictions: EU, estimated complexity: high.",
+        "Full plan: `plan.json` in the task work dir.",
+        "",
+        "Legal issues to research (2):",
+        "- i1 — Retention of customer records [EU]",
+        "  How long may the client keep customer records?",
+        "- i2 — Cross-border transfers [EU]",
+        "  May the client transfer the records outside the EEA?",
+        "",
+        "Research layers: statutes, case_law, doctrine (doctrine required).",
+        "Recommended mode: full — Up to three layers, two review iterations, full memo.",
+        (
+            "This plan has 2 issues at high complexity; Brief researches one layer (statutes) and fits three sections "
+            "— case law and doctrine gaps become caveats."
+        ),
+        "Planner notes: fixture plan produced by `mf probe dry-run`",
+        "",
+        "Plan: Approve this research plan?",
+        "  options: Approve / Edit / Cancel",
+        "Mode: Which depth should the memo have?",
+        "  options: Full / Brief",
+        "Style: Which writing style should the memo follow?",
+        "  options: my-firm / standard",
+        (
+            "Sources: Source coverage may be limited. Estimated 20 legal-source calls against the daily quotas of "
+            "ldh, courtlistener (135 in total; a quota is an upper bound, not a remaining count). No legal database "
+            "is connected for statutes in EU (LegalViz, Legal Data Hunter). No legal database is connected for "
+            "case_law in EU (LegalViz, JusticeLibre (FR), Legal Data Hunter). No legal database is connected for "
+            "doctrine in EU (Legal Data Hunter)."
+        ),
+        "  options: Continue / Cancel",
+        "",
+        "Reply with one of:",
+        "- `approve [brief|full] [style:<name>|standard] [sources:reduced]`",
+        "- `edit: <what to change>`",
+        "- `cancel`",
+    ]
+) + "\n"
+
+_EN_SOURCE_REVIEW = "\n".join(
+    [
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui continue`.",
+        "",
+        "Source review — 0 sources registered (not frozen).",
+        "",
+        "Exceptions requiring your attention:",
+        "- [drafting_warning] no findings for layer(s): doctrine",
+        "",
+        "Reply `continue` to draft on these sources, or `cancel` to stop.",
+    ]
+)
+
+ENGLISH_GATE_TEXTS: dict[str, str] = {
+    "intake": _EN_INTAKE,
+    "sufficiency_followup": _EN_SUFFICIENCY_FOLLOWUP,
+    "insufficient": _EN_INSUFFICIENT,
+    "plan": _EN_PLAN,
+    "source_review": _EN_SOURCE_REVIEW,
+}
+"""Every gate text of the `UiLanguageGatesTest` fixture, captured from the code before plan 56.
+
+D-176 moves these literals into `i18n_en.EN["ui"]`; for a task whose two languages are `en`
+the rendered bytes must not move, so the five prompts are pinned here verbatim.
+"""
+
+
+class GateRenderPayloadTest(unittest.TestCase):
+    """Sol finding 1: the printed answer of `mf gate render` carries no in-process key.
+
+    `build_auq` gained `canonical` for `parse_auq` and the probe (D-176a); the CLI answer must
+    keep exactly the keys it had before plan 56, in English and in every other language.
+    """
+
+    PAYLOAD_KEYS = ["gate", "phase", "text", "human", "auq"]
+    AUQ_KEYS = ["questions", "recommended_mode", "sources_budget", "style_options"]
+
+    def _rendered(self, driver: Driver) -> dict:
+        return gates.run_render(
+            argparse.Namespace(workdir=str(driver.work_dir), gate=None, human=False)
+        )
+
+    def test_the_english_plan_gate_answer_has_exactly_its_old_shape(self):
+        driver = Driver(temp_root(self), slug="render-payload-en")
+        driver.run_until("plan_approval_pending")
+        rendered = self._rendered(driver)
+        self.assertEqual(self.PAYLOAD_KEYS, list(rendered))
+        self.assertEqual("plan", rendered["gate"])
+        self.assertEqual("plan_approval_pending", rendered["phase"])
+        self.assertEqual(gates.render(driver.work_dir, driver.state(), "plan"), rendered["text"])
+        self.assertEqual(rendered["text"], rendered["human"])
+        self.assertEqual(self.AUQ_KEYS, list(rendered["auq"]))
+        self.assertNotIn(gates.AUQ_CANONICAL, rendered["auq"])
+        auq = gates.build_auq(driver.work_dir, driver.state())
+        self.assertIn(gates.AUQ_CANONICAL, auq, "the map stays available in process")
+        self.assertEqual(
+            {key: value for key, value in auq.items() if key != gates.AUQ_CANONICAL},
+            rendered["auq"],
+        )
+
+    def test_a_localized_plan_gate_answer_has_the_same_shape(self):
+        packs = Path(temp_root(self)) / "packs"
+        packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(packs, "ru", _i18n.RU_UI)
+        driver = Driver(temp_root(self), slug="render-payload-ru")
+        driver.run_until("plan_approval_pending")
+        state_io.write_state(
+            driver.work_dir, lambda current: current.update({"ui_language": "ru"})
+        )
+        rendered = self._rendered(driver)
+        self.assertEqual(self.PAYLOAD_KEYS, list(rendered))
+        self.assertEqual(self.AUQ_KEYS, list(rendered["auq"]))
+        self.assertNotIn(gates.AUQ_CANONICAL, rendered["auq"])
+        self.assertEqual("План", rendered["auq"]["questions"][0]["header"])
+
+    def test_a_text_gate_answer_carries_no_auq_at_all(self):
+        driver = Driver(temp_root(self), slug="render-payload-text")
+        driver.run_until("intake_questions_pending")
+        rendered = self._rendered(driver)
+        self.assertEqual(["gate", "phase", "text", "human"], list(rendered))
+
+
+class UiLanguageGatesTest(unittest.TestCase):
+    """D-176 / D-176a / D-172: the gates speak the UI language, the answers stay canonical."""
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory(prefix="mf-ui-")
+        self.addCleanup(holder.cleanup)
+        self.root = Path(holder.name)
+        self.packs = self.root / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+        profiles = mock.patch.object(
+            style_profile, "list_profiles", return_value=[{"name": "my-firm", "valid": True}]
+        )
+        profiles.start()
+        self.addCleanup(profiles.stop)
+
+        self.work = self.root / "memo-20260908T120000Z-ui"
+        (self.work / "intake").mkdir(parents=True)
+        state_io.write_json_atomic(self.work / gates.QUESTIONS_PATH, probe.fixture_questions())
+        # No usable namespace and no answered portal: the `Sources` question of §2.4 fires.
+        state_io.write_json_atomic(self.work / gates.MCP_PROBE_PATH, {"namespaces": {"other": []}})
+        state_io.write_json_atomic(self.work / gates.PLAN_PATH, self.plan())
+        self.state_en = self.task_state("en")
+        self.state_ru = self.task_state("ru")
+
+    def plan(self) -> dict:
+        return dict(
+            probe.fixture_plan(),
+            issues=[
+                {
+                    "issue_id": "i1",
+                    "title": "Retention of customer records",
+                    "question": "How long may the client keep customer records?",
+                    "jurisdictions": ["EU"],
+                },
+                {
+                    "issue_id": "i2",
+                    "title": "Cross-border transfers",
+                    "question": "May the client transfer the records outside the EEA?",
+                    "jurisdictions": ["EU"],
+                },
+            ],
+        )
+
+    def task_state(self, ui: str) -> dict:
+        """A task at the plan gate: two issues, one saved style profile, `Sources` forced on."""
+        return {
+            "task_id": self.work.name,
+            "language": "en",
+            "ui_language": ui,
+            "config": {},
+            "drafting_warnings": [
+                {"code": "research_layer_missing", "message": "no findings for layer(s): doctrine"}
+            ],
+            "sufficiency_followup": {
+                "status": "pending",
+                "questions": [
+                    {
+                        "question": "Which retention period applies?",
+                        "header": "Period",
+                        "options": [
+                            {"label": "Five years", "description": "Statutory minimum."},
+                            {"label": "Seven years", "description": "Tax rule."},
+                        ],
+                        "default_assumption_if_skipped": "Five years.",
+                    }
+                ],
+            },
+        }
+
+    def expected_english(self, gate: str) -> str:
+        return ENGLISH_GATE_TEXTS[gate]
+
+    def test_english_gate_texts_are_todays_bytes(self):
+        for gate in ("intake", "sufficiency_followup", "insufficient", "plan", "source_review"):
+            with self.subTest(gate=gate):
+                self.assertEqual(
+                    self.expected_english(gate), gates.render(self.work, self.state_en, gate)
+                )
+
+    def test_the_russian_plan_gate_has_four_localized_questions_with_canonical_map(self):
+        auq = gates.build_auq(self.work, self.state_ru)
+        self.assertEqual(
+            ["План", "Режим", "Стиль", "Источники"], [q["header"] for q in auq["questions"]]
+        )
+        self.assertEqual(
+            {
+                "План": "Plan",
+                "Режим": "Mode",
+                "Стиль": "Style",
+                "Источники": "Sources",
+                "Утвердить": "Approve",
+                "Изменить": "Edit",
+                "Отмена": "Cancel",
+                "Кратко": "Brief",
+                "Полный": "Full",
+                "Продолжить": "Continue",
+            },
+            {k: v for k, v in auq["canonical"].items() if v != k},
+        )
+
+    def test_localized_auq_answers_become_canonical_and_cancel_wins(self):
+        parsed = gates.parse_auq(
+            {"План": "Утвердить", "Режим": "Кратко", "Стиль": "standard", "Источники": "Продолжить"},
+            ui="ru",
+        )
+        self.assertEqual("approve", parsed["action"])
+        self.assertEqual(
+            {"Plan": "Approve", "Mode": "Brief", "Style": "standard", "Sources": "Continue"},
+            parsed["answers"],
+        )
+        self.assertEqual(
+            "cancel", gates.parse_auq({"План": "Утвердить", "Источники": "Отмена"}, ui="ru")["action"]
+        )
+        # Canonical English is always accepted, whatever the interface language is.
+        self.assertEqual("approve", gates.parse_auq({"Plan": "Approve"}, ui="ru")["action"])
+        # An unknown label never approves.
+        self.assertFalse(gates.parse_auq({"План": "Одобряю"}, ui="ru")["recognized"])
+
+    def test_the_memo_language_line_appears_only_outside_en_en(self):
+        self.assertNotIn("Memo language", gates.render_plan_digest(self.work, self.state_en))
+        state = dict(self.state_en, language="de")
+        self.assertIn("Memo language: Deutsch", gates.render_plan_digest(self.work, state))
+        # `ru` interface, `en` memo: the line is printed in Russian and names the memo language.
+        self.assertIn("Язык мемо: English", gates.render_plan_digest(self.work, self.state_ru))
+
+    def test_phase_labels(self):
+        self.assertEqual("Plan approval", phases.label("plan_approval_pending"))
+        self.assertEqual("Утверждение плана", phases.label("plan_approval_pending", "ru"))
+        self.assertEqual("nope", phases.label("nope", "ru"))
+
+    def test_the_russian_gate_texts_carry_no_english_prose(self):
+        for gate in ("intake", "sufficiency_followup", "insufficient", "plan"):
+            with self.subTest(gate=gate):
+                text = gates.render(self.work, self.state_ru, gate)
+                self.assertIn("Ответьте здесь или запустите", text)
+                self.assertNotIn("Reply here, or run", text)
+        intake = gates.render(self.work, self.state_ru, "intake")
+        self.assertIn("Ответьте в формате `1A 2C 3: свободный текст`:", intake)
+        self.assertIn("Остальное принимается так:", intake)
+        self.assertIn("Если это не так: The retention period would be shorter.", intake)
+        followup = gates.render(self.work, self.state_ru, "sufficiency_followup")
+        self.assertIn("   Если пропустить, примем: Five years.", followup)
+        insufficient = gates.render(self.work, self.state_ru, "insufficient")
+        self.assertIn("Исследование не дотянуло до планки клиентского мемо.", insufficient)
+        self.assertIn("- no findings for layer(s): doctrine", insufficient, "memo-language text")
+
+    def test_the_russian_plan_digest_and_text_channel_keep_the_canonical_tokens(self):
+        text = gates.render(self.work, self.state_ru, "plan")
+        self.assertIn("Правовых вопросов для исследования: 2", text)
+        self.assertIn("- i1 — Retention of customer records [EU]", text)
+        self.assertIn("Рекомендуемый режим: full — До трёх слоёв", text)
+        self.assertIn("План: Утвердить этот план исследования?", text)
+        self.assertIn("  варианты: Утвердить / Изменить / Отмена", text)
+        self.assertIn("- `approve [brief|full] [style:<name>|standard] [sources:reduced]`", text)
+        self.assertIn("- `edit: <what to change>`", text)
+        self.assertIn("- `cancel`", text)
+
+    def test_an_unreadable_plan_degrades_in_the_ui_language(self):
+        (self.work / gates.PLAN_PATH).unlink()
+        digest = gates.render_plan_digest(self.work, self.state_ru)
+        # D-172: the memo language is still changeable with no plan, so the line stays.
+        self.assertEqual(
+            "План исследования не читается; измените его или отмените задачу.\n"
+            "Язык мемо: English\n",
+            digest,
+        )
+        self.assertEqual(
+            gates.PLAN_UNREADABLE + "\n", gates.render_plan_digest(self.work, self.state_en)
+        )
+        self.assertEqual(
+            gates.PLAN_UNREADABLE + "\nMemo language: Deutsch\n",
+            gates.render_plan_digest(self.work, dict(self.state_en, language="de")),
+        )
+        auq = gates.build_auq(self.work, self.state_ru)
+        self.assertEqual(
+            ["Изменить", "Отмена"], [row["label"] for row in auq["questions"][0]["options"]]
+        )
+        self.assertEqual("Plan", auq["canonical"]["План"])
+
+    def test_canonical_map_is_the_identity_in_english(self):
+        mapping = gates.canonical_map("en")
+        self.assertEqual({key: key for key in mapping}, mapping)
+        self.assertEqual("Plan", mapping["Plan"])
+        self.assertEqual("Continue", mapping["Continue"])
+        # An unreadable `ui` pack falls back to the English floor (D-168), never to a crash.
+        self.assertEqual(gates.canonical_map("en"), gates.canonical_map("fr"))
+
+    def test_the_recommended_mode_prefix_and_brief_hint_are_localized(self):
+        auq = gates.build_auq(self.work, self.state_ru)
+        options = {
+            option["label"]: option["description"]
+            for question in auq["questions"]
+            if question["header"] == "Режим"
+            for option in question["options"]
+        }
+        self.assertTrue(options["Полный"].startswith("(Рекомендуется) До трёх слоёв"))
+        self.assertIn("«Кратко» исследует один слой", options["Кратко"])
+        self.assertIn("Вопросов в плане: 2", options["Кратко"])
+
+    def test_cancel_wins_over_an_alias_of_the_same_header_in_either_order(self):
+        """Sol finding 3: the localized header and its English name collapse to one key, so a
+        `Cancel` had to be found before the collapse or the later answer overwrote it."""
+        for answers in (
+            {"План": "Отмена", "Plan": "Approve"},
+            {"Plan": "Approve", "План": "Отмена"},
+            {"План": "Утвердить", "Plan": "Cancel"},
+            {"Источники": "Отмена", "Plan": "Approve"},
+        ):
+            with self.subTest(answers=answers):
+                parsed = gates.parse_auq(answers, ui="ru")
+                self.assertEqual("cancel", parsed["action"])
+                self.assertEqual({"Plan": "Cancel"}, parsed["answers"])
+        # Without a Cancel anywhere the collapse is harmless and the answer is still canonical.
+        self.assertEqual(
+            "approve", gates.parse_auq({"План": "Утвердить", "Режим": "Полный"}, ui="ru")["action"]
+        )
+
+    def test_ui_language_reads_the_state_and_degrades_to_english(self):
+        self.assertEqual("ru", i18n.ui_language(self.state_ru))
+        self.assertEqual("en", i18n.ui_language(self.state_en))
+        self.assertEqual("en", i18n.ui_language({}), "a task written before plan 54")
+        self.assertEqual("en", i18n.ui_language({"ui_language": "it"}))
+        self.assertEqual("en", i18n.ui_language(None))
+
+
+class SourceReviewLanguageTest(unittest.TestCase):
+    """D-176 (sources/preflight): gate 11 renders the digest in the UI language (frame only).
+
+    The gate is `gates.render(work, state, "source_review")` → the `sources.py` digest
+    builder; the machine tokens (`[kind]`, `source_id`, `tier`, currency status values,
+    `do_not_use`) and the memo-language `drafting_warning` rows stay raw inside the frame.
+    """
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory(prefix="mf-ui-sources-")
+        self.addCleanup(holder.cleanup)
+        self.root = Path(holder.name)
+        packs = self.root / "packs"
+        packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(packs, "ru", _i18n.RU_UI)
+        self.work = self.root / "memo-20260908T120000Z-ui-sources"
+        (self.work / "research").mkdir(parents=True)
+        (self.work / "intake").mkdir(parents=True)
+        state = {
+            "task_id": self.work.name,
+            "language": "en",
+            "ui_language": "ru",
+            "config": {},
+            "drafting_warnings": [{"code": "x", "message": "no findings for layer(s): doctrine"}],
+        }
+        state_io.write_json_atomic(self.work / "state.json", state)
+
+    def state(self, ui: str) -> dict:
+        document = state_io.read_json(self.work / "state.json")
+        document["ui_language"] = ui
+        return document
+
+    def test_english_source_review_is_todays_bytes(self):
+        state = self.state("en")
+        english = gates.render(self.work, state, "source_review")
+        self.assertIn("Source review — 0 sources registered (not frozen).", english)
+        self.assertIn("Exceptions requiring your attention:", english)
+        self.assertIn("- [drafting_warning] no findings for layer(s): doctrine", english)
+        self.assertIn("Reply `continue` to draft on these sources, or `cancel` to stop.", english)
+
+    def test_the_russian_source_review_localizes_the_frame_but_not_the_rows(self):
+        text = gates.render(self.work, self.state("ru"), "source_review")
+        self.assertIn("Ответьте здесь или запустите", text)
+        self.assertIn("Проверка источников — 0 источников зарегистрировано (не заморожено).", text)
+        self.assertNotIn("Source review —", text)
+        self.assertIn("Исключения, требующие вашего внимания:", text)
+        self.assertNotIn("Exceptions requiring your attention:", text)
+        self.assertIn("- [drafting_warning] no findings for layer(s): doctrine", text, "memo-language text")
+        self.assertIn(
+            "Ответьте `continue`, чтобы писать по этим источникам, или `cancel`, чтобы остановиться.",
+            text,
+        )
 
 
 if __name__ == "__main__":

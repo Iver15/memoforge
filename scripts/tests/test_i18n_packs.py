@@ -23,6 +23,26 @@ from memoforge.docx import oscola  # noqa: E402
 
 PACK_CODES: tuple[str, ...] = ("de", "fr", "es", "ru")
 
+_CANONICAL_BACKTICK_TOKENS: frozenset[str] = frozenset(
+    {
+        # D-176a: the text-channel tokens are never translated and stand unchanged
+        # inside their backticks in every pack.
+        "approve",
+        "edit:",
+        "cancel",
+        "proceed",
+        "continue",
+        "brief",
+        "full",
+        "standard",
+        "style:",
+        "sources:",
+        "1A",
+        "3:",
+    }
+)
+"""Tokens of the D-176a text channel whose backticked occurrence must survive verbatim."""
+
 
 def _leaves(node: object, prefix: str = "") -> dict[str, object]:
     """Dotted key -> leaf value for every leaf of a nested pack dict."""
@@ -57,10 +77,13 @@ class PackParityTest(unittest.TestCase):
                 self.assertEqual(pack, i18n.load(code))
 
     def test_key_set_equals_en_recursively(self):
+        """The full tree (`memo` + `ui`) is complete in every pack and no pack carries a key
+        `EN` does not have (D-168 packs, plan 56 task 6)."""
         english = _leaves(i18n_en.EN)
         for code in PACK_CODES:
             with self.subTest(code=code):
-                self.assertEqual(set(english), set(_leaves(self._pack(code))), code)
+                leaves = _leaves(self._pack(code))
+                self.assertEqual(set(english), set(leaves), code)
 
     def test_placeholders_of_every_string_leaf_equal_the_english_ones(self):
         english = _leaves(i18n_en.EN)
@@ -238,6 +261,181 @@ class PackParityTest(unittest.TestCase):
         """Post-run fix: a UK Act section is «статья» in Russian legal usage."""
         self.assertEqual("ст.", i18n.node("ru", "memo.citation.s"))
         self.assertEqual("ст.", i18n.node("ru", "memo.citation.ss"))
+
+    # --- plan 56 task 6: the `ui` parity rules (D-168 packs) ------------------
+
+    _AUQ_PAIRS: tuple[tuple[str, str], ...] = (
+        ("ui.gates.header_plan", "Plan"),
+        ("ui.gates.header_mode", "Mode"),
+        ("ui.gates.header_style", "Style"),
+        ("ui.gates.header_sources", "Sources"),
+        ("ui.gates.option_approve", "Approve"),
+        ("ui.gates.option_edit", "Edit"),
+        ("ui.gates.option_cancel", "Cancel"),
+        ("ui.gates.option_brief", "Brief"),
+        ("ui.gates.option_full", "Full"),
+        ("ui.gates.option_continue", "Continue"),
+    )
+    """The ten keys `gates.canonical_map` builds its reverse map from (D-176a)."""
+
+    def test_auq_headers_fit_their_control_and_option_labels_are_short(self):
+        """Every AUQ `header` is ≤ 12 characters and every option label ≤ 20 (plan 56 contract)."""
+        headers = (
+            "ui.gates.header_plan",
+            "ui.gates.header_mode",
+            "ui.gates.header_style",
+            "ui.gates.header_sources",
+        )
+        options = (
+            "ui.gates.option_approve",
+            "ui.gates.option_edit",
+            "ui.gates.option_cancel",
+            "ui.gates.option_brief",
+            "ui.gates.option_full",
+            "ui.gates.option_continue",
+        )
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                for dotted in headers:
+                    self.assertLessEqual(len(str(i18n.t(code, dotted))), 12, dotted)
+                for dotted in options:
+                    self.assertLessEqual(len(str(i18n.t(code, dotted))), 20, dotted)
+
+    def test_canonical_map_is_injective_per_language(self):
+        """One localized label/header maps to exactly one canonical value (D-176a).
+
+        `Cancel` legitimately repeats across the Plan and Sources questions, but every
+        occurrence maps to the same value — so the check runs on the (localized, canonical)
+        pairs, not on the localized strings alone.
+        """
+        from memoforge import gates
+
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                seen: dict[str, str] = {}
+                for key, canonical in self._AUQ_PAIRS:
+                    localized = str(i18n.t(code, key))
+                    self.assertTrue(localized.strip(), key)
+                    if localized in seen:
+                        self.assertEqual(seen[localized], canonical, key)
+                    else:
+                        seen[localized] = canonical
+                mapping = gates.canonical_map(code)
+                for localized, canonical in seen.items():
+                    self.assertEqual(canonical, mapping[localized], localized)
+
+    def test_backticked_tokens_of_english_strings_survive_unchanged(self):
+        """Every canonical token inside a backticked span of an English string is present verbatim.
+
+        Two gate strings put a *form example* in backticks (`` `1A 2C 3: free text` ``):
+        the canonical tokens inside the span (`1A`, `2C`, `3:`) must not move, while the
+        prose around them (`free text`) is translated — so the rule compares the tokens
+        of the D-176a text channel (plus anything carrying digits, punctuation, slashes or
+        brackets, like `{placeholders}` and `/memoforge:continue`), not whole spans and
+        not pure prose words (plan 56 task 1 concern 3).
+        """
+        english = _leaves(i18n_en.EN)
+        for code in PACK_CODES:
+            with self.subTest(code=code):
+                leaves = _leaves(self._pack(code))
+                for dotted, value in english.items():
+                    if not isinstance(value, str) or "`" not in value:
+                        continue
+                    localized = leaves[dotted]
+                    self.assertIsInstance(localized, str, dotted)
+                    for span in re.findall(r"`([^`]*)`", value):
+                        for token in span.split():
+                            if token in _CANONICAL_BACKTICK_TOKENS or re.search(
+                                r"[^A-Za-z]", token
+                            ):
+                                self.assertIn(token, str(localized), f"{dotted}: `{token}`")
+
+    def test_numbered_gate_instruction_ends_with_a_colon_and_reply_block_has_no_blank_line(self):
+        """The instruction line of a numbered gate ends with `:` and the closing reply block
+        (`machine._gate_reply_lines` shape) holds no blank line inside."""
+        from memoforge import machine
+
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                for dotted in (
+                    "ui.gates.intake_form",
+                    "ui.gates.followup_form",
+                ):
+                    self.assertTrue(str(i18n.t(code, dotted)).rstrip().endswith(":"), dotted)
+                for gate, numbered in (
+                    ("intake", True),
+                    ("sufficiency_followup", True),
+                    ("insufficient", False),
+                    ("source_review", False),
+                    ("plan", False),
+                ):
+                    text = self._render_gate(code, gate)
+                    lines = machine._gate_reply_lines(text, numbered)
+                    self.assertTrue(lines, gate)
+                    self.assertTrue(all(line.strip() for line in lines), gate)
+                    if numbered:
+                        self.assertTrue(
+                            any(line.rstrip().endswith(":") for line in lines), gate
+                        )
+                    for line in lines:
+                        self.assertNotIn("\n", line, gate)
+
+    def _render_gate(self, code: str, gate: str) -> str:
+        """Render one gate text with the real pack at `lib/i18n` (no synthetic overlay)."""
+        import tempfile
+
+        from memoforge import gates as _gates
+        from memoforge import probe as _probe
+        from memoforge import state_io as _state_io
+
+        with tempfile.TemporaryDirectory(prefix="mf-pack-gate-") as tmp:
+            work = Path(tmp) / "memo-20260908T120000Z-pack"
+            (work / "intake").mkdir(parents=True)
+            _state_io.write_json_atomic(work / "intake" / "questions.json", _probe.fixture_questions())
+            _state_io.write_json_atomic(
+                work / "intake" / "mcp-probe.json", {"namespaces": {"other": []}}
+            )
+            _state_io.write_json_atomic(work / _gates.PLAN_PATH, _probe.fixture_plan())
+            full_state = {
+                "task_id": work.name,
+                "language": "en",
+                "ui_language": code,
+                "config": {},
+                "drafting_warnings": [],
+                "sufficiency_followup": None,
+            }
+            return _gates.render(work, full_state, gate)
+
+    def test_language_names_hold_the_five_endonyms(self):
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                self.assertEqual(
+                    {
+                        "en": "English",
+                        "de": "Deutsch",
+                        "fr": "Français",
+                        "es": "Español",
+                        "ru": "Русский",
+                    },
+                    {
+                        name: str(i18n.t(code, f"ui.language_names.{name}"))
+                        for name in ("en", "de", "fr", "es", "ru")
+                    },
+                    code,
+                )
+
+    def test_inline_plural_pairs_share_one_number_neutral_sentence(self):
+        """The three `_one`/`_many` pairs exist only to keep English bytes; in every other
+        pack both keys carry the same number-neutral sentence (plan 56 contract)."""
+        pairs = (
+            ("ui.gates.brief_mismatch_hint_one", "ui.gates.brief_mismatch_hint_many"),
+            ("ui.machine.plan_gate_shape_one", "ui.machine.plan_gate_shape_many"),
+            ("ui.machine.gate_pointer_one", "ui.machine.gate_pointer_many"),
+        )
+        for code in PACK_CODES:
+            with self.subTest(code=code):
+                for one, many in pairs:
+                    self.assertEqual(str(i18n.t(code, one)), str(i18n.t(code, many)), one)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import os
 import re
 from pathlib import Path
 
-from . import events, fallbacks, limits, modes, routing, state_io, stepctx
+from . import events, fallbacks, i18n, limits, modes, routing, state_io, stepctx
 
 GATES: tuple[str, ...] = ("intake", "plan", "sufficiency_followup", "insufficient", "source_review")
 """Gate names of the `gate-answers` schema; one per gate phase of §2.4."""
@@ -38,10 +38,12 @@ PLAN_PATH = "plan.json"
 MCP_PROBE_PATH = "intake/mcp-probe.json"
 
 MODE_SUMMARY: dict[str, str] = {
-    "brief": "One research layer, two review iterations, ~1200 words.",
-    "full": "Up to three layers, two review iterations, full memo.",
+    "brief": i18n.t("en", "ui.gates.mode_summary_brief"),
+    "full": i18n.t("en", "ui.gates.mode_summary_full"),
 }
-"""The two `Mode` options of gate 4; the plan digest names the recommended one with the same words."""
+"""The two `Mode` options of gate 4 in English; the plan digest names the recommended one with the
+same words. A gate rendered in another interface language reads `ui.gates.mode_summary_<mode>` of
+that pack instead (D-176)."""
 
 # D-86: how much of the plan the gate-4 digest prints before it points at `plan.json` instead.
 PLAN_DIGEST_DETAIL_ISSUES = 8
@@ -49,12 +51,34 @@ PLAN_DIGEST_MAX_ISSUES = 25
 PLAN_DIGEST_NOTES_CHARS = 300
 
 # D34-01: a plan this size is not refused — nothing caps `plan.issues` — but the gate says in one
-# sentence what Brief would do with it, in the digest and in the Brief option itself.
+# sentence what Brief would do with it, in the digest and in the Brief option itself
+# (`ui.gates.brief_mismatch_hint_one` / `_many`).
 BRIEF_HINT_MAX_ISSUES = 3
-BRIEF_MISMATCH_HINT = (
-    "This plan has {count} {noun} at {complexity} complexity; Brief researches one layer "
-    "(statutes) and fits three sections — case law and doctrine gaps become caveats."
+
+STANDARD_STYLE = "standard"
+"""The built-in house style. A text-channel token of §2.4: never translated (D-176a)."""
+
+AUQ_CANONICAL = "canonical"
+"""Key of the reverse map inside `build_auq`'s answer — in-process only, dropped by `run_render`."""
+
+CANONICAL_UI: tuple[tuple[str, str], ...] = (
+    ("header_plan", "Plan"),
+    ("header_mode", "Mode"),
+    ("header_style", "Style"),
+    ("header_sources", "Sources"),
+    ("option_approve", "Approve"),
+    ("option_edit", "Edit"),
+    ("option_cancel", "Cancel"),
+    ("option_brief", "Brief"),
+    ("option_full", "Full"),
+    ("option_continue", "Continue"),
 )
+"""D-176a: every AUQ header and option label the machine reads, with its canonical English value.
+
+`canonical_map` renders the left column in one interface language and maps it back to the right
+one, so nothing below `parse_auq` — `machine.py`, `state.json`, the events — ever sees a
+translated answer.
+"""
 
 # §2.2 `gate_parse_errors`: what an exhausted budget does, per gate.
 EXHAUSTED_DEFAULT: dict[str, str] = {
@@ -214,11 +238,30 @@ def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict
     }
 
 
-def parse_auq(answers: dict) -> dict:
-    """AUQ answers of gate 4, applied in the §2.4 order: Cancel > Style > Mode > Sources > Plan."""
-    values = {str(key): str(value) for key, value in (answers or {}).items()}
-    lowered = {key.lower(): value.strip() for key, value in values.items()}
-    if any(value.strip().lower() == "cancel" for value in values.values()):
+def canonical_map(ui: str = "en") -> dict:
+    """`{localized header or option label: canonical English}` of gate 4 (D-176a).
+
+    The identity map for `en`, and for any interface language whose pack cannot be read — a
+    `ui.*` key of an unreadable pack answers from the English floor (D-168).
+    """
+    return {i18n.t(ui, f"ui.gates.{key}"): canonical for key, canonical in CANONICAL_UI}
+
+
+def parse_auq(answers: dict, ui: str = "en") -> dict:
+    """AUQ answers of gate 4, applied in the §2.4 order: Cancel > Style > Mode > Sources > Plan.
+
+    D-176a: the headers and labels `build_auq` issued in `ui` are mapped back to their canonical
+    English first, so the checks below and everything downstream read one vocabulary. A value the
+    map does not know — a style profile name, free text — is kept exactly as it came, and
+    canonical English is accepted whatever `ui` is.
+
+    The `Cancel` scan runs over **every** answer value before the keys are collapsed: a localized
+    header and its canonical English name map to the same header, so collapsing first would let
+    whichever answer came last overwrite a `Cancel` and turn a stop into an approval.
+    """
+    known = canonical_map(ui)
+    given = [known.get(str(value), str(value)) for value in (answers or {}).values()]
+    if any(value.strip().lower() == "cancel" for value in given):
         return {
             "gate": "plan",
             "action": "cancel",
@@ -227,6 +270,11 @@ def parse_auq(answers: dict) -> dict:
             "errors": [],
             "recognized": True,
         }
+    values = {
+        known.get(str(key), str(key)): known.get(str(value), str(value))
+        for key, value in (answers or {}).items()
+    }
+    lowered = {key.lower(): value.strip() for key, value in values.items()}
     plan = lowered.get("plan", "").lower()
     if not plan:
         # D-56: approval is never inferred — a missing or blank Plan answer is an error, so the
@@ -307,16 +355,27 @@ def printed_questions(work_dir: str | os.PathLike, state: dict, gate: str) -> li
     return None
 
 
-def _question_block(index: int, question: dict) -> list[str]:
-    lines = [f"{index}. {question.get('question', '').strip()}"]
+def _question_block(index: int, question: dict, ui: str) -> list[str]:
+    lines = [
+        i18n.t(ui, "ui.gates.question_line", index=index, question=question.get("question", "").strip())
+    ]
     for position, option in enumerate(question.get("options") or []):
         if position >= len(OPTION_LETTERS):
             break
-        lines.append(f"   {OPTION_LETTERS[position]}) {option.get('label')} — {option.get('description')}")
+        lines.append(
+            "   "
+            + i18n.t(
+                ui,
+                "ui.gates.option_line",
+                letter=OPTION_LETTERS[position],
+                label=option.get("label"),
+                description=option.get("description"),
+            )
+        )
     return lines
 
 
-def _defaults_block(questions: list[dict]) -> list[str]:
+def _defaults_block(questions: list[dict], ui: str) -> list[str]:
     lines: list[str] = []
     for question in questions:
         default = question.get("default") or question.get("default_assumption_if_skipped") or ""
@@ -324,70 +383,101 @@ def _defaults_block(questions: list[dict]) -> list[str]:
             continue
         confidence = question.get("confidence")
         wrong = question.get("default_if_wrong") or ""
-        suffix = f" (confidence: {confidence})" if confidence else ""
-        lines.append(f"- {question.get('question', '').strip()} — assuming: {default}{suffix}")
+        key = "default_line_confidence" if confidence else "default_line"
+        lines.append(
+            "- "
+            + i18n.t(
+                ui,
+                f"ui.gates.{key}",
+                question=question.get("question", "").strip(),
+                default=default,
+                confidence=confidence,
+            )
+        )
         if wrong:
-            lines.append(f"  If that is wrong: {wrong}")
+            lines.append("  " + i18n.t(ui, "ui.gates.default_if_wrong", value=wrong))
     return lines
 
 
 def _slash_line(state: dict, example: str) -> str:
-    return f"Reply here, or run `/memoforge:continue {state.get('task_id')} {example}`."
+    ui = i18n.ui_language(state)
+    return i18n.t(ui, "ui.gates.slash_line", task_id=state.get("task_id"), example=example)
+
+
+def memo_language_line(state: dict) -> str:
+    """D-172: `Memo language: <endonym>` for the plan digest and the plan card, else `""`.
+
+    The line exists so the user can see — and correct with `mf task language` — the language the
+    memo will be written in before the plan is approved. An `en`/`en` task prints nothing at all,
+    so its gate text is byte-identical to the one before plan 56.
+    """
+    memo = i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
+    ui = i18n.ui_language(state)
+    if memo == "en" and ui == "en":
+        return ""
+    return i18n.t(ui, "ui.gates.memo_language_line", name=i18n.t(ui, f"ui.language_names.{memo}"))
 
 
 def render_intake(work_dir: Path, state: dict) -> str:
     """Text of gate 2 (§2.4 Intake)."""
+    ui = i18n.ui_language(state)
     must, defaulted = intake_questions(work_dir, state)
     lines = [_slash_line(state, "1A 2C"), ""]
     if must:
-        lines.append("Please answer, in the form `1A 2C 3: free text`:")
+        lines.append(i18n.t(ui, "ui.gates.intake_form"))
         lines.append("")
         for index, question in enumerate(must, start=1):
-            lines.extend(_question_block(index, question))
+            lines.extend(_question_block(index, question, ui))
             lines.append("")
     else:
-        lines.append("No question needs your answer; reply `proceed` to continue.")
+        lines.append(i18n.t(ui, "ui.gates.intake_no_questions"))
         lines.append("")
-    defaults = _defaults_block(defaulted)
+    defaults = _defaults_block(defaulted, ui)
     if defaults:
-        lines.append("Everything else is assumed as follows:")
+        lines.append(i18n.t(ui, "ui.gates.intake_defaults_heading"))
         lines.extend(defaults)
         lines.append("")
-    lines.append("`proceed` accepts every assumption as written. `cancel` stops the task.")
+    lines.append(i18n.t(ui, "ui.gates.intake_footer"))
     return "\n".join(lines).rstrip() + "\n"
 
 
 def render_followup(work_dir: Path, state: dict) -> str:
     """Text of gate 7 (§2.4 Sufficiency follow-up; same form as Intake)."""
+    ui = i18n.ui_language(state)
     questions = followup_questions(state)
     lines = [_slash_line(state, "1A"), ""]
-    lines.append("Research left gaps only you can close. Answer as `1A 2C 3: free text`:")
+    lines.append(i18n.t(ui, "ui.gates.followup_form"))
     lines.append("")
     for index, question in enumerate(questions, start=1):
-        lines.extend(_question_block(index, question))
+        lines.extend(_question_block(index, question, ui))
         default = question.get("default_assumption_if_skipped")
         if default:
-            lines.append(f"   Skipped, we assume: {default}")
+            lines.append("   " + i18n.t(ui, "ui.gates.followup_skipped", default=default))
         lines.append("")
-    lines.append("`proceed` accepts the assumptions above. `cancel` stops the task.")
+    lines.append(i18n.t(ui, "ui.gates.followup_footer"))
     return "\n".join(lines).rstrip() + "\n"
 
 
 def render_insufficient(work_dir: Path, state: dict) -> str:
-    """Text of gate 8 (§2.4 Insufficient research)."""
+    """Text of gate 8 (§2.4 Insufficient research).
+
+    D-173b: the gaps are `drafting_warnings[]` — memo-language text printed verbatim inside a
+    frame written in the interface language.
+    """
+    ui = i18n.ui_language(state)
     warnings = [
         row.get("message") if isinstance(row, dict) else str(row)
         for row in (state.get("drafting_warnings") or [])
     ]
     lines = [_slash_line(state, "continue"), ""]
-    lines.append("Research did not reach the bar for a client-ready memo.")
+    lines.append(i18n.t(ui, "ui.gates.insufficient_lead"))
     if warnings:
         lines.append("")
-        lines.append("Open gaps:")
+        lines.append(i18n.t(ui, "ui.gates.insufficient_gaps_heading"))
         lines.extend(f"- {text}" for text in warnings if text)
     lines.append("")
-    lines.append("`continue` drafts anyway, with the gaps written into the memo as caveats.")
-    lines.append("`cancel` stops the task.")
+    lines.append(i18n.t(ui, "ui.gates.insufficient_continue"))
+    lines.append(i18n.t(ui, "ui.gates.insufficient_cancel"))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -395,12 +485,13 @@ def render_source_review(work_dir: Path, state: dict) -> str:
     """Text of gate 11 — `mf sources digest --exceptions` (§2.4 Source review)."""
     from . import sources
 
-    digest = sources.render_digest(work_dir, state, True)
+    digest = sources.render_digest(work_dir, state, True, ui=i18n.ui_language(state))
     return _slash_line(state, "continue") + "\n\n" + str(digest.get("text") or "")
 
 
-PLAN_UNREADABLE = "The research plan could not be read; edit or cancel."
-"""D-99: what gate 4 prints instead of a digest when `plan.json` cannot be used."""
+PLAN_UNREADABLE = i18n.t("en", "ui.gates.plan_unreadable")
+"""D-99: what gate 4 prints in English instead of a digest when `plan.json` cannot be used; a
+localized gate reads `ui.gates.plan_unreadable` of its own pack (D-176)."""
 
 
 def _plan_view(work_dir: str | os.PathLike) -> dict | None:
@@ -429,11 +520,19 @@ def render_plan_digest(work_dir: Path, state: dict) -> str:
 
     `next` hands this back as the `text` of the `gate-auq` step, so the plan is on screen before the
     `AskUserQuestion`; `render_plan_text` prefixes the same digest to the text-channel fallback.
-    An unusable `plan.json` degrades to `PLAN_UNREADABLE` (D-99), never to an exception.
+    An unusable `plan.json` degrades to `ui.gates.plan_unreadable` (D-99), never to an exception.
+    D-172: the `Memo language` line joins the header while the memo language can still be changed.
     """
+    ui = i18n.ui_language(state)
     plan = _plan_view(work_dir)
     if plan is None:
-        return PLAN_UNREADABLE + "\n"
+        # D-172: the memo language is still changeable at this gate, plan or no plan, so the line
+        # belongs on the degraded text too; an `en`/`en` task keeps today's single sentence.
+        unreadable = [i18n.t(ui, "ui.gates.plan_unreadable")]
+        degraded_language_line = memo_language_line(state)
+        if degraded_language_line:
+            unreadable.append(degraded_language_line)
+        return "\n".join(unreadable) + "\n"
     issues = [row for row in (plan.get("issues") or []) if isinstance(row, dict)]
     mode = recommended_mode(plan)
     layers = [
@@ -442,35 +541,79 @@ def render_plan_digest(work_dir: Path, state: dict) -> str:
         if layer != "doctrine" or plan.get("doctrine_required")
     ]
     lines = [
-        f"Plan — {plan.get('classification') or 'unclassified'}, "
-        f"jurisdictions: {', '.join(plan.get('jurisdictions') or []) or 'unspecified'}, "
-        f"estimated complexity: {plan.get('estimated_complexity') or 'unknown'}.",
-        f"Full plan: `{PLAN_PATH}` in the task work dir.",
-        "",
-        f"Legal issues to research ({len(issues)}):",
+        i18n.t(
+            ui,
+            "ui.gates.plan_digest_head",
+            classification=plan.get("classification") or i18n.t(ui, "ui.gates.plan_digest_unclassified"),
+            jurisdictions=", ".join(plan.get("jurisdictions") or [])
+            or i18n.t(ui, "ui.gates.plan_digest_unspecified"),
+            complexity=plan.get("estimated_complexity") or i18n.t(ui, "ui.gates.plan_digest_unknown"),
+        ),
+        i18n.t(ui, "ui.gates.plan_digest_file", path=PLAN_PATH),
     ]
+    language_line = memo_language_line(state)
+    if language_line:
+        lines.append(language_line)
+    lines.append("")
+    lines.append(i18n.t(ui, "ui.gates.plan_digest_issues_heading", count=len(issues)))
     detailed = len(issues) <= PLAN_DIGEST_DETAIL_ISSUES
     for issue in issues[:PLAN_DIGEST_MAX_ISSUES]:
         where = ", ".join(issue.get("jurisdictions") or [])
-        suffix = f" [{where}]" if where else ""
-        lines.append(f"- {issue.get('issue_id')} — {issue.get('title')}{suffix}")
+        key = "plan_digest_issue_line_where" if where else "plan_digest_issue_line"
+        lines.append(
+            "- "
+            + i18n.t(
+                ui,
+                f"ui.gates.{key}",
+                issue_id=issue.get("issue_id"),
+                title=issue.get("title"),
+                jurisdictions=where,
+            )
+        )
         question = str(issue.get("question") or "").strip()
         if detailed and question:
             lines.append(f"  {question}")
     if not issues:
-        lines.append(f"- none recorded in `{PLAN_PATH}`")
+        lines.append("- " + i18n.t(ui, "ui.gates.plan_digest_no_issues", path=PLAN_PATH))
     elif len(issues) > PLAN_DIGEST_MAX_ISSUES:
-        lines.append(f"- …and {len(issues) - PLAN_DIGEST_MAX_ISSUES} more, listed in `{PLAN_PATH}`")
-    doctrine = "required" if plan.get("doctrine_required") else "not required"
+        lines.append(
+            "- "
+            + i18n.t(
+                ui,
+                "ui.gates.plan_digest_more_issues",
+                count=len(issues) - PLAN_DIGEST_MAX_ISSUES,
+                path=PLAN_PATH,
+            )
+        )
+    doctrine = i18n.t(
+        ui,
+        "ui.gates.plan_digest_doctrine_required"
+        if plan.get("doctrine_required")
+        else "ui.gates.plan_digest_doctrine_not_required",
+    )
     lines.append("")
-    lines.append(f"Research layers: {', '.join(layers) or 'none'} (doctrine {doctrine}).")
-    lines.append(f"Recommended mode: {mode} — {MODE_SUMMARY[mode]}")
-    hint = brief_mismatch_hint(plan)
+    lines.append(
+        i18n.t(
+            ui,
+            "ui.gates.plan_digest_layers",
+            layers=", ".join(layers) or i18n.t(ui, "ui.gates.plan_digest_no_layers"),
+            doctrine=doctrine,
+        )
+    )
+    lines.append(
+        i18n.t(
+            ui,
+            "ui.gates.plan_digest_recommended_mode",
+            mode=mode,
+            summary=i18n.t(ui, f"ui.gates.mode_summary_{mode}"),
+        )
+    )
+    hint = brief_mismatch_hint(plan, ui)
     if hint:
         lines.append(hint)
     notes = " ".join(str(plan.get("notes") or "").split())
     if notes:
-        lines.append(f"Planner notes: {notes[:PLAN_DIGEST_NOTES_CHARS]}")
+        lines.append(i18n.t(ui, "ui.gates.plan_digest_notes", notes=notes[:PLAN_DIGEST_NOTES_CHARS]))
     # D-147: what the preflight found before research — only the hosts that did not answer.
     access = preflight_block(work_dir, state)
     if access:
@@ -482,7 +625,7 @@ def preflight_block(work_dir: Path, state: dict) -> str:
     """The `Source access today:` block of gate 4; `""` when every routed portal answered (D-147)."""
     from . import preflight
 
-    return preflight.source_access_block(work_dir, state)
+    return preflight.source_access_block(work_dir, state, ui=i18n.ui_language(state))
 
 
 def render_plan_text(work_dir: Path, state: dict) -> str:
@@ -490,6 +633,7 @@ def render_plan_text(work_dir: Path, state: dict) -> str:
 
     D-99: without a readable plan the only answers offered are the ones the AUQ still offers.
     """
+    ui = i18n.ui_language(state)
     plan = _plan_view(work_dir)
     auq = build_auq(work_dir, state)
     lines = [_slash_line(state, "approve full" if plan is not None else "cancel"), ""]
@@ -497,14 +641,21 @@ def render_plan_text(work_dir: Path, state: dict) -> str:
     lines.append("")
     for question in auq["questions"]:
         labels = " / ".join(str(option.get("label")) for option in question.get("options") or [])
-        lines.append(f"{question.get('header')}: {question.get('question')}")
-        lines.append(f"  options: {labels}")
+        lines.append(
+            i18n.t(
+                ui,
+                "ui.gates.plan_text_question",
+                header=question.get("header"),
+                question=question.get("question"),
+            )
+        )
+        lines.append("  " + i18n.t(ui, "ui.gates.plan_text_options", labels=labels))
     lines.append("")
-    lines.append("Reply with one of:")
+    lines.append(i18n.t(ui, "ui.gates.plan_text_reply_heading"))
     if plan is not None:
-        lines.append("- `approve [brief|full] [style:<name>|standard] [sources:reduced]`")
-    lines.append("- `edit: <what to change>`")
-    lines.append("- `cancel`")
+        lines.append("- " + i18n.t(ui, "ui.gates.plan_text_reply_approve"))
+    lines.append("- " + i18n.t(ui, "ui.gates.plan_text_reply_edit"))
+    lines.append("- " + i18n.t(ui, "ui.gates.plan_text_reply_cancel"))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -532,7 +683,7 @@ def recommended_mode(plan: dict | None) -> str:
     return "brief" if str((plan or {}).get("estimated_complexity")) == "low" else "full"
 
 
-def brief_mismatch_hint(plan: dict | None) -> str:
+def brief_mismatch_hint(plan: dict | None, ui: str = "en") -> str:
     """D34-01: what Brief would cost this plan, in one sentence; empty where they agree.
 
     Fires only where the recommendation is not Brief and the plan is big enough for the mismatch
@@ -544,26 +695,34 @@ def brief_mismatch_hint(plan: dict | None) -> str:
     complexity = str(plan.get("estimated_complexity") or "unknown")
     if count <= BRIEF_HINT_MAX_ISSUES and complexity != "high":
         return ""
-    return BRIEF_MISMATCH_HINT.format(
-        count=count, noun="issue" if count == 1 else "issues", complexity=complexity
-    )
+    key = "brief_mismatch_hint_one" if count == 1 else "brief_mismatch_hint_many"
+    return i18n.t(ui, f"ui.gates.{key}", count=count, complexity=complexity)
 
 
 def _style_options(state: dict) -> list[dict]:
     from . import style_profile
 
+    ui = i18n.ui_language(state)
     try:
         profiles = style_profile.list_profiles()
     except OSError:
         return []
     options = [
-        {"label": row["name"], "description": f"Use the saved profile `{row['name']}`."}
+        {
+            "label": row["name"],
+            "description": i18n.t(ui, "ui.gates.style_option_profile_description", name=row["name"]),
+        }
         for row in profiles
         if row.get("valid")
     ][:3]
     if not options:
         return []
-    options.append({"label": "standard", "description": "Use the built-in house style."})
+    options.append(
+        {
+            "label": STANDARD_STYLE,
+            "description": i18n.t(ui, "ui.gates.style_option_standard_description"),
+        }
+    )
     return options
 
 
@@ -662,23 +821,33 @@ def sources_question_needed(work_dir: Path, state: dict, plan: dict | None, mode
     }
 
 
-def _plan_question(plan: dict | None) -> dict:
+def _plan_question(plan: dict | None, ui: str) -> dict:
     """The `Plan` question of gate 4; D-99: an unreadable plan is not a plan one can approve."""
-    edit = {"label": "Edit", "description": "Tell me what to change; the plan is rebuilt."}
-    cancel = {"label": "Cancel", "description": "Stop the task now."}
+    edit = {
+        "label": i18n.t(ui, "ui.gates.option_edit"),
+        "description": i18n.t(ui, "ui.gates.option_edit_description"),
+    }
+    cancel = {
+        "label": i18n.t(ui, "ui.gates.option_cancel"),
+        "description": i18n.t(ui, "ui.gates.option_cancel_description"),
+    }
+    header = i18n.t(ui, "ui.gates.header_plan")
     if plan is None:
         return {
-            "question": PLAN_UNREADABLE,
-            "header": "Plan",
+            "question": i18n.t(ui, "ui.gates.plan_unreadable"),
+            "header": header,
             "multiSelect": False,
             "options": [edit, cancel],
         }
     return {
-        "question": "Approve this research plan?",
-        "header": "Plan",
+        "question": i18n.t(ui, "ui.gates.plan_question"),
+        "header": header,
         "multiSelect": False,
         "options": [
-            {"label": "Approve", "description": "Start research on the plan as written."},
+            {
+                "label": i18n.t(ui, "ui.gates.option_approve"),
+                "description": i18n.t(ui, "ui.gates.option_approve_description"),
+            },
             edit,
             cancel,
         ],
@@ -690,21 +859,36 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
 
     D-99: `Mode`, `Style` and `Sources` are unchanged by a plan that cannot be read; only `Plan`
     loses its `Approve` option, so the gate stays answerable instead of raising.
+
+    D-176a: every header, label and description is written in the interface language of the task,
+    and `canonical` carries the reverse map `parse_auq` needs to read the answer back as the
+    canonical English the machine stores.
     """
     work_dir = Path(work_dir)
+    ui = i18n.ui_language(state)
     plan = _plan_view(work_dir)
     mode = recommended_mode(plan)
-    questions: list[dict] = [_plan_question(plan)]
+    questions: list[dict] = [_plan_question(plan, ui)]
     # D34-01: the Brief option carries the consequence of choosing it against the recommendation.
-    hint = brief_mismatch_hint(plan)
-    brief = {"label": "Brief", "description": (MODE_SUMMARY["brief"] + " " + hint).strip()}
-    full = {"label": "Full", "description": MODE_SUMMARY["full"]}
+    hint = brief_mismatch_hint(plan, ui)
+    brief = {
+        "label": i18n.t(ui, "ui.gates.option_brief"),
+        "description": (i18n.t(ui, "ui.gates.mode_summary_brief") + " " + hint).strip(),
+    }
+    full = {
+        "label": i18n.t(ui, "ui.gates.option_full"),
+        "description": i18n.t(ui, "ui.gates.mode_summary_full"),
+    }
     ordered = [full, brief] if mode == "full" else [brief, full]
-    ordered[0] = dict(ordered[0], label=ordered[0]["label"], description="(Recommended) " + ordered[0]["description"])
+    ordered[0] = dict(
+        ordered[0],
+        label=ordered[0]["label"],
+        description=i18n.t(ui, "ui.gates.mode_recommended", description=ordered[0]["description"]),
+    )
     questions.append(
         {
-            "question": "Which depth should the memo have?",
-            "header": "Mode",
+            "question": i18n.t(ui, "ui.gates.mode_question"),
+            "header": i18n.t(ui, "ui.gates.header_mode"),
             "multiSelect": False,
             "options": ordered,
         }
@@ -713,8 +897,8 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     if style_options:
         questions.append(
             {
-                "question": "Which writing style should the memo follow?",
-                "header": "Style",
+                "question": i18n.t(ui, "ui.gates.style_question"),
+                "header": i18n.t(ui, "ui.gates.header_style"),
                 "multiSelect": False,
                 "options": style_options,
             }
@@ -722,36 +906,61 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     budget = sources_question_needed(work_dir, state, plan, mode)
     if budget["needed"]:
         estimate = budget["estimates"][mode]
-        detail = (
-            f"Estimated {estimate['total']} legal-source calls against the daily quotas of "
-            f"{', '.join(limits.MCP_QUOTA_SERVERS)} "
-            f"({estimate['daily_upper_bound']} in total; a quota is an upper bound, not a remaining count)."
-        )
+        detail = [
+            i18n.t(
+                ui,
+                "ui.gates.sources_estimate",
+                total=estimate["total"],
+                servers=", ".join(limits.MCP_QUOTA_SERVERS),
+                upper_bound=estimate["daily_upper_bound"],
+            )
+        ]
         for row in budget["missing"]:
             if row.get("servers"):
-                detail += (
-                    f" No legal database is connected for {row['layer']} in {row['jurisdiction']} "
-                    f"({', '.join(row['servers'])})."
+                detail.append(
+                    i18n.t(
+                        ui,
+                        "ui.gates.sources_missing_database",
+                        layer=row["layer"],
+                        jurisdiction=row["jurisdiction"],
+                        servers=", ".join(row["servers"]),
+                    )
                 )
             else:
                 # D-147: the row never had a database; today its portals did not answer either.
-                detail += (
-                    f" No source answered today for {row['layer']} in {row['jurisdiction']} "
-                    f"({', '.join(row.get('portals') or [])})."
+                detail.append(
+                    i18n.t(
+                        ui,
+                        "ui.gates.sources_missing_portal",
+                        layer=row["layer"],
+                        jurisdiction=row["jurisdiction"],
+                        portals=", ".join(row.get("portals") or []),
+                    )
                 )
         questions.append(
             {
-                "question": "Source coverage may be limited. " + detail,
-                "header": "Sources",
+                "question": i18n.t(ui, "ui.gates.sources_question", detail=" ".join(detail)),
+                "header": i18n.t(ui, "ui.gates.header_sources"),
                 "multiSelect": False,
                 "options": [
-                    {"label": "Continue", "description": "Run with reduced coverage."},
-                    {"label": "Cancel", "description": "Stop the task now."},
+                    {
+                        "label": i18n.t(ui, "ui.gates.option_continue"),
+                        "description": i18n.t(ui, "ui.gates.option_continue_description"),
+                    },
+                    {
+                        "label": i18n.t(ui, "ui.gates.option_cancel"),
+                        "description": i18n.t(ui, "ui.gates.option_cancel_description"),
+                    },
                 ],
             }
         )
+    canonical = canonical_map(ui)
+    for option in style_options:
+        # A profile name and `standard` are identity: the machine stores them as they were shown.
+        canonical.setdefault(str(option["label"]), str(option["label"]))
     return {
         "questions": questions,
+        AUQ_CANONICAL: canonical,
         "recommended_mode": mode,
         "sources_budget": budget,
         "style_options": [option["label"] for option in style_options],
@@ -1105,7 +1314,12 @@ def _resolve_gate(state: dict, requested: str | None) -> str | None:
 
 
 def run_render(args: argparse.Namespace) -> dict:
-    """`mf gate render --gate <g>` — the prompt text; the CLI owns every gate wording (§2.4)."""
+    """`mf gate render --gate <g>` — the prompt text; the CLI owns every gate wording (§2.4).
+
+    D-176a: `canonical` is an in-process detail — `parse_auq`, the machine and the probe read it
+    from `build_auq(...)` directly. It is dropped here so the printed answer of the CLI carries
+    exactly the keys it carried before plan 56, in every interface language.
+    """
     work_dir = Path(args.workdir)
     state = state_io.read_state(work_dir)
     gate = _resolve_gate(state, args.gate)
@@ -1114,7 +1328,9 @@ def run_render(args: argparse.Namespace) -> dict:
     text = render(work_dir, state, gate)
     payload = {"gate": gate, "phase": PHASE_BY_GATE[gate], "text": text, "human": text}
     if gate == "plan":
-        payload["auq"] = build_auq(work_dir, state)
+        payload["auq"] = {
+            key: value for key, value in build_auq(work_dir, state).items() if key != AUQ_CANONICAL
+        }
     return payload
 
 

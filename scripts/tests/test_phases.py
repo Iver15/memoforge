@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from memoforge import phases  # noqa: E402
+import _i18n  # noqa: E402
+from memoforge import i18n, phases  # noqa: E402
 
 # Literal transcription of the ТЗ §2.1 table (rows 1..16).
 SPEC_PHASES = [
@@ -111,6 +115,37 @@ class PhaseLabelTest(unittest.TestCase):
     def test_an_unknown_phase_degrades_to_its_own_name(self):
         self.assertEqual(phases.label("made_up"), "made_up")
         self.assertEqual(phases.label(None), "")
+
+
+class PhaseLabelLanguageTest(unittest.TestCase):
+    """D-176: `label(phase, ui)` reads `ui.phases.<phase>` of the interface language pack."""
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory(prefix="mf-phases-")
+        self.addCleanup(holder.cleanup)
+        self.packs = Path(holder.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+
+    def test_every_phase_has_a_label_in_the_ui_language(self):
+        for phase in phases.PHASES:
+            with self.subTest(phase=phase):
+                self.assertEqual(i18n.t("ru", f"ui.phases.{phase}"), phases.label(phase, "ru"))
+
+    def test_the_default_is_english_and_an_unreadable_pack_falls_back_to_it(self):
+        self.assertEqual("Plan approval", phases.label("plan_approval_pending"))
+        self.assertEqual("Утверждение плана", phases.label("plan_approval_pending", "ru"))
+        # No `fr.json` at all: the interface degrades to the English floor (D-168).
+        self.assertEqual("Plan approval", phases.label("plan_approval_pending", "fr"))
+
+    def test_an_unknown_phase_stays_its_own_name_in_every_language(self):
+        self.assertEqual("nope", phases.label("nope", "ru"))
+        self.assertEqual("", phases.label(None, "ru"))
+
+    def test_the_english_table_is_the_floor_of_the_pack(self):
+        self.assertEqual(dict(phases.PHASE_LABELS), dict(i18n.node("en", "ui.phases")))
 
 
 class SchemaEnumIdentityTest(unittest.TestCase):

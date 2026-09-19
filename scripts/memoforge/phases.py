@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import i18n, i18n_en
+
 PHASES: list[str] = [
     "intake_preliminary_research",          # 1  inline-llm mcp-probe -> dispatch(1) analyst
     "intake_questions_pending",             # 2  gate-text
@@ -23,31 +25,13 @@ PHASES: list[str] = [
     "cancelled_by_user",                    # 16 terminal
 ]
 
-PHASE_LABELS: dict[str, str] = {
-    "intake_preliminary_research": "Checking which legal databases are available",
-    "intake_questions_pending": "Your intake answers",
-    "planning": "Drafting the research plan",
-    "plan_approval_pending": "Plan approval",
-    "research": "Legal research",
-    "research_sufficiency": "Checking research coverage",
-    "research_sufficiency_followup_pending": "Your follow-up answers",
-    "research_insufficient_pending": "Your decision on thin research",
-    "currency_check": "Checking sources are still current",
-    "source_pack": "Building the source pack",
-    "source_review_pending": "Your source review",
-    "drafting": "Writing the memo",
-    "revision_loop": "Review round",
-    "client_readiness": "Client-readiness check",
-    "export": "Exporting the memo (DOCX)",
-    "done": "Done",
-    "failed": "Stopped with a fallback deliverable",
-    "cancelled_by_user": "Cancelled",
-}
+PHASE_LABELS: dict[str, str] = dict(i18n_en.EN["ui"]["phases"])
 """D-95: plain-English name of every phase, written from the user's point of view.
 
-The single source of truth for what the dashboard (`machine.dashboard_patch`) and `docs/phases.md`
-call a phase; `PHASES` above stays the machine's contract and nothing user-facing reads it directly.
-`machine` appends the iteration number to `revision_loop` when the run knows one.
+The English floor of `ui.phases` (D-176), which is where the labels themselves now live: the
+dashboard (`machine.dashboard_patch`) and `docs/phases.md` read them through `label()`, and
+`PHASES` above stays the machine's contract that nothing user-facing reads directly. `machine`
+appends the iteration number to `revision_loop` when the run knows one.
 """
 
 TERMINAL: tuple[str, ...] = ("done", "failed", "cancelled_by_user")
@@ -85,6 +69,13 @@ def is_phase(phase: object) -> bool:
     return isinstance(phase, str) and phase in PHASE_INDEX
 
 
-def label(phase: object) -> str:
-    """Plain-English name of a phase for anything a user reads (D-95); unknown → the raw name."""
-    return PHASE_LABELS.get(str(phase or ""), str(phase or ""))
+def label(phase: object, ui: str = "en") -> str:
+    """Name of a phase in the interface language for anything a user reads (D-95, D-176).
+
+    `ui` defaults to English, so `docs/phases.md` and every machine-facing caller keep the
+    English table; an unknown phase degrades to its own raw name, as it always has.
+    """
+    name = str(phase or "")
+    if name not in PHASE_LABELS:
+        return name
+    return i18n.t(ui, f"ui.phases.{name}")

@@ -323,5 +323,361 @@ EN: dict = {
             "applies: the retention conclusion is not confirmed by the client."
         ),
     },
-    "ui": {},
+    # D-176 / D-176a / D-172: the interface — every literal `phases.py`, `gates.py` and the two
+    # user-facing functions of `machine.py` used to carry, moved verbatim. Indentation and
+    # markdown decoration (`- `, `   `) stay in the renderers, the way `memo.labels` does it, so
+    # one string serves every caller. Text-channel tokens (`approve`, `edit:`, `cancel`,
+    # `proceed`, `continue`, `brief`, `full`, `standard`, `1A`, `3:`) are canonical and stand
+    # unchanged inside their backticks in every pack.
+    "ui": {
+        # D-95: the plain name of every phase, from the user's point of view. `phases.label`
+        # reads it; `docs/phases.md` keeps calling it in English.
+        "phases": {
+            "intake_preliminary_research": "Checking which legal databases are available",
+            "intake_questions_pending": "Your intake answers",
+            "planning": "Drafting the research plan",
+            "plan_approval_pending": "Plan approval",
+            "research": "Legal research",
+            "research_sufficiency": "Checking research coverage",
+            "research_sufficiency_followup_pending": "Your follow-up answers",
+            "research_insufficient_pending": "Your decision on thin research",
+            "currency_check": "Checking sources are still current",
+            "source_pack": "Building the source pack",
+            "source_review_pending": "Your source review",
+            "drafting": "Writing the memo",
+            "revision_loop": "Review round",
+            "client_readiness": "Client-readiness check",
+            "export": "Exporting the memo (DOCX)",
+            "done": "Done",
+            "failed": "Stopped with a fallback deliverable",
+            "cancelled_by_user": "Cancelled",
+        },
+        "gates": {
+            # The two `Mode` options of gate 4; the plan digest names the recommended one with
+            # the same words.
+            "mode_summary_brief": "One research layer, two review iterations, ~1200 words.",
+            "mode_summary_full": "Up to three layers, two review iterations, full memo.",
+            # D34-01 / D-176: what Brief would cost this plan. English keeps the two forms the
+            # code chose inline, so its bytes do not move; other packs fill both with one
+            # number-neutral sentence.
+            "brief_mismatch_hint_one": (
+                "This plan has {count} issue at {complexity} complexity; Brief researches one layer "
+                "(statutes) and fits three sections — case law and doctrine gaps become caveats."
+            ),
+            "brief_mismatch_hint_many": (
+                "This plan has {count} issues at {complexity} complexity; Brief researches one layer "
+                "(statutes) and fits three sections — case law and doctrine gaps become caveats."
+            ),
+            # The numbered question block gates 2 and 7 share (§2.4 `1A 2C 3: free text`).
+            "question_line": "{index}. {question}",
+            "option_line": "{letter}) {label} — {description}",
+            "default_line": "{question} — assuming: {default}",
+            "default_line_confidence": "{question} — assuming: {default} (confidence: {confidence})",
+            "default_if_wrong": "If that is wrong: {value}",
+            "slash_line": "Reply here, or run `/memoforge:continue {task_id} {example}`.",
+            # Gate 2 — intake.
+            "intake_form": "Please answer, in the form `1A 2C 3: free text`:",
+            "intake_no_questions": "No question needs your answer; reply `proceed` to continue.",
+            "intake_defaults_heading": "Everything else is assumed as follows:",
+            "intake_footer": "`proceed` accepts every assumption as written. `cancel` stops the task.",
+            # Gate 7 — sufficiency follow-up.
+            "followup_form": "Research left gaps only you can close. Answer as `1A 2C 3: free text`:",
+            "followup_skipped": "Skipped, we assume: {default}",
+            "followup_footer": "`proceed` accepts the assumptions above. `cancel` stops the task.",
+            # Gate 8 — insufficient research. The gaps themselves are `drafting_warnings[]` and
+            # stay in the memo language inside this frame (D-173b).
+            "insufficient_lead": "Research did not reach the bar for a client-ready memo.",
+            "insufficient_gaps_heading": "Open gaps:",
+            "insufficient_continue": (
+                "`continue` drafts anyway, with the gaps written into the memo as caveats."
+            ),
+            "insufficient_cancel": "`cancel` stops the task.",
+            # Gate 4 — the plan digest of D-86 and its D-99 degradation.
+            "plan_unreadable": "The research plan could not be read; edit or cancel.",
+            "plan_digest_head": (
+                "Plan — {classification}, jurisdictions: {jurisdictions}, "
+                "estimated complexity: {complexity}."
+            ),
+            "plan_digest_unclassified": "unclassified",
+            "plan_digest_unspecified": "unspecified",
+            "plan_digest_unknown": "unknown",
+            "plan_digest_file": "Full plan: `{path}` in the task work dir.",
+            # D-172: printed only when the memo language or the interface language is not `en`.
+            "memo_language_line": "Memo language: {name}",
+            "plan_digest_issues_heading": "Legal issues to research ({count}):",
+            "plan_digest_issue_line": "{issue_id} — {title}",
+            "plan_digest_issue_line_where": "{issue_id} — {title} [{jurisdictions}]",
+            "plan_digest_no_issues": "none recorded in `{path}`",
+            "plan_digest_more_issues": "…and {count} more, listed in `{path}`",
+            "plan_digest_layers": "Research layers: {layers} (doctrine {doctrine}).",
+            "plan_digest_no_layers": "none",
+            "plan_digest_doctrine_required": "required",
+            "plan_digest_doctrine_not_required": "not required",
+            "plan_digest_recommended_mode": "Recommended mode: {mode} — {summary}",
+            "plan_digest_notes": "Planner notes: {notes}",
+            # Gate 4 — the text channel of §2.4. The three reply lines are tokens only and read
+            # the same in every pack.
+            "plan_text_question": "{header}: {question}",
+            "plan_text_options": "options: {labels}",
+            "plan_text_reply_heading": "Reply with one of:",
+            "plan_text_reply_approve": "`approve [brief|full] [style:<name>|standard] [sources:reduced]`",
+            "plan_text_reply_edit": "`edit: <what to change>`",
+            "plan_text_reply_cancel": "`cancel`",
+            # D-176a: the AUQ headers and option labels. `gates.canonical_map` builds the reverse
+            # map from exactly these keys, so a localized answer comes back canonical.
+            "header_plan": "Plan",
+            "header_mode": "Mode",
+            "header_style": "Style",
+            "header_sources": "Sources",
+            "option_approve": "Approve",
+            "option_edit": "Edit",
+            "option_cancel": "Cancel",
+            "option_brief": "Brief",
+            "option_full": "Full",
+            "option_continue": "Continue",
+            "option_approve_description": "Start research on the plan as written.",
+            "option_edit_description": "Tell me what to change; the plan is rebuilt.",
+            "option_cancel_description": "Stop the task now.",
+            "option_continue_description": "Run with reduced coverage.",
+            "plan_question": "Approve this research plan?",
+            "mode_question": "Which depth should the memo have?",
+            "mode_recommended": "(Recommended) {description}",
+            "style_question": "Which writing style should the memo follow?",
+            "style_option_profile_description": "Use the saved profile `{name}`.",
+            "style_option_standard_description": "Use the built-in house style.",
+            "sources_question": "Source coverage may be limited. {detail}",
+            "sources_estimate": (
+                "Estimated {total} legal-source calls against the daily quotas of {servers} "
+                "({upper_bound} in total; a quota is an upper bound, not a remaining count)."
+            ),
+            "sources_missing_database": (
+                "No legal database is connected for {layer} in {jurisdiction} ({servers})."
+            ),
+            "sources_missing_portal": (
+                "No source answered today for {layer} in {jurisdiction} ({portals})."
+            ),
+        },
+        # D-176: the user-facing lines `machine.py` writes around a gate. The chat lines of
+        # `_chat` and the CLI error messages stay English (§10).
+        "machine": {
+            "plan_gate_dashboard": "The research plan is on your dashboard: {url}",
+            "plan_gate_file": "File: {path} in the working folder {work_dir}",
+            # The inline plural of D-176, kept as two English forms like `brief_mismatch_hint`.
+            "plan_gate_shape_one": (
+                "{count} legal issue · recommended mode: {mode} · estimated complexity: {complexity}"
+            ),
+            "plan_gate_shape_many": (
+                "{count} legal issues · recommended mode: {mode} · estimated complexity: {complexity}"
+            ),
+            "gate_pointer": "{label} is on the dashboard: {url}",
+            "gate_pointer_one": "{label} ({count} question) are on the dashboard: {url}",
+            "gate_pointer_many": "{label} ({count} questions) are on the dashboard: {url}",
+            # D-177: the dashboard document. One key per literal, grouped by the module
+            # constant or the function that prints it in lower snake case (plan 56 contract).
+            "gate_hint": "waiting for your decision in the chat",
+            "answer_hint_intake": "Reply in chat: 1A 2C 3: your text · proceed · cancel",
+            "answer_hint_sufficiency_followup": (
+                "Reply in chat: 1A 2C 3: your text · proceed · cancel"
+            ),
+            "answer_hint_insufficient": "Reply in chat: continue · cancel",
+            "answer_hint_source_review": "Reply in chat: continue · cancel",
+            "answer_hint_plan": (
+                "Answer the question shown in chat "
+                "(or reply in text: approve [brief|full] · edit: … · cancel)"
+            ),
+            "agent_fact_assumption_analyst": "Facts & assumptions analyst",
+            "agent_legal_researcher": "Researcher",
+            "agent_research_sufficiency_reviewer": "Coverage reviewer",
+            "agent_currency_checker": "Currency checker",
+            "agent_memo_writer": "Memo writer",
+            "agent_logic_reviewer": "Logic reviewer",
+            "agent_form_reviewer": "Form reviewer",
+            "agent_citation_auditor": "Citation auditor",
+            "agent_counterargument_reviewer": "Counter-argument reviewer",
+            "agent_revision_mediator": "Revision mediator",
+            "agent_client_readiness_reviewer": "Client-readiness reviewer",
+            "agent_style_extractor": "Style extractor",
+            "slot_statutes": "statutes",
+            "slot_case_law": "case law",
+            "slot_doctrine": "doctrine",
+            "script_render_research_running": "Preparing the research for the writer",
+            "script_render_research_finished": "Research prepared for the writer",
+            "script_render_mediator_running": "Preparing the mediator's notes",
+            "script_render_mediator_finished": "Mediator notes prepared",
+            "script_sufficiency_route_running": "Checking research coverage",
+            "script_sufficiency_route_finished": "Research coverage checked",
+            "script_sources_preflight_running": "Checking which source portals answer today",
+            "script_sources_preflight_finished": "Source portals checked",
+            "script_sources_liveness_running": "Checking that every source link still works",
+            "script_sources_liveness_finished": "Source links checked",
+            "script_sources_verify_running": "Checking source identifiers",
+            "script_sources_verify_finished": "Source identifiers checked",
+            "script_sources_pack_running": "Building the source pack",
+            "script_sources_pack_finished": "Source pack frozen",
+            "script_draft_anchor_running": "Numbering the sections",
+            "script_draft_anchor_finished": "Sections numbered",
+            "script_draft_lint_running": "Style and structure check",
+            "script_draft_lint_finished": "Style and structure checked",
+            "script_draft_audit_citations_running": "Citation audit",
+            "script_draft_audit_citations_finished": "Citations audited",
+            "script_draft_finish_running": "Checking the draft",
+            "script_draft_finish_finished": "Draft checked",
+            "script_review_aggregate_running": "Aggregating the review verdicts",
+            "script_review_aggregate_finished": "Review verdict aggregated",
+            "script_revision_next_running": "Choosing what to revise next",
+            "script_revision_next_finished": "Revision branch chosen",
+            "script_docx_render_running": "Exporting the memo (DOCX)",
+            "script_docx_render_finished": "Memo exported",
+            "script_docx_validate_running": "Validating the exported file",
+            "script_docx_validate_finished": "DOCX validated",
+            "script_finalize_running": "Putting the deliverable together",
+            "script_finalize_finished": "Deliverable ready",
+            "inline_plan_json_running": "Drafting the research plan",
+            "inline_plan_json_finished": "Plan drafted",
+            "inline_mcp_probe_json_running": "Checking which legal databases are available",
+            "inline_mcp_probe_json_finished": "Legal databases checked",
+            "suffix_started": "started",
+            "suffix_finished": "finished",
+            "suffix_failed_retrying": "failed, retrying",
+            "suffix_skipped": "skipped",
+            "status_working": "Working",
+            "status_your_turn": "Your turn",
+            "status_cancelling": "Cancelling",
+            "waiting_for_you": "Waiting for you: {label}",
+            "skipped": "Skipped: {label}",
+            "you_answered": "You answered: {label}",
+            "phase_step": "{label} step",
+            "more": "+{count} more",
+            "review_no_blockers": "No blockers in this round.",
+            "review_blockers_left": "Blockers were left for the next revision.",
+            "review_incomplete": "A reviewer returned nothing usable, so the round is incomplete.",
+            "intake_row": "{question} — assuming: {default}",
+            "title": "memoforge · {task_id}",
+            "description": "Live progress of a memoforge run",
+        },
+        # D-177: the 48 static strings of `lib/dashboard.html`, named after their
+        # element id or function. The page reads them from `data.labels` with the
+        # same bytes below as its English fallback.
+        "dashboard": {
+            "title": "memoforge run",
+            "query_waiting": "Waiting for data…",
+            "chat_waiting": "Waiting for data…",
+            "tabs_label": "Run sections",
+            "tab_overview": "Overview",
+            "tab_intake": "Intake",
+            "tab_plan": "Plan",
+            "tab_sources": "Sources",
+            "tab_reviews": "Reviews",
+            "tab_memo": "Memo",
+            "card_your_turn": "Your turn",
+            "card_running_now": "Running now",
+            "card_timeline": "Timeline",
+            "card_run_facts": "Run facts",
+            "live_connecting": "connecting…",
+            "label_mode": "Mode",
+            "label_phase": "Phase",
+            "label_steps": "Steps",
+            "label_updated": "Updated",
+            "card_notices": "Notices",
+            "card_intake": "Intake",
+            "card_assumed": "Assumed without asking",
+            "card_plan": "Plan",
+            "card_sources": "Sources",
+            "card_reviews": "Review rounds",
+            "card_memo": "Memo",
+            "label_file": "File",
+            "label_summary": "Summary",
+            "label_published": "Published",
+            "skip_note": "If you skip it: {default}",
+            "plan_unclassified": "unclassified",
+            "plan_complexity": "complexity {value}",
+            "plan_recommended_mode": "recommended mode {value}",
+            "plan_layers": "layers: {value}",
+            "plan_approved": "approved",
+            "plan_awaiting": "awaiting your approval",
+            "plan_decision_you_chose": "you chose {value}",
+            "intake_answered": "You answered: {value}",
+            "intake_not_answered": "Not answered, assumed: {value}",
+            "intake_answered_count": "{answered} of {total} answered",
+            "intake_assumed_mark": "assumed",
+            "intake_confidence": "confidence {value}",
+            "sources_frozen": "frozen {value}",
+            "sources_critical": "{count} critical",
+            "sources_supporting": "{count} supporting",
+            "sources_background": "{count} background",
+            "reviews_round": "round {value}",
+            "reviews_draft": "draft v{value}",
+            "reviews_blockers": "{count} blockers",
+            "reviews_no_answer": "no answer from {value}",
+            "query_fallback": "memoforge run",
+            "live_unavailable": "live updates unavailable",
+            "live_on": "live",
+        },
+        # D-176b: the nine parameter-free stand-ins of `fallbacks.DASHBOARD_LABELS` — the only
+        # notice text §7.5 publishes for a banner whose rendered form carries diagnostics (an
+        # absolute `work_dir`, an arbitrary error `reason`, per-server counts). The other banner
+        # ids are constants and are read from `memo.banners` in the interface language instead.
+        "banners": {
+            "mcp_partial": "Partial MCP coverage; the gap is noted in the research files.",
+            "mcp_soft_cap_exceeded": "An MCP server passed its per-run soft cap.",
+            "currency_blocking": (
+                "Currency check raised blocking issues; affected sources are flagged in the source pack."
+            ),
+            "reviewer_output_malformed": (
+                "Revision loop forced exit — reviewer output was malformed; the latest draft is delivered."
+            ),
+            "mediator_unavailable": "Mediation unavailable; the run exited at the last validated draft.",
+            "unresolved_blockers": (
+                "REVIEWER NOTES NOT FULLY RESOLVED — blocking issues remain (listed in the appendix)."
+            ),
+            "output_folder_unavailable": (
+                "Output folder write failed; the final artifact stays in the working directory."
+            ),
+            "publish_failed": (
+                "The finished result could not be copied to the publish folder; it stays in the working "
+                "directory, at the path the final message prints."
+            ),
+            "dashboard_unavailable": (
+                "The live dashboard could not be published; the run continued and reported progress in chat."
+            ),
+        },
+        # D-172: the endonym of every language, the name the «Memo language» line prints. The
+        # same five values in every pack — a language is called what it calls itself.
+        "language_names": {
+            "en": "English",
+            "de": "Deutsch",
+            "fr": "Français",
+            "es": "Español",
+            "ru": "Русский",
+        },
+        # D-176 (sources/preflight): the gate-11 digest frame of `sources.render_digest`.
+        # The exception rows stay raw machine tokens inside it — `[kind]`, `source_id`,
+        # `tier`, currency status values, `do_not_use` — and the `drafting_warning`
+        # rows keep the memo-language text (D-173b); only the frame is localized.
+        "sources": {
+            "digest_head": "Source review — {count} sources registered ({frozen}).",
+            "digest_frozen": "frozen",
+            "digest_not_frozen": "not frozen",
+            "exceptions_heading": "Exceptions requiring your attention:",
+            "no_exceptions": "No exceptions: every critical source is verified and current.",
+            "reply_line": "Reply `continue` to draft on these sources, or `cancel` to stop.",
+        },
+        # D-176 (sources/preflight): the `Source access today:` block of
+        # `preflight.source_access_block` and its one-line prompt facts. The block
+        # head and the status labels are localized for the gates; the
+        # `${source_access}` prompt value (`source_access_line`, `CLEAN_LINE`,
+        # `UNKNOWN_LINE`) and `PREFLIGHT_ALTERNATIVES` stay English (§10).
+        "preflight": {
+            "status_ok": "answers",
+            "status_waf_challenge": "WAF challenge",
+            "status_cloudflare": "Cloudflare block",
+            "status_interstitial": "200 with a challenge page, not the document",
+            "status_dead": "did not answer",
+            "status_tls": "TLS certificate not verified",
+            "clean_line": "every routed portal answered today",
+            "unknown_line": "not checked",
+            "block_head": "Source access today:",
+            "more_line": "…and {count} more in `{path}`",
+        },
+    },
 }
