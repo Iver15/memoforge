@@ -10,6 +10,8 @@ allowed-tools: Read, Bash
 
 This skill only reads. Never write `state.json`, never run `mf next`, `mf report`, `mf gate parse`, `mf task new`, `mf task cancel` or any other command that changes a task, and never dispatch a subagent. To act on a task, tell the user to run `/memoforge:continue [task_id]`.
 
+Every reply to the user is in the task's `ui_language` (D-178): the report lines below are written in the language the task's `ui_language` names (read it with `mf state get --workdir W --path ui_language`; `path_not_found: ui_language` is a task from before the option, which means English — a business answer, never a CLI failure). Never translate the `text_fallback` reply forms the CLI prints — pass those verbatim.
+
 `mf` = `${CLAUDE_PLUGIN_ROOT}/scripts/mf` (use `mf.cmd` if that one is not executable in this host).
 
 ## No argument — list every task

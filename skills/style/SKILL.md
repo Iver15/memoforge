@@ -19,7 +19,7 @@ You manage the user's custom style profiles. A profile is a directory under `~/.
 3. `mf style <subcommand>` — the canonical write path for profiles. Never bypass it.
 4. User input from `AskUserQuestion` or text replies.
 
-**Key invariant.** All user-facing strings (menu items, checkpoint questions, warnings, summaries) are **English**. The contents of generated `prose-style.md` and `template.md` are in the input language (English, Russian, etc.) — that is the extractor's concern, not yours.
+**Key invariant.** All user-facing strings (menu items, checkpoint questions, warnings, summaries) are in the user's language (the language they write in). The contents of generated `prose-style.md` and `template.md` are in the input language (English, Russian, etc.) — that is the extractor's concern, not yours.
 
 ## Parse `$ARGUMENTS`
 
@@ -36,7 +36,7 @@ For any other first token, print: `Unknown action. Use new | list | use | show |
 
 ## `menu` — interactive entry point
 
-When `$ARGUMENTS` is empty, ask the user what they want to do. Use `AskUserQuestion` with these options (English; copy verbatim):
+When `$ARGUMENTS` is empty, ask the user what they want to do. Use `AskUserQuestion` with these options (in the user's language; translate on the fly, profile names stay as typed):
 
 - **Question:** "What would you like to do?"
 - **Header:** "Style" (≤12 chars).
@@ -170,12 +170,12 @@ Agent(
   Init the profile via `mf style init-profile` first; write prose-style.md (always);
   write template.md only if structural input is present; write rules.md if rules were provided;
   copy examples into sources/; atomically write the final meta.json at the end.
-  Return a ≤200-word English summary with any warnings.
+  Return a ≤200-word summary in the user's language with any warnings.
   """
 )
 ```
 
-Wait for the extractor to return. Print its summary to chat verbatim (it is already English and concise).
+Wait for the extractor to return. Print its summary to chat verbatim (it already arrives in the user's language and concise).
 
 ### Step 6 — Validate the written profile
 
@@ -316,4 +316,4 @@ Print confirmation: `Profile '<name>' deleted.` End turn.
 - Never write to the plugin data directory (`profiles/`) by hand — always go through `mf style`. It is the canonical write path: it validates names, writes atomically, and keeps the default-file consistent on delete.
 - Never modify `state.json` of an in-flight memo task. This skill manages user-level style profiles only — it has no relationship to any specific memo task in progress.
 - Never call `Agent` for anything other than `style-extractor` from this skill. Subagents for the memo pipeline are dispatched by `skills/memo/SKILL.md`, not from here.
-- All user-facing strings (chat output, AskUserQuestion text) are English. Profile body content language is decided by the extractor based on the inputs.
+- All user-facing strings (chat output, AskUserQuestion text) are in the user's language (the language they write in). The studio has no state and no pack: translate its AUQ options on the fly, profile names stay as typed. Profile body content language is decided by the extractor based on the inputs.

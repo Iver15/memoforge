@@ -1,20 +1,21 @@
 # Router protocol — `next → act → report` (ТЗ §3.1, §2.4, §2.5)
 
 `mf` = `${CLAUDE_PLUGIN_ROOT}/scripts/mf`. If that path is not executable in this host (Windows without a POSIX shell), call `${CLAUDE_PLUGIN_ROOT}/scripts/mf.cmd` with the same arguments; every example below is written with `<mf>` standing for whichever of the two ran.
-
 ## 1. Get `work_dir`
 
-- `/memoforge:memo "<query>"` → `<mf> task new --query "$ARGUMENTS" --detected-language <code>`, `<code>` = the language the user wrote the question in, one of `en de fr es ru` (any other language → omit the flag). Add `--language <code>` **only** when they asked for the memo in a language ("memo in German") — never inferred from the question; a language outside the five → do not create the task, name the five. The answer carries `language`, `ui_language`, `language_source`; when `language` is not `en`, or differs from the language of the question, say it once: `Memo language: German`.
-- `/memoforge:continue [task_id] [reply…]` → `<mf> task resolve [task_id]` (no id = last unfinished task).
-- Both answer JSON with `work_dir`; `task resolve` also gives `current_phase`, `gate`, `cancel_requested`.
-- Print that absolute path once, as one chat line: `Working folder: <work_dir>`. In a hosted VM it is the only way the user reaches the deliverable. `task new` also answers `options_source` (where each plugin option came from — `mf config show` explains it); say nothing about it unless asked.
+- `/memoforge:memo "<query>"` → `<mf> task new --query "$ARGUMENTS" --detected-language <code>`, `<code>` = the language the user wrote the question in, one of `en de fr es ru` (any other language → omit the flag). Add `--language <code>` **only** when they asked for the memo in a language ("memo in German") — never inferred from the question; pass `--ui-language <code>` **only** on an explicit request ("talk to me in German") — otherwise `--detected-language` decides through the option; a language outside the five → do not create the task, name the five. The answer carries `language`, `ui_language`, `language_source`; when `language` is not `en`, or differs from the language of the question, print that line once.
+ - `/memoforge:continue [task_id] [reply…]` → `<mf> task resolve [task_id]` (no id = last unfinished task).
+ - Both answer JSON with `work_dir`; `task resolve` also gives `current_phase`, `gate`, `cancel_requested`.
+- Print that absolute path once, as one chat line. `Working folder:` and `Memo language:` are printed in the UI language — label and language name translated (the endonym for the name), the path and the code verbatim. In a hosted VM it is the only way the user reaches the deliverable. `task new` also answers `options_source` (where each plugin option came from — `mf config show` explains it); say nothing about it unless asked.
 - `{"unsupported": true, …}` → print `hint` and END the turn. `{"errors": […]}` → print them and END.
 
 Store `work_dir` as `W` and pass `--workdir W` to every later call. Never guess a work dir, never read `state.json` to decide what to do.
 
 ## 2. The loop
 
-Call `<mf> next --workdir W`. Print the `chat_line` verbatim as a single chat line when the answer has one (that is the only progress action you owe — `description` is already inside the `next` answer). Then act on `kind`, then call `next` again — except after a `gate-text` or `terminal` step, which END the turn.
+Call `<mf> next --workdir W`. Render the `chat_line` in the task's `ui_language` as a single chat line when the answer has one (that is the only progress action you owe — `description` is already inside the `next` answer). Then act on `kind`, then call `next` again — except after a `gate-text` or `terminal` step, which END the turn.
+
+Every reply to the user is in the task's `ui_language` (D-178): a **gate**'s `text`, `questions` and `reprompt` arrive localized from the CLI — print those three verbatim; the `terminal` step's `text`, its warnings, the English `chat_line` and error explanations are English by design and you translate them yourself. Never translate tokens in backticks, file paths, commands or the `text_fallback` reply forms.
 
 **Step 0 of every answer — the dashboard write, before anything else.** If the answer carries `dashboard.publish`, publish the page and register the URL; if it carries `dashboard.write_db`, make that one `Artifact` call **before** you act on `kind`: before the `Agent` dispatch, before running `command[]`, before `AskUserQuestion`, before printing a terminal message. Never skip it, never do it after. It is an `Artifact` tool call, not a Bash command, so it can never be folded into the same Bash call as `next`. §2a has the arguments and the one failure rule.
 
@@ -61,7 +62,7 @@ Produce the document described by `instruction`, valid against the schema at `sc
 
 ### `kind: terminal` — done
 
-Print `text` verbatim (it lists the deliverable, the summary, the `Memo:` copy and, when the CLI copied the result out, a `Published:` folder) and END the turn — after one extra action: if this host has a `present_files` tool (Cowork), present the `Memo:` file and the summary with it so they appear in the chat; otherwise, if the host gives you device file tools and the user has a connected folder, copy the published folder into `<connected folder>/memoforge/<slug>/` and add one line saying where it landed. Without such tools, the paths in `text` are the answer.
+Print `text` in the UI language — translate its prose and keep every path, the `Memo:`/`Published:` labels and the machine tokens verbatim (it lists the deliverable, the summary, the `Memo:` copy and, when the CLI copied the result out, a `Published:` folder) — and END the turn, after one extra action: if this host has a `present_files` tool (Cowork), present the `Memo:` file and the summary with it so they appear in the chat; otherwise, if the host gives you device file tools and the user has a connected folder, copy the published folder into `<connected folder>/memoforge/<slug>/` and add one line saying where it landed. Without such tools, the paths in `text` are the answer.
 
 ## 2a. `dashboard` — only when the answer carries it (ТЗ §7.5, D-87)
 

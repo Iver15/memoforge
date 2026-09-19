@@ -314,6 +314,109 @@ class MemoLanguageRouteTest(unittest.TestCase):
         self.assertIn("task language", read(ROUTER))
 
 
+class UiLanguageRuleTest(unittest.TestCase):
+    """D-178 (plan 56, task 5): the skills answer in the task's UI language."""
+
+    RULE = "Every reply to the user is in the task's `ui_language`"
+
+    def test_memo_continue_and_status_state_the_ui_language_rule(self):
+        for name in ("memo", "continue", "status"):
+            with self.subTest(skill=name):
+                self.assertIn(self.RULE, read(SKILLS / name / "SKILL.md"))
+
+    def test_the_rule_names_what_is_never_translated(self):
+        for name in ("memo", "continue", "status"):
+            with self.subTest(skill=name):
+                self.assertIn("`text_fallback`", read(SKILLS / name / "SKILL.md"))
+
+    def test_memo_and_router_pass_ui_language_only_on_an_explicit_request(self):
+        for path in (ROUTER, SKILLS / "memo" / "SKILL.md"):
+            with self.subTest(file=path.name):
+                self.assertIn("--ui-language", read(path))
+
+    def test_continue_routes_a_memo_language_edit_to_task_language(self):
+        text = read(SKILLS / "continue" / "SKILL.md")
+        self.assertIn("task language", text)
+        self.assertIn("language_locked", text)
+
+    def test_continue_checks_the_memo_language_route_before_gate_parse(self):
+        text = read(SKILLS / "continue" / "SKILL.md")
+        route = text.index("asks for another memo language")
+        parser = text.index("mf gate parse --workdir W --step")
+        self.assertLess(route, parser, "the memo-language case must precede the parser step")
+        self.assertIn("never goes to `gate parse`", text)
+
+    def test_continue_repeats_the_memo_skill_route_word_for_word(self):
+        def route_lines(path: Path) -> list[str]:
+            return [
+                line for line in read(path).splitlines() if "asks for another memo language" in line
+            ]
+
+        memo_lines = route_lines(SKILLS / "memo" / "SKILL.md")
+        cont_lines = route_lines(SKILLS / "continue" / "SKILL.md")
+        self.assertTrue(memo_lines, "memo/SKILL.md must carry the language route")
+        self.assertEqual(memo_lines, cont_lines, "the parked item must agree word for word")
+
+    LABEL_SENTENCE = (
+        "`Working folder:` and `Memo language:` are printed in the UI language"
+        " — label and language name translated (the endonym for the name),"
+        " the path and the code verbatim."
+    )
+
+    def test_memo_and_router_render_the_folder_and_language_labels_in_the_ui_language(self):
+        self.assertEqual(self.LABEL_SENTENCE.count("`Working folder:`"), 1)
+        for path in (ROUTER, SKILLS / "memo" / "SKILL.md"):
+            with self.subTest(file=path.name):
+                self.assertIn(self.LABEL_SENTENCE, read(path))
+
+    def test_style_no_longer_claims_english_only(self):
+        text = read(SKILLS / "style" / "SKILL.md")
+        self.assertNotIn("are **English**", text)
+        self.assertIn("user's language", text)
+
+    def test_continue_reads_the_saved_ui_language_after_it_resolves_the_task(self):
+        """Final review, finding 3: `task resolve` does not answer `ui_language`, so a fresh
+        resume reads it from the state the way `status/SKILL.md` does, before it replies."""
+        text = read(SKILLS / "continue" / "SKILL.md")
+        line = next(
+            (row for row in text.splitlines() if "state get" in row and "ui_language" in row), ""
+        )
+        self.assertIn("mf state get --workdir W --path ui_language", line)
+        self.assertIn("English", line, "the absent-field default must be named")
+        self.assertLess(
+            text.index("task resolve"), text.index("--path ui_language"), "resolve comes first"
+        )
+
+    def test_the_legacy_answer_of_the_language_read_is_not_a_cli_failure(self):
+        """Commit review P1: a task from before the option answers `{"errors":
+        ["path_not_found: ui_language"]}`, and `router.md` §3 would finalize the run on any
+        `errors` answer — so both skills that read the field say what that one answer means."""
+        for name in ("continue", "status"):
+            with self.subTest(skill=name):
+                text = read(SKILLS / name / "SKILL.md")
+                line = next(
+                    row
+                    for row in text.splitlines()
+                    if "state get" in row and "--path ui_language" in row
+                )
+                self.assertIn("path_not_found: ui_language", line)
+                self.assertIn("English", line)
+                self.assertNotIn("CLI failure", line.replace("never a CLI failure", ""))
+
+    def test_the_router_translates_terminal_prose_and_keeps_only_gate_fields_verbatim(self):
+        """Final review, finding 4: `machine.terminal_response` is English on purpose, so the
+        verbatim rule covers the localized gate fields and the terminal step is translated."""
+        text = read(ROUTER)
+        rule = next(row for row in text.splitlines() if "Every reply to the user is in" in row)
+        self.assertIn("gate", rule, "the verbatim rule must name the gate fields it covers")
+        self.assertIn("terminal", rule)
+        self.assertIn("`text_fallback`", rule)
+        terminal = text.split("### `kind: terminal`", 1)[1]
+        self.assertNotIn("Print `text` verbatim", terminal)
+        self.assertIn("UI language", terminal)
+        self.assertIn("verbatim", terminal, "paths and machine tokens stay verbatim")
+
+
 class TerminalCopyTest(unittest.TestCase):
     """D-109: the terminal step hands the published folder to the user's own connected folder."""
 

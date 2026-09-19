@@ -32,11 +32,13 @@ A subagent's answer is a proposal too: only `mf report` decides whether its file
 - `$ARGUMENTS` empty → print, then END the turn:
   `Usage: /memoforge:memo "<your legal question>". To resume a task: /memoforge:continue [task_id]. To see tasks: /memoforge:status.`
 - `$ARGUMENTS` starts with a gate keyword — `cancel`, `proceed`, `continue`, `approve`, `edit:`, or an answer token such as `1A` / `2C` / `3:` — **and** `mf task resolve` finds an unfinished task: this is a gate reply, not a new question. Follow `skills/continue/SKILL.md` instead of creating a task.
-- Otherwise it is a new question: `mf task new --query "$ARGUMENTS" --detected-language <code>`, then the loop. Print its absolute `work_dir` once as a single chat line (`Working folder: <work_dir>`) — inside a hosted VM that path is the only way the user finds the deliverable.
+- Otherwise it is a new question: `mf task new --query "$ARGUMENTS" --detected-language <code>`, then the loop. Print its absolute `work_dir` once as a single chat line — inside a hosted VM that path is the only way the user finds the deliverable. `Working folder:` and `Memo language:` are printed in the UI language — label and language name translated (the endonym for the name), the path and the code verbatim.
   - `--detected-language <code>` — always; `<code>` is the language the user wrote the question in, one of `en de fr es ru`. Any other language: omit the flag.
-  - `--language <code>` — **only** when the user explicitly asked for the memo in a language ("memo in German", «мемо на немецком»); never inferred from the language of the question. A language outside the five: do not create the task, say which five are available.
-  - The answer carries `language`, `ui_language` and `language_source`. When `language` is not `en`, or differs from the language the user wrote in, say it once in one short line: `Memo language: German`.
+  - `--language <code>` — **only** when the user explicitly asked for the memo in a language ("memo in German", «мемо на немецком»); never inferred from the language of the question. `--ui-language <code>` — **only** on an explicit request ("talk to me in German"); otherwise `--detected-language` decides through the option. A language outside the five: do not create the task, say which five are available.
+  - The answer carries `language`, `ui_language` and `language_source`. When `language` is not `en`, or differs from the language the user wrote in, say it once in one short line.
 - At the plan gate an `Edit` answer that asks for another memo language is not an edit for the planner: run `mf task language --workdir W --memo <code>`, then re-issue the gate with `mf next`. The error `language_locked` means the plan was already approved — tell the user the memo language is fixed.
+
+Every reply to the user is in the task's `ui_language` (D-178): `text`/`questions`/`reprompt` arrive localized from the CLI — print them verbatim; translate the English `chat_line`, the terminal response and error explanations yourself. Never translate tokens in backticks, file paths, commands or the `text_fallback` reply forms.
 
 ## The loop
 
@@ -46,7 +48,7 @@ work_dir W  ──►  mf next --workdir W  ──►  act on `kind`  ──► 
                         └───────────────────────────────────────────────────┘
 ```
 
-Print the `chat_line` of each answer verbatim as one chat line; it is the whole progress duty (the `description` of each Agent call already comes inside the answer). `script` and `gate-text` steps need no `report` — the CLI closes them itself.
+Print the `chat_line` of each answer in the task's `ui_language` as one chat line; it is the whole progress duty (the `description` of each Agent call already comes inside the answer). `script` and `gate-text` steps need no `report` — the CLI closes them itself.
 
 **Step 0 of every answer:** if it carries `dashboard.publish`, publish and register the URL; if it carries `dashboard.write_db`, make that one `Artifact` call **before** acting on `kind` — before the `Agent` dispatch, before running `command[]`, before `AskUserQuestion`, before printing a terminal message. Never skip it, never do it after. It is an `Artifact` tool call, not a Bash command, so it never shares a Bash call with `next`. An error there is not a step failure (see below).
 
