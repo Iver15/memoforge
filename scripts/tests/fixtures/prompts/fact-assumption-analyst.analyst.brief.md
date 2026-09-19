@@ -35,5 +35,9 @@ Register every source you actually retrieved:
 `intake/preliminary-sources.json` carries `_meta` `{"task_id": "memo-20260908T120000Z-prompt-golden", "step_id": "s-042", "attempt": 1, "slot": "analyst"}`;
 `intake/questions.json` has no `_meta` field.
 
+The gate prints your questions verbatim: write `must_answer[].question`, `options[].label`,
+`options[].description`, `default` and `default_if_wrong` in English. `header`
+stays English (at most 12 characters) — it is an internal key, never shown at the gate.
+
 Last action (Bash, after the files are written):
 `{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot analyst --state done`

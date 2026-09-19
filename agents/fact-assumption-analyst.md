@@ -26,7 +26,7 @@ Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`,
 
 Two files, both JSON, at the paths the prompt names.
 
-`intake/questions.json` — schema `intake-questions`. Rank `must_answer` by `impact`; the gate prints the top `max_questions` and applies the defaults for the rest. `header` is at most 12 characters, `options` is 2 to 4 items, each `description` at most 200 characters. This file takes no `_meta` key.
+`intake/questions.json` — schema `intake-questions`. Rank `must_answer` by `impact`; the gate prints the top `max_questions` and applies the defaults for the rest. `header` is at most 12 characters, `options` is 2 to 4 items, each `description` at most 200 characters. This file takes no `_meta` key. The gate-visible fields (`question`, option `label`/`description`, `default`, `default_if_wrong`) are written in the UI language named in your task prompt; `header` stays English.
 
 ```json
 {

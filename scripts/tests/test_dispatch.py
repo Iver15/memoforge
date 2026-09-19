@@ -892,5 +892,148 @@ class MemoLanguageTest(unittest.TestCase):
                 self.assertNotIn("${", self._writer_prompt(language))
 
 
+class SourceAccessLanguageTest(unittest.TestCase):
+    """D-176 (sources/preflight): `${source_access}` keeps the English text (agent-facing).
+
+    The researcher prompt carries the English line whatever the interface language is —
+    only the gate-visible block is localized.
+    """
+
+    def test_the_researcher_prompt_keeps_the_english_source_access(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "ru", _i18n.RU_UI)
+        with mock.patch.object(i18n, "PACK_DIR", packs):
+            root = temp_root(self) / (TASK_ID + "-ui")
+            root.mkdir(parents=True, exist_ok=True)
+            state = _state("full", root)
+            state["ui_language"] = "ru"
+            state_io.write_json_atomic(
+                root / preflight.PREFLIGHT_PATH,
+                {
+                    "schema_version": 1,
+                    "checked_at": "2026-09-13T06:05:00Z",
+                    "offline": False,
+                    "hosts": [
+                        {
+                            "host": "eur-lex.europa.eu",
+                            "url": preflight.PREFLIGHT_URLS["eur-lex.europa.eu"],
+                            "status": "waf_challenge",
+                            "code": None,
+                            "error": None,
+                            "alternative": preflight.PREFLIGHT_ALTERNATIVES["eur-lex.europa.eu"],
+                        }
+                    ],
+                },
+            )
+            specs = machine.researcher_specs(root, state, ["statutes"])
+            access = specs[0]["extra"]["source_access"]
+            self.assertEqual(1, len(access.splitlines()))
+            self.assertIn("eur-lex.europa.eu: WAF challenge", access)
+            self.assertNotIn("WAF-проверка", access)
+
+
+class UiLanguageAgentFieldsTest(unittest.TestCase):
+    """D-173b (UI half): gate-visible agent fields are written in the UI language.
+
+    Analyst — `must_answer[].question`, `options[].label/description`, `default`,
+    `default_if_wrong` in `${ui_language_name}` (`header` stays English, <= 12 chars,
+    internal); sufficiency reviewer — `blocking_gaps[].followup_question` (`question`,
+    `options[].label/description`, `default_assumption_if_skipped`) in
+    `${ui_language_name}` (the memo-language fields stay as plan 54 set them).
+    """
+
+    def _analyst_prompt(self, *, ui_language: str, language: str = "en") -> str:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "ru", _i18n.RU)
+        with mock.patch.object(i18n, "PACK_DIR", packs):
+            work_dir = temp_root(self) / TASK_ID
+            work_dir.mkdir(parents=True, exist_ok=True)
+            state = _state("brief", work_dir)
+            state["language"] = language
+            state["ui_language"] = ui_language
+            agents = dispatch.render_agents(
+                work_dir,
+                state,
+                step_id="s-017",
+                attempt=1,
+                specs=[dispatch.spec(
+                    "analyst",
+                    "fact-assumption-analyst",
+                    "intake",
+                    [("intake/questions.json", "intake-questions"),
+                     ("intake/preliminary-sources.json", "research-findings")],
+                    max_questions="10",
+                    mcp_namespaces="ldh, courtlistener, fedregs, lex",
+                    routing_digest=routing.routing_digest(PROBED_NAMESPACES),
+                    retry_errors="none",
+                )],
+                position=9,
+                total=12,
+            )
+            return agents[0]["prompt"]
+
+    def _sufficiency_prompt(self, *, ui_language: str, language: str = "de") -> str:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "ru", _i18n.RU)
+        _i18n.fake_pack(packs, "de", _i18n.RU)
+        with mock.patch.object(i18n, "PACK_DIR", packs):
+            work_dir = temp_root(self) / TASK_ID
+            work_dir.mkdir(parents=True, exist_ok=True)
+            state = _state("brief", work_dir)
+            state["language"] = language
+            state["ui_language"] = ui_language
+            agents = dispatch.render_agents(
+                work_dir,
+                state,
+                step_id="s-017",
+                attempt=1,
+                specs=[dispatch.spec(
+                    "sufficiency",
+                    "research-sufficiency-reviewer",
+                    "sufficiency",
+                    [("research/research-sufficiency.json", "research-sufficiency")],
+                    research_files="`research/statutes.json`",
+                    drafting_warnings="none",
+                    retry_errors="none",
+                )],
+                position=9,
+                total=12,
+            )
+            return agents[0]["prompt"]
+
+    def test_the_russian_analyst_prompt_names_russian_for_the_question_fields(self):
+        prompt = self._analyst_prompt(ui_language="ru")
+        self.assertIn("Russian", prompt)
+        self.assertIn("`must_answer[].question`", prompt)
+        self.assertIn("`options[].label`", prompt)
+        self.assertIn("`default_if_wrong`", prompt)
+        self.assertIn("`header`", prompt)
+        self.assertNotIn("${", prompt)
+
+    def test_the_english_analyst_prompt_names_english(self):
+        prompt = self._analyst_prompt(ui_language="en")
+        self.assertIn("English", prompt)
+        self.assertNotIn("${", prompt)
+
+    def test_the_russian_sufficiency_prompt_names_russian_for_the_followup(self):
+        prompt = self._sufficiency_prompt(ui_language="ru")
+        self.assertIn("Russian", prompt)
+        self.assertIn("`blocking_gaps[].followup_question`", prompt)
+        self.assertIn("`default_assumption_if_skipped`", prompt)
+        self.assertIn("German", prompt)
+        self.assertNotIn("${", prompt)
+
+    def test_the_english_sufficiency_prompt_names_english(self):
+        prompt = self._sufficiency_prompt(ui_language="en")
+        self.assertIn("English", prompt)
+        self.assertNotIn("${", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

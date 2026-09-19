@@ -29,5 +29,9 @@ Register every source you actually retrieved:
 `intake/preliminary-sources.json` carries `_meta` `{"task_id": "${task_id}", "step_id": "${step_id}", "attempt": ${attempt}, "slot": "${slot}"}`;
 `intake/questions.json` has no `_meta` field.
 
+The gate prints your questions verbatim: write `must_answer[].question`, `options[].label`,
+`options[].description`, `default` and `default_if_wrong` in ${ui_language_name}. `header`
+stays English (at most 12 characters) — it is an internal key, never shown at the gate.
+
 Last action (Bash, after the files are written):
 `${mf} agent log --workdir ${work_dir} --step ${step_id} --attempt ${attempt} --slot ${slot} --state done`

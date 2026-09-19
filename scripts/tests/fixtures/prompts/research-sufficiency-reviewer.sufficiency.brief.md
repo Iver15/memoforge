@@ -42,6 +42,11 @@ one sentence in English saying what the client must check before relying on the 
 `drafting_warnings[]`, `blocking_gaps[].gap`, `why_blocking` and `out_of_scope_gaps[]` are written
 in English — they are printed in the memo as written.
 
+The follow-up gate prints your questions verbatim: write `blocking_gaps[].followup_question`
+— `question`, `options[].label`, `options[].description` and `default_assumption_if_skipped` —
+in English. The `header` stays English (at most 12 characters) — it is an
+internal key, never shown at the gate.
+
 ## Write
 
 - `steps/s-042/a1/sufficiency/research-sufficiency.json` (schema `research-sufficiency` — `{SCHEMAS}\research-sufficiency.schema.json`)
