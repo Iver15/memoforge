@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-from . import events, limits, routing, schema, sources, state_io, stepctx
+from . import events, i18n, limits, routing, schema, sources, state_io, stepctx
 
 PREFLIGHT_PATH = "intake/preflight.json"
 PLAN_PATH = "plan.json"
@@ -141,18 +141,20 @@ _ERROR_STATUS: dict[str, str] = {
 """`sources.probe_url` names the interstitial in `error` (D-146); the status is that name, classed."""
 
 STATUS_LABELS: dict[str, str] = {
-    "ok": "answers",
-    "waf_challenge": "WAF challenge",
-    "cloudflare": "Cloudflare block",
-    "interstitial": "200 with a challenge page, not the document",
-    "dead": "did not answer",
-    "tls": "TLS certificate not verified",
+    "ok": i18n.t("en", "ui.preflight.status_ok"),
+    "waf_challenge": i18n.t("en", "ui.preflight.status_waf_challenge"),
+    "cloudflare": i18n.t("en", "ui.preflight.status_cloudflare"),
+    "interstitial": i18n.t("en", "ui.preflight.status_interstitial"),
+    "dead": i18n.t("en", "ui.preflight.status_dead"),
+    "tls": i18n.t("en", "ui.preflight.status_tls"),
 }
+"""The English labels of `ui.preflight.status_*` (D-176); the gate-visible rows read the
+pack, the `${source_access}` prompt value keeps these English bytes."""
 
-CLEAN_LINE = "every routed portal answered today"
+CLEAN_LINE = i18n.t("en", "ui.preflight.clean_line")
 """`${source_access}` of a run whose preflight found nothing wrong."""
 
-UNKNOWN_LINE = "not checked"
+UNKNOWN_LINE = i18n.t("en", "ui.preflight.unknown_line")
 """`${source_access}` before the preflight step ran, or when its file cannot be read."""
 
 
@@ -337,27 +339,56 @@ def usable_namespaces(probe: dict | None) -> dict:
 # --- the `Source access today:` block --------------------------------------
 
 
-def _row_line(row: dict) -> str:
-    label = STATUS_LABELS.get(str(row.get("status")), str(row.get("status")))
+def _row_line(row: dict, ui: str = "en") -> str:
+    """`{host}: {label} → {alternative}` — the label in the interface language `ui`.
+
+    The default keeps the English bytes for the agent-side `${source_access}` prompt
+    value; the alternative stays English (§10) in every language. A status no pack
+    knows prints raw, exactly as it did before the pack lookup existed.
+    """
+    value = str(row.get("status"))
+    try:
+        label = i18n.t(ui, f"ui.preflight.status_{value}")
+    except KeyError:
+        label = STATUS_LABELS.get(value, value)
     alternative = str(row.get("alternative") or "").strip()
     tail = f" → {alternative}" if alternative else ""
     return f"{row.get('host')}: {label}{tail}"
 
 
-def source_access_block(work_dir: str | os.PathLike, state: dict | None = None) -> str:
-    """The gate-4 block: one line per host that did not answer today; `""` when none did fail."""
+def source_access_block(
+    work_dir: str | os.PathLike, state: dict | None = None, ui: str = "en"
+) -> str:
+    """The gate-4 block: one line per host that did not answer today; `""` when none did fail.
+
+    D-176 (sources/preflight): the caller that has the state passes
+    `i18n.ui_language(state)`; the default keeps the English bytes for the callers
+    that must stay agent-facing.
+    """
     rows = blocked_hosts(work_dir, state)
     if not rows:
         return ""
-    lines = ["Source access today:"]
-    lines += [f"- {_row_line(row)}" for row in rows[:MAX_BLOCK_LINES]]
+    lines = [i18n.t(ui, "ui.preflight.block_head")]
+    lines += [f"- {_row_line(row, ui)}" for row in rows[:MAX_BLOCK_LINES]]
     if len(rows) > MAX_BLOCK_LINES:
-        lines.append(f"- …and {len(rows) - MAX_BLOCK_LINES} more in `{PREFLIGHT_PATH}`")
+        lines.append(
+            "- "
+            + i18n.t(
+                ui,
+                "ui.preflight.more_line",
+                count=len(rows) - MAX_BLOCK_LINES,
+                path=PREFLIGHT_PATH,
+            )
+        )
     return "\n".join(lines)
 
 
 def source_access_line(work_dir: str | os.PathLike, state: dict | None = None) -> str:
-    """`${source_access}` — the same facts on one line, for the researcher prompt (§3.3)."""
+    """`${source_access}` — the same facts on one line, for the researcher prompt (§3.3).
+
+    Agent-facing: always the English text, whatever the interface language of the task
+    is — only the gate-visible block is localized (D-176, sources/preflight).
+    """
     if read_preflight(work_dir, state) is None:
         return UNKNOWN_LINE
     rows = blocked_hosts(work_dir, state)

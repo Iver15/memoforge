@@ -18,6 +18,7 @@ from . import (
     finalize,
     gates,
     i18n,
+    i18n_en,
     limits,
     modes,
     phases,
@@ -298,22 +299,33 @@ DASHBOARD_UNAVAILABLE = fallbacks.DASHBOARD_UNAVAILABLE
 DASHBOARD_TIMELINE = 12
 """How many of the latest steps the page shows."""
 
-DASHBOARD_GATE_HINT = "waiting for your decision in the chat"
+DASHBOARD_GATE_HINT = i18n_en.EN["ui"]["machine"]["gate_hint"]
 """The whole `gate.hint` (D-89): the page says that the run waits, never what it asks."""
 
 DASHBOARD_GATE_QUESTIONS = 12
 DASHBOARD_GATE_OPTIONS = 6
 """D-96 caps: how much of an open gate the page repeats read-only (the chat stays the channel)."""
 
+_DASHBOARD_ANSWER_HINT_KEYS: dict[str, str] = {
+    "intake": "answer_hint_intake",
+    "sufficiency_followup": "answer_hint_sufficiency_followup",
+    "insufficient": "answer_hint_insufficient",
+    "source_review": "answer_hint_source_review",
+    "plan": "answer_hint_plan",
+}
+"""Gate -> `ui.machine.answer_hint_<gate>` key (D-177)."""
+
+
+def _dashboard_answer_hint(gate: str, ui: str) -> str:
+    """`gate.answer_hint` in the interface language (D-177); same English bytes as before."""
+    key = _DASHBOARD_ANSWER_HINT_KEYS.get(gate)
+    if key is None:
+        return i18n.t(ui, "ui.machine.gate_hint")
+    return i18n.t(ui, f"ui.machine.{key}")
+
+
 DASHBOARD_ANSWER_HINTS: dict[str, str] = {
-    "intake": "Reply in chat: 1A 2C 3: your text · proceed · cancel",
-    "sufficiency_followup": "Reply in chat: 1A 2C 3: your text · proceed · cancel",
-    "insufficient": "Reply in chat: continue · cancel",
-    "source_review": "Reply in chat: continue · cancel",
-    "plan": (
-        "Answer the question shown in chat "
-        "(or reply in text: approve [brief|full] · edit: … · cancel)"
-    ),
+    gate: i18n_en.EN["ui"]["machine"][key] for gate, key in _DASHBOARD_ANSWER_HINT_KEYS.items()
 }
 """`gate.answer_hint` per gate — the same reply format the CLI-generated gate text prints (D-96)."""
 
@@ -334,60 +346,96 @@ against the schema (D-90), and the plan branch below publishes nothing without t
 # `purpose()` above stays the machine's token (`script:draft.lint`); nothing here touches it, the
 # `chat_line` or the event journal. Only `dashboard_patch.timeline[].text` is built from these.
 
+_DASHBOARD_AGENT_KEYS: dict[str, str] = {
+    "fact-assumption-analyst": "agent_fact_assumption_analyst",
+    "legal-researcher": "agent_legal_researcher",
+    "research-sufficiency-reviewer": "agent_research_sufficiency_reviewer",
+    "currency-checker": "agent_currency_checker",
+    "memo-writer": "agent_memo_writer",
+    "logic-reviewer": "agent_logic_reviewer",
+    "form-reviewer": "agent_form_reviewer",
+    "citation-auditor": "agent_citation_auditor",
+    "counterargument-reviewer": "agent_counterargument_reviewer",
+    "revision-mediator": "agent_revision_mediator",
+    "client-readiness-reviewer": "agent_client_readiness_reviewer",
+    "style-extractor": "agent_style_extractor",
+}
+"""Agent name -> `ui.machine.agent_*` key (D-177)."""
+
 DASHBOARD_AGENT_LABELS: dict[str, str] = {
-    "fact-assumption-analyst": "Facts & assumptions analyst",
-    "legal-researcher": "Researcher",
-    "research-sufficiency-reviewer": "Coverage reviewer",
-    "currency-checker": "Currency checker",
-    "memo-writer": "Memo writer",
-    "logic-reviewer": "Logic reviewer",
-    "form-reviewer": "Form reviewer",
-    "citation-auditor": "Citation auditor",
-    "counterargument-reviewer": "Counter-argument reviewer",
-    "revision-mediator": "Revision mediator",
-    "client-readiness-reviewer": "Client-readiness reviewer",
-    "style-extractor": "Style extractor",
+    name: i18n_en.EN["ui"]["machine"][key] for name, key in _DASHBOARD_AGENT_KEYS.items()
 }
 
+_DASHBOARD_SLOT_KEYS: dict[str, str] = {
+    "statutes": "slot_statutes",
+    "case_law": "slot_case_law",
+    "doctrine": "slot_doctrine",
+}
+"""Research layer -> `ui.machine.slot_*` key (D-177)."""
+
 DASHBOARD_SLOT_LABELS: dict[str, str] = {
-    "statutes": "statutes",
-    "case_law": "case law",
-    "doctrine": "doctrine",
+    slot: i18n_en.EN["ui"]["machine"][key] for slot, key in _DASHBOARD_SLOT_KEYS.items()
 }
 """Only the research layers qualify an agent label — `Researcher (case law)`."""
 
+_DASHBOARD_SCRIPT_KEYS: dict[str, tuple[str, str]] = {
+    "render.research": ("script_render_research_running", "script_render_research_finished"),
+    "render.mediator": ("script_render_mediator_running", "script_render_mediator_finished"),
+    "sufficiency.route": ("script_sufficiency_route_running", "script_sufficiency_route_finished"),
+    "sources.preflight": ("script_sources_preflight_running", "script_sources_preflight_finished"),
+    "sources.liveness": ("script_sources_liveness_running", "script_sources_liveness_finished"),
+    "sources.verify": ("script_sources_verify_running", "script_sources_verify_finished"),
+    "sources.pack": ("script_sources_pack_running", "script_sources_pack_finished"),
+    "draft.anchor": ("script_draft_anchor_running", "script_draft_anchor_finished"),
+    "draft.lint": ("script_draft_lint_running", "script_draft_lint_finished"),
+    "draft.audit-citations": (
+        "script_draft_audit_citations_running",
+        "script_draft_audit_citations_finished",
+    ),
+    "draft.finish": ("script_draft_finish_running", "script_draft_finish_finished"),
+    "review.aggregate": ("script_review_aggregate_running", "script_review_aggregate_finished"),
+    "revision.next": ("script_revision_next_running", "script_revision_next_finished"),
+    "docx.render": ("script_docx_render_running", "script_docx_render_finished"),
+    "docx.validate": ("script_docx_validate_running", "script_docx_validate_finished"),
+    "finalize": ("script_finalize_running", "script_finalize_finished"),
+}
+"""`command_key(command)` -> (running key, finished key) of `ui.machine.script_*` (D-177)."""
+
 DASHBOARD_SCRIPT_LABELS: dict[str, tuple[str, str]] = {
-    "render.research": ("Preparing the research for the writer", "Research prepared for the writer"),
-    "render.mediator": ("Preparing the mediator's notes", "Mediator notes prepared"),
-    "sufficiency.route": ("Checking research coverage", "Research coverage checked"),
-    "sources.preflight": ("Checking which source portals answer today", "Source portals checked"),
-    "sources.liveness": ("Checking that every source link still works", "Source links checked"),
-    "sources.verify": ("Checking source identifiers", "Source identifiers checked"),
-    "sources.pack": ("Building the source pack", "Source pack frozen"),
-    "draft.anchor": ("Numbering the sections", "Sections numbered"),
-    "draft.lint": ("Style and structure check", "Style and structure checked"),
-    "draft.audit-citations": ("Citation audit", "Citations audited"),
-    "draft.finish": ("Checking the draft", "Draft checked"),
-    "review.aggregate": ("Aggregating the review verdicts", "Review verdict aggregated"),
-    "revision.next": ("Choosing what to revise next", "Revision branch chosen"),
-    "docx.render": ("Exporting the memo (DOCX)", "Memo exported"),
-    "docx.validate": ("Validating the exported file", "DOCX validated"),
-    "finalize": ("Putting the deliverable together", "Deliverable ready"),
+    command: (
+        i18n_en.EN["ui"]["machine"][running],
+        i18n_en.EN["ui"]["machine"][finished],
+    )
+    for command, (running, finished) in _DASHBOARD_SCRIPT_KEYS.items()
 }
 """`command_key(command)` → (running, finished); `mf_command` builds every one of these keys."""
 
+_DASHBOARD_INLINE_KEYS: dict[str, tuple[str, str]] = {
+    "plan.json": ("inline_plan_json_running", "inline_plan_json_finished"),
+    "mcp-probe.json": ("inline_mcp_probe_json_running", "inline_mcp_probe_json_finished"),
+}
+"""Inline-llm output file -> (running key, finished key) of `ui.machine.inline_*` (D-177)."""
+
 DASHBOARD_INLINE_LABELS: dict[str, tuple[str, str]] = {
-    "plan.json": ("Drafting the research plan", "Plan drafted"),
-    "mcp-probe.json": ("Checking which legal databases are available", "Legal databases checked"),
+    name: (
+        i18n_en.EN["ui"]["machine"][running],
+        i18n_en.EN["ui"]["machine"][finished],
+    )
+    for name, (running, finished) in _DASHBOARD_INLINE_KEYS.items()
 }
 """Inline-llm steps, keyed by the file the orchestrator writes."""
 
+_DASHBOARD_SUFFIX_KEYS: dict[str, str] = {
+    "": "suffix_started",
+    "ok": "suffix_finished",
+    "no_change": "suffix_finished",
+    "fail": "suffix_failed_retrying",
+    "skipped": "suffix_skipped",
+}
+"""Dispatch status -> `ui.machine.suffix_*` key (D-177)."""
+
 DASHBOARD_STEP_SUFFIX: dict[str, str] = {
-    "": "started",
-    "ok": "finished",
-    "no_change": "finished",
-    "fail": "failed, retrying",
-    "skipped": "skipped",
+    status: i18n_en.EN["ui"]["machine"][key] for status, key in _DASHBOARD_SUFFIX_KEYS.items()
 }
 """What a dispatch line says about its status; a script/inline step picks a form from its pair."""
 
@@ -454,7 +502,11 @@ def _dashboard_banners(state: dict) -> list[dict]:
     The stored `text` is never republished: `output_folder_unavailable` embeds the absolute
     `work_dir` and `dashboard_unavailable` an arbitrary error string, and the page has no need for
     either. Ids outside `fallbacks.BANNER_IDS` are dropped rather than passed through.
+
+    D-176b: the label is read in the interface language — the notices are the page's own prose,
+    and an English notice on a Russian page is the same defect as an English phase name.
     """
+    ui = i18n.ui_language(state)
     published: list[dict] = []
     seen: set[str] = set()
     for banner in state.get("fallback_banners") or []:
@@ -464,7 +516,7 @@ def _dashboard_banners(state: dict) -> list[dict]:
         if banner_id not in fallbacks.BANNER_IDS or banner_id in seen:
             continue
         seen.add(banner_id)
-        published.append({"id": banner_id, "text": fallbacks.dashboard_label(banner_id)})
+        published.append({"id": banner_id, "text": fallbacks.dashboard_label(banner_id, ui)})
     return published
 
 
@@ -477,11 +529,34 @@ def _latest_steps(state: dict) -> list[dict]:
     return list(latest.values())
 
 
-def _agent_label(agent: dict) -> str:
-    """`Researcher (case law)` — the agent in plain English, qualified by its research layer."""
+def _agent_name(agent: dict, ui: str = "en") -> str:
+    """`memoforge:legal-researcher` -> `Researcher` — the agent in the interface language (D-177).
+
+    An agent id the `ui.machine.agent_*` table does not know degrades to its own spelling, as it
+    always has; an entry without an `agent_type` has no name at all and answers `""`.
+    """
     name = str(agent.get("agent_type") or "").split(":", 1)[-1]
-    label = DASHBOARD_AGENT_LABELS.get(name) or name.replace("-", " ").capitalize() or "Agent"
-    layer = DASHBOARD_SLOT_LABELS.get(str(agent.get("slot") or ""))
+    key = _DASHBOARD_AGENT_KEYS.get(name)
+    if key is not None:
+        return i18n.t(ui, f"ui.machine.{key}")
+    return DASHBOARD_AGENT_LABELS.get(name) or name.replace("-", " ").capitalize()
+
+
+def _agent_layer(agent: dict, ui: str = "en") -> str:
+    """The research layer of an agent in the interface language, or `""` when it has none.
+
+    Only the three layers of `_DASHBOARD_SLOT_KEYS` qualify an agent. Every other slot (`writer`,
+    `logic`, `currency`, …) is an internal identifier with no pack entry, so it is dropped rather
+    than printed raw: the reviewers and the writer name themselves completely already.
+    """
+    slot_key = _DASHBOARD_SLOT_KEYS.get(str(agent.get("slot") or ""))
+    return i18n.t(ui, f"ui.machine.{slot_key}") if slot_key is not None else ""
+
+
+def _agent_label(agent: dict, ui: str = "en") -> str:
+    """`Researcher (case law)` — the agent in the interface language, qualified by its layer."""
+    label = _agent_name(agent, ui) or "Agent"
+    layer = _agent_layer(agent, ui)
     return f"{label} ({layer})" if layer else label
 
 
@@ -507,62 +582,93 @@ def _inline_output_name(row: dict) -> str:
     return str(outputs[0].get("canonical_path", "")).rsplit("/", 1)[-1] if outputs else ""
 
 
-def _step_sentence(row: dict) -> str:
+def _step_sentence(row: dict, ui: str = "en") -> str:
     """One timeline line in the user's words (D-95); the tables above are the whole vocabulary.
 
     Nothing here is a machine token: `purpose()` keeps `script:draft.lint` for the planners, and an
     unknown step degrades to the phase label plus `step` rather than leaking its command key.
+    D-176: the phase name is read in the interface language; the sentence frames around it and the
+    `DASHBOARD_*_LABELS` tables are the dashboard's own strings.
     """
     kind = row.get("kind")
     flow = _step_state(row)
     status = str(row.get("status") or "")
-    phase_label = phases.label(row.get("phase"))
+    phase_label = phases.label(row.get("phase"), ui)
     if kind == KIND_TERMINAL:
         return phase_label
     if kind in (KIND_GATE_TEXT, KIND_GATE_AUQ):
         if flow == "waiting":
-            return f"Waiting for you: {phase_label}"
-        return f"Skipped: {phase_label}" if status == "skipped" else f"You answered: {phase_label}"
+            return i18n.t(ui, "ui.machine.waiting_for_you", label=phase_label)
+        if status == "skipped":
+            return i18n.t(ui, "ui.machine.skipped", label=phase_label)
+        return i18n.t(ui, "ui.machine.you_answered", label=phase_label)
     if kind == KIND_DISPATCH:
         agents = [entry for entry in (row.get("agents") or []) if isinstance(entry, dict)]
-        labels = [_agent_label(entry) for entry in agents] or [f"{phase_label} step"]
+        labels = [_agent_label(entry, ui) for entry in agents] or [
+            i18n.t(ui, "ui.machine.phase_step", label=phase_label)
+        ]
         head = ", ".join(labels[:3])
         if len(labels) > 3:
-            head += f" +{len(labels) - 3} more"
+            head += " " + i18n.t(ui, "ui.machine.more", count=len(labels) - 3)
         if flow == "failed":
-            return f"{head}: {DASHBOARD_STEP_SUFFIX['fail']}"
-        return f"{head}: {DASHBOARD_STEP_SUFFIX.get(status, status or 'started')}"
+            return f"{head}: {i18n.t(ui, 'ui.machine.suffix_failed_retrying')}"
+        suffix_key = _DASHBOARD_SUFFIX_KEYS.get(status)
+        suffix = i18n.t(ui, f"ui.machine.{suffix_key}") if suffix_key is not None else None
+        return f"{head}: {suffix if suffix is not None else (status or i18n.t(ui, 'ui.machine.suffix_started'))}"
     pair = None
     if kind == KIND_SCRIPT:
-        pair = DASHBOARD_SCRIPT_LABELS.get(command_key(row.get("command")))
+        keys = _DASHBOARD_SCRIPT_KEYS.get(command_key(row.get("command")))
+        if keys is not None:
+            pair = (i18n.t(ui, f"ui.machine.{keys[0]}"), i18n.t(ui, f"ui.machine.{keys[1]}"))
     elif kind == KIND_INLINE:
-        pair = DASHBOARD_INLINE_LABELS.get(_inline_output_name(row))
+        keys = _DASHBOARD_INLINE_KEYS.get(_inline_output_name(row))
+        if keys is not None:
+            pair = (i18n.t(ui, f"ui.machine.{keys[0]}"), i18n.t(ui, f"ui.machine.{keys[1]}"))
     if pair is None:
-        pair = (f"{phase_label} step",) * 2
+        step = i18n.t(ui, "ui.machine.phase_step", label=phase_label)
+        pair = (step, step)
     if flow == "failed":
-        return f"{pair[0]}: failed, retrying"
+        return f"{pair[0]}: {i18n.t(ui, 'ui.machine.suffix_failed_retrying')}"
     if status == "skipped":
-        return f"{pair[0]}: skipped"
+        return f"{pair[0]}: {i18n.t(ui, 'ui.machine.suffix_skipped')}"
     return pair[1] if flow == "done" else pair[0]
 
 
+def _dashboard_chat_line(state: dict, steps: list[dict], ui: str) -> str:
+    """The "what is happening right now" line of the page, in the interface language (D-176b).
+
+    `progress.last_line` stays English in `state` — it is the line the router relays into the chat
+    in its own words (§10) — but the page prints what it is given, so the projection renders the
+    step that line belongs to with the same machinery the timeline uses. A run with no step to
+    name yet degrades to the localized status line, never to the raw English sentence; before the
+    first line there is nothing to show and the field stays empty, as it always was.
+    """
+    if not str((state.get("progress") or {}).get("last_line") or "").strip():
+        return ""
+    return _step_sentence(steps[-1], ui) if steps else _status_label(state)
+
+
 def _phase_label(state: dict) -> str:
-    """Phase name for the page — `Review round 2` while the run iterates (D-95)."""
+    """Phase name for the page — `Review round 2` while the run iterates (D-95, D-176)."""
+    ui = i18n.ui_language(state)
     phase = str(state.get("current_phase") or "")
     iteration = int(state.get("current_iteration") or 0)
     if phase == "revision_loop" and iteration > 0:
-        return f"{phases.label(phase)} {iteration}"
-    return phases.label(phase)
+        return f"{phases.label(phase, ui)} {iteration}"
+    return phases.label(phase, ui)
 
 
 def _status_label(state: dict) -> str:
-    """`_dashboard_status` in the words the page prints (D-95)."""
+    """`_dashboard_status` in the words the page prints (D-95, D-177)."""
+    ui = i18n.ui_language(state)
     if phases.is_terminal(str(state.get("current_phase") or "")):
-        return phases.label(state.get("current_phase"))
+        return phases.label(state.get("current_phase"), ui)
     status = _dashboard_status(state)
-    return {"running": "Working", "waiting for you": "Your turn", "cancelling": "Cancelling"}.get(
-        status, status
-    )
+    return {
+        "running": i18n.t(ui, "ui.machine.status_working"),
+        "waiting for you": i18n.t(ui, "ui.machine.status_your_turn"),
+        "cancelling": i18n.t(ui, "ui.machine.status_cancelling"),
+    }.get(status, status)
 
 
 def _gate_source_intact(root: Path, relative: str) -> bool:
@@ -667,17 +773,18 @@ def _dashboard_gate(state: dict) -> dict | None:
         if row.get("kind") in (KIND_GATE_TEXT, KIND_GATE_AUQ):
             kind = str(row.get("kind"))
             break
+    ui = i18n.ui_language(state)
     return {
         "phase": phase,
-        "phase_label": phases.label(phase),
+        "phase_label": phases.label(phase, ui),
         "kind": kind,
-        "hint": DASHBOARD_GATE_HINT,
+        "hint": i18n.t(ui, "ui.machine.gate_hint"),
         "questions": _gate_questions(state, gate),
-        "answer_hint": DASHBOARD_ANSWER_HINTS.get(gate, DASHBOARD_GATE_HINT),
+        "answer_hint": _dashboard_answer_hint(gate, ui),
     }
 
 
-def _dashboard_plan(state: dict) -> dict | None:
+def _dashboard_plan(state: dict, ui: str = "en") -> dict | None:
     """`plan.json` as structure for the page (D-89) — None until `planning` wrote the file.
 
     The same fields `gates.render_plan_digest` reads, in the same order and with the same issue cap
@@ -688,6 +795,9 @@ def _dashboard_plan(state: dict) -> dict | None:
     D-90: only a `plan.json` that satisfies `schemas/plan.schema.json` is projected. A file that is
     unreadable, not JSON or structurally wrong (a half-written plan, a wrong type on any field) is
     reported as `None` — this never raises, so a bad plan cannot break the `next` answer.
+
+    D-172: `memo_language` names the memo language exactly when `gates.memo_language_line`
+    would print it — an `en`/`en` task carries no key at all.
     """
     work_dir = state.get("work_dir")
     if not work_dir:
@@ -711,7 +821,7 @@ def _dashboard_plan(state: dict) -> dict | None:
         decision = _plan_decision(state)
     except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError):
         decision = None
-    return {
+    card: dict = {
         "classification": str(plan.get("classification") or ""),
         "jurisdictions": _dashboard_codes(plan.get("jurisdictions")),
         "complexity": str(plan.get("estimated_complexity") or ""),
@@ -733,6 +843,11 @@ def _dashboard_plan(state: dict) -> dict | None:
         "approved": str(approval.get("status")) == "approved",
         "decision": decision,
     }
+    language_line = gates.memo_language_line(state)
+    if language_line:
+        memo = i18n.normalize(state.get("language")) or i18n.DEFAULT
+        card["memo_language"] = str(i18n.t(ui, f"ui.language_names.{memo}"))
+    return card
 
 
 # --- D-98: the run's own history, one section per tab of the page ---------------------------
@@ -767,10 +882,16 @@ DASHBOARD_JURISDICTION_CODES = 12
 DASHBOARD_HISTORY_ROWS = 12
 """Cap on the intake lists — the same number of rows an open gate publishes."""
 
+_DASHBOARD_REVIEW_SUMMARY_KEYS: dict[str, str] = {
+    "clean": "review_no_blockers",
+    "blockers": "review_blockers_left",
+    "incomplete": "review_incomplete",
+}
+"""`reviews[].status` -> `ui.machine.review_*` key (D-177)."""
+
 DASHBOARD_REVIEW_SUMMARY: dict[str, str] = {
-    "clean": "No blockers in this round.",
-    "blockers": "Blockers were left for the next revision.",
-    "incomplete": "A reviewer returned nothing usable, so the round is incomplete.",
+    status: i18n_en.EN["ui"]["machine"][key]
+    for status, key in _DASHBOARD_REVIEW_SUMMARY_KEYS.items()
 }
 """`reviews[].status` -> `reviews[].summary`: one static sentence, never a reviewer's own text."""
 
@@ -899,6 +1020,7 @@ def _dashboard_intake(state: dict) -> dict | None:
     answer = _answered_gate_result(state, gates.PHASE_BY_GATE["intake"])
     if not work_dir or answer is None:
         return None
+    ui = i18n.ui_language(state)
     root = Path(work_dir)
     if not _gate_source_intact(root, gates.QUESTIONS_PATH):
         return None
@@ -919,7 +1041,12 @@ def _dashboard_intake(state: dict) -> dict | None:
         assumptions.append(
             {
                 "text": _long_text(
-                    f"{question.get('question') or ''} — assuming: {default}"
+                    i18n.t(
+                        ui,
+                        "ui.machine.intake_row",
+                        question=question.get("question") or "",
+                        default=default,
+                    )
                 ),
                 "confidence": str(question.get("confidence") or ""),
             }
@@ -961,9 +1088,12 @@ def _dashboard_sources(state: dict) -> dict | None:
     }
 
 
-def _reviewer_label(kind: str) -> str:
-    """`citations` -> `Citation auditor` — the reviewer kind in the words of D-95."""
+def _reviewer_label(kind: str, ui: str = "en") -> str:
+    """`citations` -> `Citation auditor` — the reviewer kind in the words of D-95 (D-177)."""
     name = dispatch.REVIEWER_AGENTS.get(kind, kind)
+    key = _DASHBOARD_AGENT_KEYS.get(name)
+    if key is not None:
+        return i18n.t(ui, f"ui.machine.{key}")
     return DASHBOARD_AGENT_LABELS.get(name) or str(name).replace("-", " ").capitalize()
 
 
@@ -978,6 +1108,7 @@ def _dashboard_reviews(state: dict) -> list[dict] | None:
     rows = [row for row in (state.get("iterations") or []) if isinstance(row, dict)]
     if not rows:
         return None
+    ui = i18n.ui_language(state)
     versions = {
         str(row.get("sha256")): int(row.get("version") or 0)
         for row in (state.get("draft_versions") or [])
@@ -994,8 +1125,10 @@ def _dashboard_reviews(state: dict) -> list[dict] | None:
                 "draft_version": versions.get(str(row.get("draft_sha"))),
                 "status": status,
                 "blockers": blockers,
-                "failed_reviewers": [_reviewer_label(kind) for kind in failed],
-                "summary": _long_text(DASHBOARD_REVIEW_SUMMARY[status]),
+                "failed_reviewers": [_reviewer_label(kind, ui) for kind in failed],
+                "summary": _long_text(
+                    i18n.t(ui, f"ui.machine.{_DASHBOARD_REVIEW_SUMMARY_KEYS[status]}")
+                ),
             }
         )
     return reviews
@@ -1046,16 +1179,20 @@ def _dashboard_history(state: dict) -> dict:
 def dashboard_patch(state: dict) -> dict:
     """The whole document the page renders — recomputed from `state` on every `next` (§7.5)."""
     progress = state.get("progress") or {}
+    ui = i18n.ui_language(state)
     history = _dashboard_history(state)
     steps = _latest_steps(state)
     agents = []
     for entry in progress.get("active") or []:
-        agent_type = str(entry.get("agent_type") or "").split(":", 1)[-1]
-        label = str(entry.get("label") or "")
+        # D-176b: "Running now" is displayed prose, so it names the agent and its layer from the
+        # same `ui.machine.agent_*`/`slot_*` tables the timeline reads — never the internal
+        # `agent_type` and the raw phase of the step. An agent whose slot is not a research layer
+        # has no second part: `_agent_layer` answers `""` and the join drops it.
+        parts = (_agent_name(entry, ui), _agent_layer(entry, ui))
         agents.append(
             {
                 "slot": str(entry.get("slot") or ""),
-                "description": " · ".join(part for part in (agent_type, label) if part),
+                "description": " · ".join(part for part in parts if part),
                 "since": str(entry.get("started_at") or ""),
             }
         )
@@ -1067,7 +1204,7 @@ def dashboard_patch(state: dict) -> dict:
         "phase_label": _phase_label(state),
         "phase_no": int(progress.get("position") or 0),
         "phase_total": int(progress.get("total") or 0),
-        "chat_line": progress.get("last_line") or "",
+        "chat_line": _dashboard_chat_line(state, steps, ui),
         "status": _dashboard_status(state),
         "status_label": _status_label(state),
         "steps_done": len([row for row in steps if row.get("status") not in (None, "")]),
@@ -1076,19 +1213,20 @@ def dashboard_patch(state: dict) -> dict:
         "timeline": [
             {
                 "ts": str(row.get("issued_at") or ""),
-                "text": _step_sentence(row),
+                "text": _step_sentence(row, ui),
                 "state": _step_state(row),
             }
             for row in steps[-DASHBOARD_TIMELINE:]
         ],
         "banners": _dashboard_banners(state),
         "gate": _dashboard_gate(state),
-        "plan": _dashboard_plan(state),
+        "plan": _dashboard_plan(state, ui),
         "intake": history["intake"],
         "sources": history["sources"],
         "reviews": history["reviews"],
         "memo": history["memo"],
         "deliverable": _dashboard_deliverable(state),
+        "labels": i18n.node(ui, "ui.dashboard"),
         "updated_at": events.utc_now(),
     }
 
@@ -1121,11 +1259,12 @@ def dashboard_block(work_dir: Path, state: dict) -> dict | None:
             }
         }
     task_id = str(state.get("task_id") or Path(work_dir).name)
+    ui = i18n.ui_language(state)
     return {
         "publish": {
             "file": dispatch.lib_path(*DASHBOARD_HTML),
-            "title": f"memoforge · {task_id}",
-            "description": "Live progress of a memoforge run",
+            "title": i18n.t(ui, "ui.machine.title", task_id=task_id),
+            "description": i18n.t(ui, "ui.machine.description"),
             "capabilities": {"db": {}},
             "favicon": "⚖️",
         },
@@ -1154,8 +1293,10 @@ def plan_gate_text(work_dir: Path, state: dict) -> str:
     is noise: the gate then names the page, the file and the shape of the plan and stops there.
     `text_fallback` (the text channel, where there is no page in front of the user) always carries
     the full digest. A malformed or missing `plan.json` degrades to zero issues and `unknown`
-    complexity — this never raises, exactly like `_dashboard_plan` (D-90).
+    complexity — this never raises, exactly like `_dashboard_plan` (D-90). D-172 adds the
+    `Memo language` line to the pointer while the memo language can still be changed.
     """
+    ui = i18n.ui_language(state)
     url = dashboard_url(state)
     if not url:
         return gates.render_plan_digest(work_dir, state)
@@ -1167,16 +1308,35 @@ def plan_gate_text(work_dir: Path, state: dict) -> str:
         plan = {}
     rows = plan.get("issues")
     issues = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
-    complexity = str(plan.get("estimated_complexity") or "unknown")
+    complexity = str(plan.get("estimated_complexity") or i18n.t(ui, "ui.gates.plan_digest_unknown"))
     # D-147: the page renders the plan, not the preflight, so the blocked portals stay in chat.
-    access = preflight.source_access_block(work_dir, state)
-    return (
-        f"The research plan is on your dashboard: {url}\n"
-        f"File: {gates.PLAN_PATH} in the working folder {Path(work_dir).absolute()}\n"
-        f"{len(issues)} legal {'issue' if len(issues) == 1 else 'issues'} · "
-        f"recommended mode: {gates.recommended_mode(plan)} · estimated complexity: {complexity}\n"
-        + (access + "\n" if access else "")
+    access = preflight.source_access_block(work_dir, state, ui=i18n.ui_language(state))
+    lines = [
+        i18n.t(ui, "ui.machine.plan_gate_dashboard", url=url),
+        i18n.t(
+            ui,
+            "ui.machine.plan_gate_file",
+            path=gates.PLAN_PATH,
+            work_dir=Path(work_dir).absolute(),
+        ),
+    ]
+    # D-172: the memo language is still changeable here, so the pointer names it too.
+    language_line = gates.memo_language_line(state)
+    if language_line:
+        lines.append(language_line)
+    shape = "plan_gate_shape_one" if len(issues) == 1 else "plan_gate_shape_many"
+    lines.append(
+        i18n.t(
+            ui,
+            f"ui.machine.{shape}",
+            count=len(issues),
+            mode=gates.recommended_mode(plan),
+            complexity=complexity,
+        )
     )
+    if access:
+        lines.append(access)
+    return "\n".join(lines) + "\n"
 
 
 def _gate_reply_lines(text: str, numbered: bool) -> list[str]:
@@ -1212,17 +1372,18 @@ def gate_text(work_dir: Path, state: dict, gate: str, full: str) -> str:
     """
     if gate == "plan" or not dashboard_url(state):
         return full
+    ui = i18n.ui_language(state)
     try:
         printed = gates.printed_questions(work_dir, state, gate)
     except (OSError, ValueError, TypeError, AttributeError, KeyError):
         printed = None
     count = len(printed) if printed else 0
-    label = phases.label(gates.PHASE_BY_GATE.get(gate, "")) or gate
-    head = f"{label} is on the dashboard: {dashboard_url(state)}"
+    label = phases.label(gates.PHASE_BY_GATE.get(gate, ""), ui) or gate
+    head = i18n.t(ui, "ui.machine.gate_pointer", label=label, url=dashboard_url(state))
     if count:
-        head = (
-            f"{label} ({count} question{'' if count == 1 else 's'}) "
-            f"are on the dashboard: {dashboard_url(state)}"
+        pointer = "gate_pointer_one" if count == 1 else "gate_pointer_many"
+        head = i18n.t(
+            ui, f"ui.machine.{pointer}", label=label, count=count, url=dashboard_url(state)
         )
     return "\n".join([head] + _gate_reply_lines(full, bool(count))) + "\n"
 
@@ -2067,14 +2228,24 @@ def inline_spec(work_dir: Path, state: dict, phase: str, step_id: str, attempt: 
         }
     if phase == "planning":
         edit = plan_edit_request(state)
+        names = dispatch.language_context(state)
+        ui_name = names["ui_language_name"]
         shape = (
             "classification, jurisdictions, doctrine_required, estimated_complexity and one entry "
             "per legal issue (issue_id, title, question, jurisdictions)"
         )
+        # D-176b: only the three prose fields are translated. `classification` is an enum of six
+        # English values in `schemas/plan.schema.json`, so a translated one is a rejected plan.
+        ui_paragraph = (
+            f"The plan digest prints your prose verbatim: write `issues[].title`, `issues[].question` "
+            f"and `notes` in {ui_name}. The machine fields stay English — `issue_id`, `layer`, "
+            f"jurisdiction codes, `classification` and `estimated_complexity`."
+        )
         if edit is None:
             instruction = (
                 f"Classify the question and write the research plan as `plan` JSON: {shape}. "
-                "Use the user question, `intake/questions.json` and `intake/user-facts.md`."
+                "Use the user question, `intake/questions.json` and `intake/user-facts.md`. "
+                f"{ui_paragraph}"
             )
         else:
             # §2.4 Edit: the next plan is the previous one plus exactly the correction the user asked
@@ -2083,7 +2254,7 @@ def inline_spec(work_dir: Path, state: dict, phase: str, step_id: str, attempt: 
                 "Revise the research plan the user asked to change. Read the previous version "
                 "`plan.json`, apply exactly this correction and change nothing else: "
                 f"{edit or '(the user asked for a change without naming it; re-read the question)'}. "
-                f"Write the complete `plan` JSON again: {shape}."
+                f"Write the complete `plan` JSON again: {shape}. {ui_paragraph}"
             )
         return {
             "kind": KIND_INLINE,
@@ -4435,7 +4606,8 @@ def _report_gate(work_dir: Path, state: dict, row: dict, args: argparse.Namespac
         return {"accepted": False, "errors": [f"invalid_answers_json: {exc}"]}
     if not isinstance(answers, dict):
         return {"accepted": False, "errors": ["invalid_answers_json: object expected"]}
-    parsed = gates.parse_auq(answers)
+    # D-176a: the AUQ answered in the interface language of the task comes back canonical.
+    parsed = gates.parse_auq(answers, i18n.ui_language(state))
     if not parsed["recognized"]:
         return {"accepted": False, "errors": parsed["errors"]}
     result = gates.commit(

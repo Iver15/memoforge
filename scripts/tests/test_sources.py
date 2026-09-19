@@ -20,7 +20,11 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import limits, sources, state_io, task  # noqa: E402
+from memoforge import i18n, limits, sources, state_io, task  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _i18n  # noqa: E402
 
 TASK_ID = "memo-20260101T000000Z-sources"
 WORKERS = 6
@@ -1076,6 +1080,91 @@ class DigestTest(SourcesTestCase):
         self.freeze()
         result = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
         self.assertIn("conflicting_authority", {row["kind"] for row in result["exceptions"]})
+
+
+class DigestLanguageTest(SourcesTestCase):
+    """D-176 (sources/preflight): the gate-11 digest speaks the UI language (frame only).
+
+    The exception rows keep their machine tokens (`[kind]`, `source_id`, `tier`, currency
+    status values, `do_not_use`) and the `drafting_warning` rows keep the memo-language text
+    (D-173b); only the heading, the exception/no-exception lines and the closing reply line
+    (tokens `continue`/`cancel` in backticks unchanged) are localized.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        holder = tempfile.TemporaryDirectory(prefix="mf-sources-ui-")
+        self.addCleanup(holder.cleanup)
+        self.packs = Path(holder.name)
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+
+    def _frozen(self) -> dict:
+        self.register(raw_file=self.raw_file())
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["verification"]["us"] = "unresolved"
+        with sources.sources_lock(self.work_dir):
+            sources.write_registry(self.work_dir, registry)
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        state_io.write_json_atomic(
+            self.work_dir / sources.CURRENCY_PATH,
+            {
+                "checked_at": "2026-01-02",
+                "sources": [{"source_id": "gdpr-article-6", "status": "current", "note": ""}],
+                "blocking": [],
+                "warnings": [],
+            },
+        )
+        self.freeze()
+        return state_io.read_state(self.work_dir)
+
+    def test_english_digest_is_todays_bytes(self):
+        state = self._frozen()
+        result = sources.render_digest(self.work_dir, state, True)
+        self.assertIn("Source review — 1 sources registered (frozen).", result["text"])
+        self.assertIn("Exceptions requiring your attention:", result["text"])
+        self.assertIn("[unresolved_citation] gdpr-article-6 — US citation unresolved", result["text"])
+        self.assertIn("Reply `continue` to draft on these sources, or `cancel` to stop.", result["text"])
+
+    def test_the_russian_digest_localizes_the_frame_but_not_the_rows(self):
+        state = self._frozen()
+        result = sources.render_digest(self.work_dir, state, True, ui="ru")
+        self.assertIn(
+            "Проверка источников — 1 источников зарегистрировано (заморожено).", result["text"]
+        )
+        self.assertNotIn("Source review —", result["text"])
+        self.assertIn("Исключения, требующие вашего внимания:", result["text"])
+        self.assertNotIn("Exceptions requiring your attention:", result["text"])
+        self.assertIn("[unresolved_citation] gdpr-article-6 — US citation unresolved", result["text"])
+        self.assertIn(
+            "Ответьте `continue`, чтобы писать по этим источникам, или `cancel`, чтобы остановиться.",
+            result["text"],
+        )
+
+    def test_the_russian_no_exception_digest_and_a_memo_language_warning(self):
+        self.register(raw_file=self.raw_file())
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        state_io.write_json_atomic(
+            self.work_dir / sources.CURRENCY_PATH,
+            {
+                "checked_at": "2026-01-02",
+                "sources": [{"source_id": "gdpr-article-6", "status": "current", "note": ""}],
+                "blocking": [],
+                "warnings": [],
+            },
+        )
+        self.freeze()
+
+        def mutate(state: dict) -> None:
+            state["drafting_warnings"] = ["doctrine layer returned nothing"]
+
+        state_io.write_state(self.work_dir, mutate)
+        state = state_io.read_state(self.work_dir)
+        result = sources.render_digest(self.work_dir, state, True, ui="ru")
+        self.assertIn("Исключения, требующие вашего внимания:", result["text"])
+        self.assertIn("- [drafting_warning] doctrine layer returned nothing", result["text"])
 
 
 class PublishedInputTest(SourcesTestCase):

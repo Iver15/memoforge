@@ -423,7 +423,8 @@ DASHBOARD_LABELS: dict[str, str] = {
 
 The rendered text of those rows carries diagnostics — an absolute `work_dir`, an arbitrary error
 `reason`, counts — which must never leave the machine for the published dashboard; `dashboard_label`
-serves these instead.
+serves these instead. D-176b: `EN["ui"]["banners"]` mirrors this table key for key, and the four
+packs translate it, so the page prints the stand-in in the interface language.
 """
 
 DASHBOARD_UNAVAILABLE = "dashboard_unavailable"
@@ -483,15 +484,31 @@ def banner_text_for(row: object, language: str) -> str:
         return stored
 
 
-def dashboard_label(banner_id: str) -> str:
+def dashboard_label(banner_id: str, language: str = i18n.DEFAULT) -> str:
     """Static, parameter-free text for a banner id — the only banner content §7.5 publishes (D-88).
 
     Rows without `banner_params` are constants already, so their `banner_text` is served as is;
     formatted rows are served from `DASHBOARD_LABELS`. Unknown ids get an empty label.
+
+    D-176b: the page is an interface surface, so the label is served in `language` — the run's
+    **interface** language, not the memo one. A constant row is the same sentence as
+    `memo.banners.<id>`, and is read from there; a formatted row has no pack entry of its own,
+    because the page must never print the rendered text (an absolute `work_dir`, an arbitrary
+    error `reason`, per-server counts), so its parameter-free stand-in lives in `ui.banners.<id>`.
+    English is answered from the constants above, byte for byte as before, and an unreadable pack
+    or a pack without the key degrades to English rather than failing a `next` answer.
     """
     row = BY_BANNER.get(banner_id)
     if row is None:
         return ""
     if row["banner_params"]:
-        return DASHBOARD_LABELS.get(banner_id, banner_id)
-    return row["banner_text"]
+        english, key = DASHBOARD_LABELS.get(banner_id, banner_id), f"ui.banners.{banner_id}"
+    else:
+        english, key = row["banner_text"], f"memo.banners.{banner_id}"
+    code = i18n.normalize(language) or i18n.DEFAULT
+    if code == i18n.DEFAULT:
+        return english
+    try:
+        return i18n.t(code, key)
+    except (KeyError, i18n.PackUnavailable):
+        return english

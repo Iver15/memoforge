@@ -21,6 +21,7 @@ import _i18n  # noqa: E402
 from memoforge import docx as docx_export  # noqa: E402
 from memoforge import (  # noqa: E402
     events,
+    gates,
     limits,
     machine,
     modes,
@@ -2913,6 +2914,179 @@ class MachineWarningLanguageTest(unittest.TestCase):
         found = [row for row in warnings if row["code"] == "currency_unchecked"]
         self.assertEqual(1, len(found), warnings)
         self.assertEqual("актуальность источника не удалось проверить", found[0]["message"])
+
+
+class UiLanguageGateTest(unittest.TestCase):
+    """D-176 / D-176a: the gates `next` issues speak the UI language; the answers stay canonical."""
+
+    def setUp(self):
+        self.packs = Path(temp_root(self)) / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(machine.i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+
+    def _russian_task(self, slug: str) -> Driver:
+        driver = Driver(temp_root(self), slug=slug)
+        state_io.write_state(
+            driver.work_dir, lambda current: current.update({"ui_language": "ru"})
+        )
+        return driver
+
+    def _with_dashboard(self, driver: Driver) -> dict:
+        """The state of a run whose page is live, so the gates print the pointer form (D-94)."""
+        state = dict(driver.state())
+        state["config"] = dict(state.get("config") or {}, dashboard=True)
+        state["progress"] = dict(state.get("progress") or {}, artifact_url="https://example.test/x")
+        return state
+
+    def test_a_localized_auq_answer_is_recorded_canonically_and_the_run_proceeds(self):
+        driver = self._russian_task("ui-auq")
+        action = driver.run_until("plan_approval_pending")
+        self.assertEqual("gate-auq", action["kind"])
+        answer = driver.report(
+            action["step_id"],
+            action["attempt"],
+            answers=json.dumps({"План": "Утвердить", "Режим": "Кратко"}),
+            generation=action.get("generation", 0),
+        )
+        self.assertTrue(answer["accepted"])
+        iteration = driver.state()["plan_approval"]["iterations"][-1]
+        self.assertEqual({"Plan": "Approve", "Mode": "Brief"}, iteration["answers"])
+        self.assertEqual("approved", driver.state()["plan_approval"]["status"])
+        driver.next()
+        self.assertEqual("research", driver.state()["current_phase"])
+        self.assertEqual("brief", driver.state()["mode"])
+
+    def test_resume_gate_reissues_the_plan_gate_in_russian(self):
+        driver = self._russian_task("ui-resume")
+        issued = driver.run_until("plan_approval_pending")
+        reissued = driver.next()
+        self.assertTrue(reissued.get("reissued"))
+        self.assertEqual(
+            ["План", "Режим"], [question["header"] for question in reissued["questions"][:2]]
+        )
+        self.assertIn("Утвердить этот план исследования?", reissued["questions"][0]["question"])
+        self.assertIn("Правовых вопросов для исследования:", reissued["text"])
+        self.assertIn("Ответьте одним из:", reissued["text_fallback"])
+        self.assertEqual(issued["text"], reissued["text"])
+
+    def test_a_russian_intake_gate_keeps_the_english_pointer_shape(self):
+        """D-103: `_gate_reply_lines` lifts the reply format by shape, in every language."""
+        driver = self._russian_task("ui-pointer")
+        action = driver.run_until("intake_questions_pending")
+        russian = action["text"]
+        english = gates.render(
+            driver.work_dir, dict(driver.state(), ui_language="en"), "intake"
+        )
+        lines_ru = machine._gate_reply_lines(russian, True)
+        lines_en = machine._gate_reply_lines(english, True)
+        self.assertEqual(len(lines_en), len(lines_ru))
+        self.assertTrue(lines_ru[0].endswith(":"), lines_ru)
+        self.assertEqual(
+            ["Ответьте в формате `1A 2C 3: свободный текст`:",
+             "`proceed` принимает все допущения как есть. `cancel` останавливает задачу."],
+            lines_ru,
+        )
+
+    def test_the_dashboard_pointer_of_a_text_gate_is_localized(self):
+        driver = self._russian_task("ui-pointer-dashboard")
+        action = driver.run_until("intake_questions_pending")
+        state = self._with_dashboard(driver)
+        pointer = machine.gate_text(
+            driver.work_dir, state, "intake", gates.render(driver.work_dir, state, "intake")
+        )
+        self.assertIn("Ваши вводные ответы (вопросов: 2) — на панели:", pointer)
+        self.assertIn("Ответьте в формате", pointer)
+        self.assertNotIn("are on the dashboard", pointer)
+        self.assertEqual(action["phase"], "intake_questions_pending")
+
+    def test_the_plan_gate_pointer_names_the_memo_language_outside_en_en(self):
+        driver = self._russian_task("ui-plan-pointer")
+        driver.run_until("plan_approval_pending")
+        state = self._with_dashboard(driver)
+        text = machine.plan_gate_text(driver.work_dir, state)
+        self.assertIn("План исследования — на вашей панели: https://example.test/x", text)
+        self.assertIn("Язык мемо: English", text)
+        self.assertIn("Правовых вопросов: 1 · рекомендуемый режим: full", text)
+        english = dict(state, ui_language="en")
+        self.assertNotIn("Memo language", machine.plan_gate_text(driver.work_dir, english))
+
+    def test_the_dashboard_patch_carries_labels_and_the_memo_language_off_en_en(self):
+        """D-177 (patch only): `labels` is the whole `ui.dashboard` dict; the plan card names
+        the memo language exactly when `gates.memo_language_line` prints it."""
+        from memoforge import i18n_en  # noqa: E402 - local import keeps the module header stable
+
+        from memoforge import i18n  # noqa: E402 - local import keeps the module header stable
+
+        driver = self._russian_task("ui-patch")
+        state = dict(driver.state())
+        patch = machine.dashboard_patch(state)
+        self.assertEqual(patch["labels"], i18n.node("ru", "ui.dashboard"))
+        self.assertEqual(patch["labels"]["card_your_turn"], "Ваш ход")
+        self.assertEqual(patch["status_label"], "Работаем")
+        self.assertNotIn("memo_language", patch["plan"] or {})
+        probe_plan = probe.fixture_plan()
+        state_io.write_json_atomic(driver.work_dir / gates.PLAN_PATH, probe_plan)
+        patch = machine.dashboard_patch(dict(driver.state()))
+        self.assertEqual(patch["plan"]["memo_language"], "English")
+        english = dict(driver.state(), ui_language="en")
+        before = {key: value for key, value in machine.dashboard_patch(english).items()}
+        self.assertEqual(before["labels"], i18n_en.EN["ui"]["dashboard"])
+        self.assertNotIn("memo_language", before["plan"] or {})
+
+
+class PlannerUiLanguageTest(unittest.TestCase):
+    """D-173b (UI half): the planner writes the gate-visible plan fields in the UI language."""
+
+    def _instruction(self, *, ui_language: str, language: str = "en") -> str:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        packs = Path(tmp.name)
+        _i18n.fake_pack(packs, "ru", _i18n.RU)
+        with mock.patch.object(machine.i18n, "PACK_DIR", packs):
+            work_dir = temp_root(self) / "planner-ui"
+            work_dir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "task_id": "memo-20260908T120000Z-planner-ui",
+                "user_query": "How long may the client keep customer records?",
+                "language": language,
+                "ui_language": ui_language,
+                "config": {},
+                "current_iteration": 1,
+            }
+            spec = machine.inline_spec(work_dir, state, "planning", "s-003", 1)
+            assert spec is not None
+            return spec["instruction"]
+
+    def test_the_russian_planner_prompt_names_russian_for_the_plan_fields(self):
+        instruction = self._instruction(ui_language="ru")
+        self.assertIn("Russian", instruction)
+        self.assertIn("`issues[].title`", instruction)
+        self.assertIn("`issues[].question`", instruction)
+        self.assertIn("`issue_id`", instruction)
+
+    def test_the_english_planner_prompt_names_english(self):
+        self.assertIn("English", self._instruction(ui_language="en"))
+
+    def test_the_classification_is_named_among_the_machine_fields(self):
+        """Final review, finding 1: `schemas/plan.schema.json` accepts six English values for
+        `classification`, so a planner told to write it in Russian produces a rejected plan.
+
+        The paragraph names it with `estimated_complexity` on the unchanged side, and the list
+        of fields to translate — everything between the lead and that sentence — holds only the
+        three prose fields.
+        """
+        instruction = self._instruction(ui_language="ru")
+        prose, marker, machine_fields = instruction.partition("The machine fields stay English")
+        self.assertTrue(marker, instruction)
+        self.assertIn("`classification`", machine_fields)
+        self.assertIn("`estimated_complexity`", machine_fields)
+        translated = prose.split("prints your prose verbatim", 1)[1]
+        self.assertIn("`notes` in Russian", translated)
+        for field in ("`classification`", "`estimated_complexity`", "`issue_id`", "`layer`"):
+            self.assertNotIn(field, translated, field)
 
 
 if __name__ == "__main__":

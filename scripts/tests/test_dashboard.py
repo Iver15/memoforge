@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
@@ -15,11 +16,14 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import _i18n  # noqa: E402
 from _pipeline import Driver, namespace, temp_root  # noqa: E402
 from memoforge import (  # noqa: E402
     events,
     fallbacks,
     gates,
+    i18n,
+    i18n_en,
     machine,
     probe,
     sources,
@@ -121,6 +125,7 @@ class DashboardPatchTest(unittest.TestCase):
                     "reviews",
                     "memo",
                     "deliverable",
+                    "labels",
                     "updated_at",
                 ]
             ),
@@ -131,9 +136,9 @@ class DashboardPatchTest(unittest.TestCase):
         self.assertEqual(self.patch["mode"], "full")
         self.assertEqual(self.patch["phase"], "research")
         self.assertEqual((self.patch["phase_no"], self.patch["phase_total"]), (2, 3))
-        self.assertEqual(
-            self.patch["chat_line"], "Phase 2/3 — research: 1 researcher dispatched (statutes)"
-        )
+        # Final review, finding 2: `progress.last_line` is the English chat line the router
+        # relays (§10); the page prints the localized sentence of the step it belongs to.
+        self.assertEqual(self.patch["chat_line"], "Researcher (statutes): started")
         self.assertEqual(self.patch["status"], "running")
         self.assertEqual(self.patch["query"], "How long may the client keep customer records?")
         self.assertEqual(self.patch["phase_label"], "Legal research")
@@ -143,12 +148,14 @@ class DashboardPatchTest(unittest.TestCase):
         self.assertEqual((self.patch["steps_done"], self.patch["steps_total"]), (1, 2))
 
     def test_running_agents_carry_slot_description_and_start(self):
+        """Re-review residual: the description is displayed prose — the agent and its layer from
+        `ui.machine.agent_*`/`slot_*`, not the internal `agent_type` and the phase of the step."""
         self.assertEqual(
             self.patch["agents_running"],
             [
                 {
                     "slot": "statutes",
-                    "description": "legal-researcher · research",
+                    "description": "Researcher · statutes",
                     "since": "2026-09-08T12:05:00.000Z",
                 }
             ],
@@ -1457,7 +1464,7 @@ class DashboardPageTest(unittest.TestCase):
 
     def test_the_page_exists_and_is_titled(self):
         self.assertTrue(PAGE.is_file(), PAGE)
-        self.assertIn("<title>", self.text)
+        self.assertIn("<title", self.text)
 
     def test_the_page_ships_no_skeleton_tags(self):
         for tag in ("<!doctype", "<html", "<head", "<body"):
@@ -1500,7 +1507,7 @@ class DashboardPageTest(unittest.TestCase):
             "answer_hint",
         ):
             self.assertIn(token, self.text, token)
-        self.assertLess(len(self.text.splitlines()), 480, "the page stays small enough to read")
+        self.assertLess(len(self.text.splitlines()), 600, "the page stays small enough to read")
 
     def test_the_gate_card_opens_the_overview_and_the_plan_has_its_own_tab(self):
         """D-98: the plan card left the Overview column for the Plan tab; the gate still leads."""
@@ -1509,7 +1516,7 @@ class DashboardPageTest(unittest.TestCase):
         self.assertLess(self.text.index('id="panel-plan"'), self.text.index('id="plan-card"'))
 
     def test_the_approval_is_marked_and_the_notice_is_bound_to_the_open_gate(self):
-        self.assertIn('plan.approved ? "approved"', self.text)
+        self.assertIn('plan.approved ? L("plan_approved")', self.text)
         self.assertIn('plan.approved ? "tag ok"', self.text)
         self.assertIn('show("gate-card", !!gate)', self.text, "no gate, no notice")
 
@@ -1615,6 +1622,366 @@ class DashboardIsDocumentedTest(unittest.TestCase):
         for name in ("memo", "continue"):
             path = PLUGIN_ROOT / "skills" / name / "SKILL.md"
             self.assertIn("dashboard", path.read_text(encoding="utf-8-sig"), name)
+
+
+class DashboardPhaseLanguageTest(unittest.TestCase):
+    """D-176: the phase names of the patch are read in the interface language of the task.
+
+    D-177 localizes the sentence frames (`Waiting for you: …`, `Working`) and the
+    `DASHBOARD_*_LABELS` tables; the cases below pin the phase names, the iteration
+    suffix and the legacy (no `ui_language`) default.
+    """
+
+    def setUp(self):
+        self.packs = Path(temp_root(self)) / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(machine.i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+
+    def _state(self, phase: str, ui: str, **extra) -> dict:
+        state = fixture_state()
+        state["current_phase"] = phase
+        state["ui_language"] = ui
+        state.update(extra)
+        return state
+
+    def test_a_running_phase(self):
+        self.assertEqual(
+            "Legal research", machine.dashboard_patch(self._state("research", "en"))["phase_label"]
+        )
+        patch = machine.dashboard_patch(self._state("research", "ru"))
+        self.assertEqual("Юридическое исследование", patch["phase_label"])
+        self.assertEqual("Работаем", patch["status_label"])
+
+    def test_a_waiting_gate_phase(self):
+        english = machine.dashboard_patch(self._state("plan_approval_pending", "en"))
+        self.assertEqual("Plan approval", english["phase_label"])
+        self.assertEqual("Plan approval", english["gate"]["phase_label"])
+        russian = machine.dashboard_patch(self._state("plan_approval_pending", "ru"))
+        self.assertEqual("Утверждение плана", russian["phase_label"])
+        self.assertEqual("Утверждение плана", russian["gate"]["phase_label"])
+
+    def test_a_terminal_phase_names_itself_in_the_ui_language(self):
+        for phase, english, russian in (
+            ("done", "Done", "Готово"),
+            ("failed", "Stopped with a fallback deliverable", "Остановлено с резервным результатом"),
+            ("cancelled_by_user", "Cancelled", "Отменено"),
+        ):
+            with self.subTest(phase=phase):
+                patch = machine.dashboard_patch(self._state(phase, "en"))
+                self.assertEqual((english, english), (patch["phase_label"], patch["status_label"]))
+                patch = machine.dashboard_patch(self._state(phase, "ru"))
+                self.assertEqual((russian, russian), (patch["phase_label"], patch["status_label"]))
+
+    def test_the_iteration_number_still_follows_the_localized_label(self):
+        state = self._state("revision_loop", "ru", current_iteration=2)
+        self.assertEqual("Раунд ревью 2", machine.dashboard_patch(state)["phase_label"])
+        state = self._state("revision_loop", "en", current_iteration=2)
+        self.assertEqual("Review round 2", machine.dashboard_patch(state)["phase_label"])
+
+    def test_a_timeline_sentence_carries_the_localized_phase_name(self):
+        state = self._state("plan_approval_pending", "ru")
+        state["steps"] = [
+            {
+                "step_id": "s-900",
+                "kind": "gate-auq",
+                "phase": "plan_approval_pending",
+                "attempt": 1,
+                "reason": "initial",
+                "status": None,
+                "issued_at": "2026-09-08T12:00:00.000Z",
+            }
+        ]
+        self.assertEqual(
+            "Ваш ход: Утверждение плана",
+            machine.dashboard_patch(state)["timeline"][-1]["text"],
+        )
+        state["ui_language"] = "en"
+        self.assertEqual(
+            "Waiting for you: Plan approval",
+            machine.dashboard_patch(state)["timeline"][-1]["text"],
+        )
+
+    def test_a_task_without_ui_language_is_english(self):
+        state = fixture_state()
+        state["current_phase"] = "research"
+        state.pop("ui_language", None)
+        self.assertEqual("Legal research", machine.dashboard_patch(state)["phase_label"])
+
+
+class DashboardUiLanguageTest(unittest.TestCase):
+    """D-177: the dashboard document and its strings follow `ui_language`.
+
+    For `en` the patch is byte-identical to the pre-plan-56 document except the added
+    `labels` key (and — only for a non-`en`/`en` task — the plan card's `memo_language`)
+    and, from the final review, the `chat_line` projection: that field is no longer the
+    English `progress.last_line` but the localized sentence of the step it belongs to.
+    """
+
+    def setUp(self):
+        self.packs = Path(temp_root(self)) / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(machine.i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+
+    def _state(self, ui: str, **extra) -> dict:
+        state = fixture_state()
+        state["ui_language"] = ui
+        state.update(extra)
+        return state
+
+    def test_the_english_patch_gains_only_the_labels_key(self):
+        """D-177: the whole `en` patch equals the pre-plan-56 document plus `labels`.
+
+        Every other field — header, agents, timeline, banners, gate/plan/history
+        cards, memo, deliverable — is byte-identical to what the code wrote before
+        the UI-language plan; only `updated_at` moves and is normalised away.
+        """
+        patch = machine.dashboard_patch(self._state("en"))
+        self.assertEqual(
+            {key: value for key, value in patch.items() if key != "updated_at"},
+            {
+                "task_id": "memo-20260908T120000Z-fixture",
+                "query": "How long may the client keep customer records?",
+                "mode": "full",
+                "phase": "research",
+                "phase_label": "Legal research",
+                "phase_no": 2,
+                "phase_total": 3,
+                "chat_line": "Researcher (statutes): started",
+                "status": "running",
+                "status_label": "Working",
+                "steps_done": 1,
+                "steps_total": 2,
+                "agents_running": [
+                    {
+                        "slot": "statutes",
+                        "description": "Researcher · statutes",
+                        "since": "2026-09-08T12:05:00.000Z",
+                    }
+                ],
+                "timeline": [
+                    {
+                        "ts": "2026-09-08T12:00:00.000Z",
+                        "text": "Checking which legal databases are available step",
+                        "state": "done",
+                    },
+                    {
+                        "ts": "2026-09-08T12:05:00.000Z",
+                        "text": "Researcher (statutes): started",
+                        "state": "running",
+                    },
+                ],
+                "banners": [
+                    {"id": "mcp_partial", "text": fallbacks.dashboard_label("mcp_partial")}
+                ],
+                "gate": None,
+                "plan": None,
+                "intake": None,
+                "sources": None,
+                "reviews": None,
+                "memo": None,
+                "deliverable": "",
+                "labels": i18n_en.EN["ui"]["dashboard"],
+            },
+        )
+        self.assertRegex(patch["updated_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+
+    def test_the_russian_patch_labels_steps_status_and_hints(self):
+        patch = machine.dashboard_patch(self._state("ru"))
+        self.assertEqual(patch["labels"]["card_your_turn"], "Ваш ход")
+        self.assertEqual(patch["labels"], i18n.node("ru", "ui.dashboard"))
+        self.assertEqual(patch["status_label"], "Работаем")
+        self.assertEqual(
+            patch["timeline"],
+            [
+                {
+                    "ts": "2026-09-08T12:00:00.000Z",
+                    "text": "Шаг: Проверяем, какие юридические базы доступны",
+                    "state": "done",
+                },
+                {
+                    "ts": "2026-09-08T12:05:00.000Z",
+                    "text": "Исследователь (законодательство): запущено",
+                    "state": "running",
+                },
+            ],
+        )
+        state = self._state("ru", current_phase="plan_approval_pending")
+        gate = machine.dashboard_patch(state)["gate"]
+        self.assertEqual(gate["hint"], "ждём вашего решения в чате")
+        self.assertEqual(
+            gate["answer_hint"],
+            "Ответьте на вопрос из чата (или текстом: approve [brief|full] · edit: … · cancel)",
+        )
+        intake = self._state("ru", current_phase="intake_questions_pending")
+        self.assertEqual(
+            machine.dashboard_patch(intake)["gate"]["answer_hint"],
+            "Ответьте в чате: 1A 2C 3: ваш текст · proceed · cancel",
+        )
+
+    def test_the_current_line_and_the_notices_speak_russian_on_a_russian_page(self):
+        """Final review, finding 2: neither the current line nor a notice reaches the page
+        in English while the interface language is Russian.
+
+        `progress.last_line` itself stays English in `state` — it is the chat line the router
+        relays in its own words (design §10) — so the projection is checked against it: the
+        page carries the localized step sentence instead, and the notice is the localized
+        stand-in of the banner id (`MCP` is the one acronym both languages spell alike).
+
+        Re-review residual: `agents_running[].description` is displayed prose too and carries no
+        English agent id once the pack has the `ui.machine.agent_*`/`slot_*` key.
+        """
+        state = self._state("ru")
+        patch = machine.dashboard_patch(state)
+        self.assertEqual(
+            "Phase 2/3 — research: 1 researcher dispatched (statutes)",
+            state["progress"]["last_line"],
+        )
+        self.assertEqual("Исследователь (законодательство): запущено", patch["chat_line"])
+        self.assertEqual(
+            [
+                {
+                    "id": "mcp_partial",
+                    "text": "Частичное покрытие MCP; пробел отмечен в файлах исследования.",
+                }
+            ],
+            patch["banners"],
+        )
+        self.assertEqual(
+            [{"slot": "statutes", "description": "Исследователь · законодательство",
+              "since": "2026-09-08T12:05:00.000Z"}],
+            patch["agents_running"],
+        )
+        displayed = " ".join(
+            [patch["chat_line"], patch["banners"][0]["text"]]
+            + [row["description"] for row in patch["agents_running"]]
+        )
+        latin = re.findall(r"[A-Za-z]{3,}", displayed)
+        self.assertEqual([], [word for word in latin if word != "MCP"])
+
+    def test_an_agent_outside_the_three_research_layers_names_only_itself(self):
+        """Commit review P2: `writer`, `logic`, `currency` … are internal slot identifiers with
+        no pack entry, so the description is the agent name alone — never `Автор мемо · writer`."""
+        russian = self._state("ru")
+        russian["progress"]["active"] = [
+            {
+                "slot": "writer",
+                "agent_type": "memoforge:memo-writer",
+                "label": "drafting",
+                "started_at": "2026-09-08T12:30:00.000Z",
+            }
+        ]
+        description = machine.dashboard_patch(russian)["agents_running"][0]["description"]
+        self.assertEqual("Автор мемо", description)
+        self.assertEqual([], re.findall(r"[A-Za-z]", description))
+        english = self._state("en")
+        english["progress"]["active"] = russian["progress"]["active"]
+        self.assertEqual(
+            "Memo writer", machine.dashboard_patch(english)["agents_running"][0]["description"]
+        )
+
+    def test_a_current_line_with_no_step_behind_it_degrades_to_the_localized_status(self):
+        """Never raw English: a line without a step counterpart prints the status line."""
+        without_steps = self._state("ru")
+        without_steps["steps"] = []
+        self.assertEqual("Работаем", machine.dashboard_patch(without_steps)["chat_line"])
+        before_the_first_line = self._state("ru")
+        before_the_first_line["progress"]["last_line"] = ""
+        self.assertEqual("", machine.dashboard_patch(before_the_first_line)["chat_line"])
+
+    def test_the_localized_notice_is_still_the_parameter_free_stand_in(self):
+        """D-88 survives D-176b: `EN["ui"]["banners"]` mirrors the table `fallbacks` declares,
+        and no language prints the rendered banner, in which the diagnostics live."""
+        self.assertEqual(fallbacks.DASHBOARD_LABELS, i18n_en.EN["ui"]["banners"])
+        for banner_id in ("output_folder_unavailable", "dashboard_unavailable", "mcp_partial"):
+            with self.subTest(banner=banner_id):
+                english = fallbacks.dashboard_label(banner_id)
+                russian = fallbacks.dashboard_label(banner_id, "ru")
+                self.assertEqual(fallbacks.DASHBOARD_LABELS[banner_id], english)
+                self.assertNotEqual(english, russian)
+                for label in (english, russian):
+                    self.assertTrue(label.strip())
+                    self.assertNotIn("{", label)
+        # A constant banner has no stand-in of its own and is read from `memo.banners`.
+        self.assertEqual(
+            i18n.t("ru", "memo.banners.docx_invalid"),
+            fallbacks.dashboard_label("docx_invalid", "ru"),
+        )
+
+    def test_the_plan_card_names_the_memo_language_only_off_the_en_en_default(self):
+        root = temp_root(self)
+        state_io.write_json_atomic(root / gates.PLAN_PATH, probe.fixture_plan())
+        plain = self._state("en")
+        plain["work_dir"] = str(root)
+        self.assertNotIn("memo_language", machine.dashboard_patch(plain)["plan"])
+        russian_ui = self._state("ru")
+        russian_ui["work_dir"] = str(root)
+        self.assertEqual(
+            machine.dashboard_patch(russian_ui)["plan"]["memo_language"], "English"
+        )
+        german_memo = self._state("en", language="de")
+        german_memo["work_dir"] = str(root)
+        self.assertEqual(
+            machine.dashboard_patch(german_memo)["plan"]["memo_language"], "Deutsch"
+        )
+        self.assertEqual(
+            gates.memo_language_line(german_memo).split(": ")[-1],
+            machine.dashboard_patch(german_memo)["plan"]["memo_language"],
+        )
+
+    def test_the_html_fallback_object_equals_the_english_dashboard_pack(self):
+        text = PAGE.read_text(encoding="utf-8-sig")
+        match = re.search(r"var EN_FALLBACK = (\{.*?\});", text, re.DOTALL)
+        self.assertIsNotNone(match, "EN_FALLBACK object literal not found")
+        fallback = json.loads(match.group(1))
+        self.assertEqual(fallback, i18n_en.EN["ui"]["dashboard"])
+
+    def test_no_dashboard_english_literal_survives_outside_the_fallback(self):
+        """D-177: no English label is displayed outside `EN_FALLBACK`.
+
+        For EVERY value of `EN["ui"]["dashboard"]` (placeholders included, none
+        skipped): after cutting out the one `EN_FALLBACK = {...}` object
+        literal, the value must not occur (a) as element text content — between
+        `>` and `<`, ignoring surrounding whitespace —, (b) as a JS string
+        literal in double, single or backtick quotes, or (c) as the value of a
+        displayed HTML attribute (`title=`, `placeholder=`, `alt=`,
+        `aria-label=`, `value=`). Identifiers, property accesses and
+        `data-lbl="<key>"` attributes are not displayed text and do not match.
+        """
+        text = PAGE.read_text(encoding="utf-8-sig")
+        match = re.search(r"var EN_FALLBACK = (\{.*?\});", text, re.DOTALL)
+        self.assertIsNotNone(match, "EN_FALLBACK object literal not found")
+        rest = text[: match.start()] + text[match.end() :]
+        texts = [
+            match.group(1).strip()
+            for match in re.finditer(r">([^<>]*)<", rest)
+            if match.group(1).strip()
+        ]
+        strings = [
+            literal[1:-1]
+            for literal in re.findall(
+                r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|`(?:[^`\\]|\\.)*`', rest
+            )
+        ]
+        attrs = re.findall(
+            r'(?:title|placeholder|alt|aria-label|value)\s*=\s*"([^"]*)"'
+            r"|(?:title|placeholder|alt|aria-label|value)\s*=\s*'([^']*)'",
+            rest,
+        )
+        shown = texts + strings + [value for pair in attrs for value in pair if value]
+        for key, value in i18n_en.EN["ui"]["dashboard"].items():
+            with self.subTest(key=key):
+                self.assertNotIn(
+                    value, shown, f"{key}: {value!r} is displayed outside EN_FALLBACK"
+                )
+        self.assertIn("staticLabels()", rest)
+        self.assertIn("paintLive()", rest)
+        self.assertIn('id="plan-language"', rest)
 
 
 if __name__ == "__main__":  # pragma: no cover

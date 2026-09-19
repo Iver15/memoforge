@@ -1,4 +1,4 @@
-<title>memoforge run</title>
+<title data-lbl="title"></title>
 <style>
   :root {
     color-scheme: light; --ground: #f6f7f9; --surface: #ffffff; --ink: #1c2330; --muted: #5f6b7a; --hairline: #e1e5eb; --accent: #2f6f73; --good: #2e7d4f; --warn: #b7791f; --critical: #b23a3a;
@@ -79,57 +79,57 @@
 <div class="wrap">
   <div class="head">
     <p class="eyebrow">memoforge · <b id="task"></b></p>
-    <h1 id="query">Waiting for data…</h1>
+    <h1 id="query" data-lbl="query_waiting"></h1>
     <div class="pills">
       <span class="pill now" id="phase-pill"></span>
       <span class="pill" id="status-pill"></span>
     </div>
     <div class="track"><div class="fill" id="fill"></div></div>
-    <p class="under" id="chat">Waiting for data…</p>
+    <p class="under" id="chat" data-lbl="chat_waiting"></p>
   </div>
 
-  <div class="tabs" id="tabs" role="tablist" aria-label="Run sections">
-    <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0">Overview</button>
-    <button type="button" role="tab" id="tab-intake" aria-controls="panel-intake" aria-selected="false" tabindex="-1" hidden>Intake</button>
-    <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1" hidden>Plan</button>
-    <button type="button" role="tab" id="tab-sources" aria-controls="panel-sources" aria-selected="false" tabindex="-1" hidden>Sources</button>
-    <button type="button" role="tab" id="tab-reviews" aria-controls="panel-reviews" aria-selected="false" tabindex="-1" hidden>Reviews</button>
-    <button type="button" role="tab" id="tab-memo" aria-controls="panel-memo" aria-selected="false" tabindex="-1" hidden>Memo</button>
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-lbl="tab_overview"></button>
+    <button type="button" role="tab" id="tab-intake" aria-controls="panel-intake" aria-selected="false" tabindex="-1" hidden data-lbl="tab_intake"></button>
+    <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1" hidden data-lbl="tab_plan"></button>
+    <button type="button" role="tab" id="tab-sources" aria-controls="panel-sources" aria-selected="false" tabindex="-1" hidden data-lbl="tab_sources"></button>
+    <button type="button" role="tab" id="tab-reviews" aria-controls="panel-reviews" aria-selected="false" tabindex="-1" hidden data-lbl="tab_reviews"></button>
+    <button type="button" role="tab" id="tab-memo" aria-controls="panel-memo" aria-selected="false" tabindex="-1" hidden data-lbl="tab_memo"></button>
   </div>
 
   <div class="panel" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
     <div class="cols">
       <div class="main">
         <section class="card gate" id="gate-card" hidden>
-          <div class="cardtop"><h2>Your turn</h2><span class="tag wait" id="gate-phase"></span></div>
+          <div class="cardtop"><h2 data-lbl="card_your_turn"></h2><span class="tag wait" id="gate-phase"></span></div>
           <ol class="qs" id="gate-questions"></ol>
           <p class="hint" id="gate-hint"></p>
         </section>
 
         <section id="agents-card" hidden>
-          <h2>Running now</h2>
+          <h2 data-lbl="card_running_now"></h2>
           <ul class="agents" id="agents"></ul>
         </section>
 
         <section id="timeline-card" hidden>
-          <h2>Timeline</h2>
+          <h2 data-lbl="card_timeline"></h2>
           <ol class="rail" id="timeline"></ol>
         </section>
       </div>
 
       <div class="side">
         <section class="card">
-          <div class="cardtop"><h2>Run facts</h2><span class="pill" id="live">connecting…</span></div>
+          <div class="cardtop"><h2 data-lbl="card_run_facts"></h2><span class="pill" id="live-pill" data-lbl="live_connecting"></span></div>
           <dl class="rows">
-            <dt>Mode</dt><dd id="f-mode">—</dd>
-            <dt>Phase</dt><dd id="f-phase">—</dd>
-            <dt>Steps</dt><dd id="f-steps">—</dd>
-            <dt>Updated</dt><dd class="mono" id="f-updated">—</dd>
+            <dt data-lbl="label_mode"></dt><dd id="f-mode">—</dd>
+            <dt data-lbl="label_phase"></dt><dd id="f-phase">—</dd>
+            <dt data-lbl="label_steps"></dt><dd id="f-steps">—</dd>
+            <dt data-lbl="label_updated"></dt><dd class="mono" id="f-updated">—</dd>
           </dl>
         </section>
 
         <section id="banners-card" hidden>
-          <h2>Notices</h2>
+          <h2 data-lbl="card_notices"></h2>
           <ul class="notices" id="banners"></ul>
         </section>
       </div>
@@ -138,17 +138,17 @@
 
   <div class="panel" id="panel-intake" role="tabpanel" aria-labelledby="tab-intake" hidden>
     <section class="card">
-      <div class="cardtop"><h2>Intake</h2><span class="tag" id="intake-state"></span></div>
+      <div class="cardtop"><h2 data-lbl="card_intake"></h2><span class="tag" id="intake-state"></span></div>
       <ol class="qs" id="intake-questions"></ol>
     </section>
-    <section class="card" id="intake-assumptions-card" hidden><h2>Assumed without asking</h2><ol class="issues" id="intake-assumptions"></ol></section>
+    <section class="card" id="intake-assumptions-card" hidden><h2 data-lbl="card_assumed"></h2><ol class="issues" id="intake-assumptions"></ol></section>
   </div>
 
   <div class="panel" id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
     <section class="card" id="plan-card">
-      <div class="cardtop"><h2>Plan</h2><span class="tag" id="plan-state"></span></div>
+      <div class="cardtop"><h2 data-lbl="card_plan"></h2><span class="tag" id="plan-state"></span></div>
       <p class="facts">
-        <span id="plan-what"></span><span id="plan-where"></span><span id="plan-complexity"></span><span id="plan-mode"></span><span id="plan-layers"></span><span id="plan-decision"></span>
+        <span id="plan-what"></span><span id="plan-where"></span><span id="plan-complexity"></span><span id="plan-mode"></span><span id="plan-layers"></span><span id="plan-decision"></span><span id="plan-language"></span>
       </p>
       <ol class="issues" id="plan-issues"></ol>
     </section>
@@ -156,20 +156,20 @@
 
   <div class="panel" id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" hidden>
     <section class="card">
-      <div class="cardtop"><h2>Sources</h2><span class="tag" id="sources-frozen"></span></div>
+      <div class="cardtop"><h2 data-lbl="card_sources"></h2><span class="tag" id="sources-frozen"></span></div>
       <p class="facts"><span id="sources-critical"></span><span id="sources-supporting"></span><span id="sources-background"></span></p>
       <ol class="issues" id="sources-items"></ol>
     </section>
   </div>
 
   <div class="panel" id="panel-reviews" role="tabpanel" aria-labelledby="tab-reviews" hidden>
-    <section class="card"><h2>Review rounds</h2><ol class="issues" id="reviews"></ol></section>
+    <section class="card"><h2 data-lbl="card_reviews"></h2><ol class="issues" id="reviews"></ol></section>
   </div>
 
   <div class="panel" id="panel-memo" role="tabpanel" aria-labelledby="tab-memo" hidden>
     <section class="card">
-      <div class="cardtop"><h2>Memo</h2><span class="tag" id="memo-status"></span></div>
-      <dl class="rows"><dt>File</dt><dd class="path" id="deliverable">—</dd><dt>Summary</dt><dd class="path" id="memo-summary">—</dd><dt>Published</dt><dd class="path" id="memo-published">—</dd></dl>
+      <div class="cardtop"><h2 data-lbl="card_memo"></h2><span class="tag" id="memo-status"></span></div>
+      <dl class="rows"><dt data-lbl="label_file"></dt><dd class="path" id="deliverable">—</dd><dt data-lbl="label_summary"></dt><dd class="path" id="memo-summary">—</dd><dt data-lbl="label_published"></dt><dd class="path" id="memo-published">—</dd></dl>
     </section>
   </div>
 </div>
@@ -177,6 +177,95 @@
 <script>
   (function () {
     var el = function (id) { return document.getElementById(id); };
+
+    // D-177: the English fallback — the same bytes as `EN["ui"]["dashboard"]`. A test
+    // parses this object out of the HTML and compares it key for key with the pack.
+    var EN_FALLBACK = {
+      "title": "memoforge run",
+      "query_waiting": "Waiting for data…",
+      "chat_waiting": "Waiting for data…",
+      "tabs_label": "Run sections",
+      "tab_overview": "Overview",
+      "tab_intake": "Intake",
+      "tab_plan": "Plan",
+      "tab_sources": "Sources",
+      "tab_reviews": "Reviews",
+      "tab_memo": "Memo",
+      "card_your_turn": "Your turn",
+      "card_running_now": "Running now",
+      "card_timeline": "Timeline",
+      "card_run_facts": "Run facts",
+      "live_connecting": "connecting…",
+      "label_mode": "Mode",
+      "label_phase": "Phase",
+      "label_steps": "Steps",
+      "label_updated": "Updated",
+      "card_notices": "Notices",
+      "card_intake": "Intake",
+      "card_assumed": "Assumed without asking",
+      "card_plan": "Plan",
+      "card_sources": "Sources",
+      "card_reviews": "Review rounds",
+      "card_memo": "Memo",
+      "label_file": "File",
+      "label_summary": "Summary",
+      "label_published": "Published",
+      "skip_note": "If you skip it: {default}",
+      "plan_unclassified": "unclassified",
+      "plan_complexity": "complexity {value}",
+      "plan_recommended_mode": "recommended mode {value}",
+      "plan_layers": "layers: {value}",
+      "plan_approved": "approved",
+      "plan_awaiting": "awaiting your approval",
+      "plan_decision_you_chose": "you chose {value}",
+      "intake_answered": "You answered: {value}",
+      "intake_not_answered": "Not answered, assumed: {value}",
+      "intake_answered_count": "{answered} of {total} answered",
+      "intake_assumed_mark": "assumed",
+      "intake_confidence": "confidence {value}",
+      "sources_frozen": "frozen {value}",
+      "sources_critical": "{count} critical",
+      "sources_supporting": "{count} supporting",
+      "sources_background": "{count} background",
+      "reviews_round": "round {value}",
+      "reviews_draft": "draft v{value}",
+      "reviews_blockers": "{count} blockers",
+      "reviews_no_answer": "no answer from {value}",
+      "query_fallback": "memoforge run",
+      "live_unavailable": "live updates unavailable",
+      "live_on": "live"
+    };
+
+    var LABELS = null;
+
+    // Addressed by key: `L("title")` reads `data.labels.title`, else the fallback.
+    function L(key) {
+      return (LABELS && LABELS[key]) || EN_FALLBACK[key];
+    }
+
+    function fmt(template, vars) {
+      var text = String(template == null ? "" : template);
+      for (var name in vars) {
+        if (Object.prototype.hasOwnProperty.call(vars, name)) {
+          text = text.split("{" + name + "}").join(String(vars[name]));
+        }
+      }
+      return text;
+    }
+
+    function staticLabels() {
+      var nodes = document.querySelectorAll("[data-lbl]");
+      for (var i = 0; i < nodes.length; i++) {
+        var key = nodes[i].getAttribute("data-lbl");
+        // The `#live-pill` badge is painted from `liveState` by `paintLive()` — a generic
+        // pass must not reset it to the connecting text on a fresh snapshot.
+        if (key === "live_connecting") { continue; }
+        if (key && L(key) != null) { nodes[i].textContent = L(key); }
+      }
+      var tabs = el("tabs");
+      if (tabs) { tabs.setAttribute("aria-label", L("tabs_label")); }
+      document.title = L("title");
+    }
 
     function put(id, value) {
       var node = el(id);
@@ -224,11 +313,28 @@
       return match ? match[1] : text;
     }
 
-    function live(label, on) {
-      var pill = el("live");
-      pill.textContent = label;
-      pill.className = on ? "pill on" : "pill";
+    // The connection state behind the `#live-pill` badge. `render()` runs on every
+    // snapshot and must never regress it, so the badge is painted from this
+    // key-valued variable by `paintLive()`.
+    var liveState = "live_connecting";
+
+    function paintLive() {
+      var pill = el("live-pill");
+      if (liveState === "live_on") {
+        pill.textContent = L("live_on");
+        pill.className = "pill on";
+      } else if (liveState === "live_unavailable") {
+        pill.textContent = L("live_unavailable");
+        pill.className = "pill";
+      } else {
+        pill.textContent = L("live_connecting");
+        pill.className = "pill";
+      }
     }
+
+    function liveOn() { liveState = "live_on"; paintLive(); }
+    function liveOff() { liveState = "live_unavailable"; paintLive(); }
+    function liveConnecting() { liveState = "live_connecting"; paintLive(); }
 
     function options(host, rows) {
       var box = document.createElement("ul");
@@ -267,7 +373,7 @@
         if (row && row.default) {
           var note = document.createElement("p");
           note.className = "qdef";
-          note.textContent = "If you skip it: " + row.default;
+          note.textContent = fmt(L("skip_note"), { default: row.default });
           li.appendChild(note);
         }
       });
@@ -276,16 +382,17 @@
     function planCard(plan) {
       show("plan-card", !!plan);
       if (!plan) { return; }
-      put("plan-what", plan.classification || "unclassified");
+      put("plan-what", plan.classification || L("plan_unclassified"));
       put("plan-where", join(array(plan.jurisdictions), ", "));
-      put("plan-complexity", plan.complexity ? "complexity " + plan.complexity : "");
-      put("plan-mode", plan.recommended_mode ? "recommended mode " + plan.recommended_mode : "");
+      put("plan-complexity", plan.complexity ? fmt(L("plan_complexity"), { value: plan.complexity }) : "");
+      put("plan-mode", plan.recommended_mode ? fmt(L("plan_recommended_mode"), { value: plan.recommended_mode }) : "");
       var layers = array(plan.layers).join(", ");
-      put("plan-layers", layers ? "layers: " + layers : "");
-      put("plan-state", plan.approved ? "approved" : "awaiting your approval");
+      put("plan-layers", layers ? fmt(L("plan_layers"), { value: layers }) : "");
+      put("plan-state", plan.approved ? L("plan_approved") : L("plan_awaiting"));
       el("plan-state").className = plan.approved ? "tag ok" : "tag wait";
+      put("plan-language", plan.memo_language || "");
       var decision = plan.decision || null;
-      put("plan-decision", decision ? join(["you chose " + (decision.action || ""), decision.mode, decision.edit_text], " · ") : "");
+      put("plan-decision", decision ? join([fmt(L("plan_decision_you_chose"), { value: decision.action || "" }), decision.mode, decision.edit_text], " · ") : "");
       detail("plan-issues", plan.issues,
         function (row) { return row.id || ""; },
         function (row) { return join([row.title, join(array(row.jurisdictions), ", ")], " — "); },
@@ -309,23 +416,23 @@
         row = row || {};
         if (row.answered) { answered++; }
         qhead(li, row);
-        cell(li, "q", (row.answered ? "You answered: " : "Not answered, assumed: ") + join([row.answer_key, row.answer_label], " — "));
+        cell(li, "q", fmt(row.answered ? L("intake_answered") : L("intake_not_answered"), { value: join([row.answer_key, row.answer_label], " — ") }));
       });
-      put("intake-state", answered + " of " + rows.length + " answered");
+      put("intake-state", fmt(L("intake_answered_count"), { answered: answered, total: rows.length }));
       show("intake-assumptions-card", detail("intake-assumptions", intake.assumptions,
-        function () { return "assumed"; },
+        function () { return L("intake_assumed_mark"); },
         function (row) { return row.text || ""; },
-        function (row) { return row.confidence ? "confidence " + row.confidence : ""; }) > 0);
+        function (row) { return row.confidence ? fmt(L("intake_confidence"), { value: row.confidence }) : ""; }) > 0);
       return true;
     }
 
     function sourcesPanel(pack) {
       if (!pack) { return false; }
       var counts = pack.counts || {};
-      put("sources-frozen", "frozen " + clock(pack.frozen_at));
-      put("sources-critical", Number(counts.critical || 0) + " critical");
-      put("sources-supporting", Number(counts.supporting || 0) + " supporting");
-      put("sources-background", Number(counts.background || 0) + " background");
+      put("sources-frozen", fmt(L("sources_frozen"), { value: clock(pack.frozen_at) }));
+      put("sources-critical", fmt(L("sources_critical"), { count: Number(counts.critical || 0) }));
+      put("sources-supporting", fmt(L("sources_supporting"), { count: Number(counts.supporting || 0) }));
+      put("sources-background", fmt(L("sources_background"), { count: Number(counts.background || 0) }));
       detail("sources-items", pack.items,
         function (row) { return row.tier || ""; },
         function (row) { return row.title || ""; },
@@ -336,11 +443,11 @@
     function reviewsPanel(rows) {
       if (!array(rows).length) { return false; }
       detail("reviews", rows,
-        function (row) { return "round " + (row.iteration || ""); },
+        function (row) { return fmt(L("reviews_round"), { value: row.iteration || "" }); },
         function (row) { return row.summary || ""; },
         function (row) {
           var failed = array(row.failed_reviewers);
-          return join([row.draft_version ? "draft v" + row.draft_version : "", Number(row.blockers || 0) + " blockers", failed.length ? "no answer from " + failed.join(", ") : ""], " · ");
+          return join([row.draft_version ? fmt(L("reviews_draft"), { value: row.draft_version }) : "", fmt(L("reviews_blockers"), { count: Number(row.blockers || 0) }), failed.length ? fmt(L("reviews_no_answer"), { value: failed.join(", ") }) : ""], " · ");
         });
       return true;
     }
@@ -394,12 +501,16 @@
     });
 
     function render(data) {
+      LABELS = (data && typeof data === "object" && data.labels) || null;
+      staticLabels();
+      paintLive();
       if (!data || typeof data !== "object") {
-        put("chat", "Waiting for data…");
+        put("chat", L("chat_waiting"));
+        put("query", L("query_waiting"));
         return;
       }
       put("task", data.task_id || "");
-      put("query", data.query || "memoforge run");
+      put("query", data.query || L("query_fallback"));
       var no = Number(data.phase_no || 0);
       var total = Number(data.phase_total || 0);
       put("phase-pill", data.phase_label || data.phase || "");
@@ -451,19 +562,19 @@
         db = null;
       }
       if (!db) {
-        live("live updates unavailable", false);
+        liveOff();
         return;
       }
       try {
         db.doc("run/state").onSnapshot(
           function (snapshot) {
-            live("live", true);
+            liveOn();
             render(snapshot && snapshot.exists ? snapshot.data() : null);
           },
-          function () { live("live updates unavailable", false); }
+          function () { liveOff(); }
         );
       } catch (error) {
-        live("live updates unavailable", false);
+        liveOff();
       }
     })();
   })();

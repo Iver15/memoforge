@@ -18,7 +18,9 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, temp_root  # noqa: E402
-from memoforge import gates, machine, preflight, routing, schema, state_io  # noqa: E402
+from memoforge import gates, i18n, machine, preflight, routing, schema, state_io  # noqa: E402
+
+import _i18n  # noqa: E402
 
 DOCUMENT = b"<html><body>" + b"Article 5 of the fixture instrument applies here. " * 700 + b"</body></html>"
 """A real document: over `LIVENESS_MIN_BODY_BYTES` and almost all visible text (D-146)."""
@@ -496,6 +498,151 @@ class RegistrationTest(unittest.TestCase):
         """D-99: an unusable plan names no jurisdiction, so the preflight has nothing to ask."""
         self.assertEqual([], preflight.plan_hosts({}))
         self.assertEqual([], preflight.build_document([])["hosts"])
+
+
+class SourceAccessLanguageTest(unittest.TestCase):
+    """D-176 (sources/preflight): the gate-visible preflight block speaks the UI language.
+
+    The agent prompt value (`source_access_line`, `CLEAN_LINE`/`UNKNOWN_LINE`) keeps the
+    English text — only the gate-visible block is localized, read in the language the
+    caller passes (`ui`, default `"en"`).
+    """
+
+    def setUp(self) -> None:
+        holder = tempfile.TemporaryDirectory(prefix="mf-preflight-ui-")
+        self.addCleanup(holder.cleanup)
+        self.packs = Path(holder.name) / "packs"
+        self.packs.mkdir()
+        patcher = mock.patch.object(i18n, "PACK_DIR", self.packs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(self.packs, "ru", _i18n.RU_UI)
+        self.root = Path(holder.name) / "work"
+        self.root.mkdir()
+        state_io.write_json_atomic(
+            self.root / preflight.PREFLIGHT_PATH,
+            {
+                "schema_version": 1,
+                "checked_at": "2026-09-13T06:05:00Z",
+                "offline": False,
+                "hosts": [
+                    {
+                        "host": "eur-lex.europa.eu",
+                        "url": preflight.PREFLIGHT_URLS["eur-lex.europa.eu"],
+                        "status": "waf_challenge",
+                        "code": None,
+                        "error": None,
+                        "alternative": preflight.PREFLIGHT_ALTERNATIVES["eur-lex.europa.eu"],
+                    },
+                    {
+                        "host": "ftc.gov",
+                        "url": preflight.PREFLIGHT_URLS["ftc.gov"],
+                        "status": "dead",
+                        "code": None,
+                        "error": None,
+                        "alternative": preflight.PREFLIGHT_ALTERNATIVES["ftc.gov"],
+                    },
+                ],
+            },
+        )
+
+    def test_english_block_is_todays_bytes(self):
+        block = preflight.source_access_block(self.root, {})
+        self.assertIn("Source access today:", block)
+        self.assertIn("- eur-lex.europa.eu: WAF challenge → Cellar", block)
+        self.assertIn("- ftc.gov: did not answer → WebSearch", block)
+
+    def test_the_russian_block_localizes_head_and_labels_but_not_alternatives(self):
+        block = preflight.source_access_block(self.root, {}, ui="ru")
+        self.assertIn("Доступ к источникам сегодня:", block)
+        self.assertNotIn("Source access today:", block)
+        self.assertIn(
+            "- eur-lex.europa.eu: WAF-проверка → "
+            + preflight.PREFLIGHT_ALTERNATIVES["eur-lex.europa.eu"],
+            block,
+        )
+        self.assertIn(
+            "- ftc.gov: не ответил → " + preflight.PREFLIGHT_ALTERNATIVES["ftc.gov"], block
+        )
+
+    def test_the_prompt_line_stays_english(self):
+        line = preflight.source_access_line(self.root, {})
+        self.assertEqual(1, len(line.splitlines()))
+        self.assertIn("eur-lex.europa.eu: WAF challenge", line)
+        self.assertIn(preflight.PREFLIGHT_ALTERNATIVES["eur-lex.europa.eu"], line)
+        clean = Path(self.root) / "clean"
+        clean.mkdir()
+        state_io.write_json_atomic(
+            clean / preflight.PREFLIGHT_PATH,
+            {
+                "schema_version": 1,
+                "checked_at": "2026-09-13T06:05:00Z",
+                "offline": False,
+                "hosts": [],
+            },
+        )
+        self.assertEqual(preflight.CLEAN_LINE, preflight.source_access_line(clean, {}))
+
+    def test_a_long_russian_block_is_capped_and_points_at_the_file(self):
+        rows = [
+            {
+                "host": host,
+                "url": preflight.PREFLIGHT_URLS[host],
+                "status": "dead",
+                "code": None,
+                "error": None,
+                "alternative": preflight.PREFLIGHT_ALTERNATIVES[host],
+            }
+            for host in sorted(preflight.PREFLIGHT_URLS)
+        ]
+        state_io.write_json_atomic(
+            self.root / preflight.PREFLIGHT_PATH,
+            {
+                "schema_version": 1,
+                "checked_at": "2026-09-13T06:05:00Z",
+                "offline": False,
+                "hosts": rows,
+            },
+        )
+        block = preflight.source_access_block(self.root, {}, ui="ru")
+        self.assertEqual(preflight.MAX_BLOCK_LINES + 2, len(block.splitlines()))
+        self.assertIn(f"…и ещё {len(rows) - preflight.MAX_BLOCK_LINES} — в `{preflight.PREFLIGHT_PATH}`", block)
+
+    def test_an_unknown_status_prints_raw_in_every_language(self):
+        """Sol fix round 1: a status no pack knows (`future_status`) must not crash.
+
+        Before the fix `_row_line` called `i18n.t` unguarded (`KeyError`), where the old
+        code printed the raw status via `STATUS_LABELS.get(status, status)` — both the
+        localized block and the English/agent-facing prompt value are covered.
+        """
+        row = {
+            "host": "example.org",
+            "url": "https://example.org/",
+            "status": "future_status",
+            "code": None,
+            "error": None,
+            "alternative": "",
+        }
+        self.assertEqual("example.org: future_status", preflight._row_line(row))  # noqa: SLF001
+        self.assertEqual(
+            "example.org: future_status", preflight._row_line(row, "ru")  # noqa: SLF001
+        )
+        work = self.root / "unknown"
+        work.mkdir()
+        state_io.write_json_atomic(
+            work / preflight.PREFLIGHT_PATH,
+            {
+                "schema_version": 1,
+                "checked_at": "2026-09-13T06:05:00Z",
+                "offline": False,
+                "hosts": [row],
+            },
+        )
+        block = preflight.source_access_block(work, {}, ui="ru")
+        self.assertIn("Доступ к источникам сегодня:", block)
+        self.assertIn("- example.org: future_status", block)
+        line = preflight.source_access_line(work, {})
+        self.assertEqual("example.org: future_status", line)
 
 
 if __name__ == "__main__":

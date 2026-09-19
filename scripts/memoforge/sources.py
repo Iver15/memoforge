@@ -18,7 +18,7 @@ import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 
-from . import events, limits, schema, state_io, stepctx
+from . import events, i18n, limits, schema, state_io, stepctx
 
 REGISTRY_PATH = "research/sources.json"
 PACK_PATH = "research/source-pack.json"
@@ -933,14 +933,27 @@ def conflicting_authorities(pack: dict) -> dict[str, list[str]]:
     return conflicts
 
 
-def render_digest(work_dir: str | os.PathLike, state: dict, exceptions_only: bool) -> dict:
-    """Text of gate 11 (`mf sources digest --exceptions`, §2.4)."""
+def render_digest(
+    work_dir: str | os.PathLike, state: dict, exceptions_only: bool, ui: str = "en"
+) -> dict:
+    """Text of gate 11 (`mf sources digest --exceptions`, §2.4).
+
+    D-176 (sources/preflight): the frame speaks the interface language `ui`
+    (`ui.sources.*`); the exception rows stay raw inside it — machine tokens
+    (`[kind]`, `source_id`, `tier`, currency status values, `do_not_use`) and the
+    memo-language `drafting_warning` rows (D-173b). The default keeps the English
+    bytes for the agent-side callers.
+    """
     registry = read_registry(work_dir)
     pack = read_pack(work_dir)
     exceptions = collect_exceptions(work_dir, state)
     lines: list[str] = []
-    frozen = "frozen" if pack else "not frozen"
-    lines.append(f"Source review — {len(registry['sources'])} sources registered ({frozen}).")
+    frozen = (
+        i18n.t(ui, "ui.sources.digest_frozen")
+        if pack
+        else i18n.t(ui, "ui.sources.digest_not_frozen")
+    )
+    lines.append(i18n.t(ui, "ui.sources.digest_head", count=len(registry["sources"]), frozen=frozen))
     lines.append("")
 
     if not exceptions_only:
@@ -962,14 +975,14 @@ def render_digest(work_dir: str | os.PathLike, state: dict, exceptions_only: boo
         lines.append("")
 
     if exceptions:
-        lines.append("Exceptions requiring your attention:")
+        lines.append(i18n.t(ui, "ui.sources.exceptions_heading"))
         for row in exceptions:
             prefix = f"{row['source_id']} — " if row.get("source_id") else ""
             lines.append(f"- [{row['kind']}] {prefix}{row['detail']}")
     else:
-        lines.append("No exceptions: every critical source is verified and current.")
+        lines.append(i18n.t(ui, "ui.sources.no_exceptions"))
     lines.append("")
-    lines.append("Reply `continue` to draft on these sources, or `cancel` to stop.")
+    lines.append(i18n.t(ui, "ui.sources.reply_line"))
     text = "\n".join(lines)
     return {
         "text": text,
@@ -984,7 +997,7 @@ def render_digest(work_dir: str | os.PathLike, state: dict, exceptions_only: boo
 def run_digest(args: argparse.Namespace) -> dict:
     """`mf sources digest [--exceptions]`."""
     state = state_io.read_state_or_none(args.workdir) or {}
-    return render_digest(args.workdir, state, bool(args.exceptions))
+    return render_digest(args.workdir, state, bool(args.exceptions), ui=i18n.ui_language(state))
 
 
 # --- liveness -------------------------------------------------------------
