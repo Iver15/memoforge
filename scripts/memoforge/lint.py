@@ -688,6 +688,22 @@ def check_l06(document: dict, template: str) -> list[dict]:
                 "subsections; the correspondence is one to one.",
             )
         )
+    # D-189: a classical conclusion item names the action, its trigger and its owner — it never
+    # repeats the risk verdict, which belongs to the subsection's Risk line and the summary bullet.
+    grammar = document["grammar"]
+    for item in conclusions:
+        text = Q_TOKEN.sub("", SRC_TOKEN.sub("", item["text"])).strip()
+        if grammar.exec_bullet_risk.search(text) is not None:
+            out.append(
+                finding(
+                    "L-06",
+                    item["start_line"],
+                    item["section_id"],
+                    item["text"],
+                    "Conclusion item repeats the risk verdict; the verdict belongs to the "
+                    "subsection's Risk line and the summary bullet.",
+                )
+            )
     return out
 
 

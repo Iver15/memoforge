@@ -55,12 +55,16 @@
       "L-03"
     ],
     "ai_tells": [],
+      "facts": {
+        "facts_label": "Факты",
+        "assumptions_label": "Допущения",
+        "limitations_label": "Ограничения"
+      },
     "labels": {
       "sources_heading": "Источники",
       "no_sources_cited": "В этом проекте источники не цитировались.",
-      "appendix_heading": "Приложение — Допущения и непроверенные источники",
+      "appendix_heading": "Приложение — Непроверенные источники",
       "appendix_more": "… и ещё в summary.md: {count}",
-      "assumptions_label": "Допущения, принятые в анализ",
       "unverified_label": "Непроверенные источники",
       "unresolved_label": "Неразрешённые ссылки",
       "unresolved_bullet": "{raw_id} — нет в замороженном пакете источников и в реестре цитат; в тексте помечено {marker}.",

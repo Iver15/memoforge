@@ -45,15 +45,22 @@ EN: dict = {
         "lint_off": [],
         # D-168: `en` reads `lib/ai-tells.txt`; the list stays empty here.
         "ai_tells": [],
+        # D-190: the three bold labels of the classical facts section — `memo.facts.*_label`.
+        # The writer opens one block per label (`**Facts**`, `**Assumptions**`, `**Limitations**`)
+        # and omits a block with nothing to say; the labels reach the writer as `${facts_labels}`.
+        "facts": {
+            "facts_label": "Facts",
+            "assumptions_label": "Assumptions",
+            "limitations_label": "Limitations",
+        },
         # D-175: every label the code itself prints into `deliverable.md`, `deliverable.docx` and the
         # published `sources/source-pack.md`. Markdown and docx decoration — `## `, `**…**`, `_…_`,
         # backticks, bullets — stays in the renderers, so one label serves both deliverables.
         "labels": {
             "sources_heading": "Sources",
             "no_sources_cited": "No sources were cited in this draft.",
-            "appendix_heading": "Appendix — Assumptions & Unverified Sources",
+            "appendix_heading": "Appendix — Unverified Sources",
             "appendix_more": "… and {count} more in summary.md",
-            "assumptions_label": "Assumptions carried into the analysis",
             "unverified_label": "Unverified sources",
             "unresolved_label": "Unresolved references",
             "unresolved_bullet": (

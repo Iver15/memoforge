@@ -24,7 +24,8 @@ First action (Bash, before any other tool call):
 - (none)
 
 A warning addressed to you is an instruction: execute it, do not quote it. Each warning that
-states a fact for the client goes into Key assumptions as one sentence, in your own words.
+states a fact for the client goes into the Assumptions block of the facts section (classical memo)
+or into Key assumptions (executive brief) as one sentence, in your own words.
 
 Cite with `[[src:<source_id> <pinpoint>]]`. A quotation is optional: when the exact words of a provision or
 a judgment matter, quote them as `> [[q:<quote_id>]] <text>` with the `quote_id` from
@@ -45,6 +46,10 @@ facts: `Facts, assumptions and limitations`
 assumptions: `Key assumptions`
 conclusion: `Conclusion and recommendations`
 recommendations: `Recommendations`
+The three blocks of the classical facts section open with these bold labels, one on its own line:
+facts: `Facts`
+assumptions: `Assumptions`
+limitations: `Limitations`
 The risk line follows Risk: medium.
 exactly, with one of high, medium, low, undetermined as the verdict. Pinpoints in `[[src:<id> <pinpoint>]]` stay in
 the English machine form (`art 6`, `para 3`) whatever the memo language. Quotations stay in the

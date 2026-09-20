@@ -53,12 +53,16 @@
     ],
     "lint_off": [],
     "ai_tells": [],
+      "facts": {
+        "facts_label": "Sachverhalt",
+        "assumptions_label": "Annahmen",
+        "limitations_label": "Einschränkungen"
+      },
     "labels": {
       "sources_heading": "Quellen",
       "no_sources_cited": "In diesem Entwurf wurden keine Quellen zitiert.",
-      "appendix_heading": "Anhang — Annahmen und ungeprüfte Quellen",
+      "appendix_heading": "Anhang — Ungeprüfte Quellen",
       "appendix_more": "… und weitere in summary.md: {count}",
-      "assumptions_label": "In die Analyse übernommene Annahmen",
       "unverified_label": "Ungeprüfte Quellen",
       "unresolved_label": "Nicht aufgelöste Verweise",
       "unresolved_bullet": "{raw_id} — nicht im eingefrorenen Quellenpaket und nicht im Zitatregister; im Text als {marker} markiert.",

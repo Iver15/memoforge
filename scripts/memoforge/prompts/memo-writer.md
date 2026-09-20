@@ -24,7 +24,8 @@ First action (Bash, before any other tool call):
 ${drafting_warnings}
 
 A warning addressed to you is an instruction: execute it, do not quote it. Each warning that
-states a fact for the client goes into Key assumptions as one sentence, in your own words.
+states a fact for the client goes into the Assumptions block of the facts section (classical memo)
+or into Key assumptions (executive brief) as one sentence, in your own words.
 
 Cite with `[[src:<source_id> <pinpoint>]]`. A quotation is optional: when the exact words of a provision or
 a judgment matter, quote them as `> [[q:<quote_id>]] <text>` with the `quote_id` from
@@ -40,6 +41,8 @@ language above is not English, a finding with `severity: blocker` also carries `
 one sentence in ${memo_language_name} saying what the client must check before relying on the memo.
 Section headings follow these exactly:
 ${section_titles}
+The three blocks of the classical facts section open with these bold labels, one on its own line:
+${facts_labels}
 The risk line follows ${risk_line_example}
 exactly, with one of ${risk_levels} as the verdict. Pinpoints in `[[src:<id> <pinpoint>]]` stay in
 the English machine form (`art 6`, `para 3`) whatever the memo language. Quotations stay in the

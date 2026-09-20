@@ -309,10 +309,28 @@ class BijectionTest(LintTestCase):
         self.assertEqual(1, len(findings))
 
     def test_l06_for_a_brief_allows_extra_cross_cutting_recommendations(self):
-        text = fixture("brief-clean").replace(
+        text = fixture("classical-clean").replace(
             "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.",
             "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.\n"
             "- Review the consent copy every year, owned by Legal, at each annual review.",
+        )
+        self.assertNotIn("L-06", self.rules(self.lint(text, template="executive-brief")))
+
+    def test_l06_flags_a_conclusion_item_carrying_the_risk_verdict(self):
+        # D-189: the verdict belongs to the risk line and the summary bullet, not to the conclusion.
+        text = fixture("classical-clean").replace(
+            "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.",
+            "- Keep the opt-in unticked at launch, owned by Product, before the flow ships. Risk: medium.",
+        )
+        findings = self.only(self.lint(text), "L-06")
+        self.assertEqual(1, len(findings))
+        self.assertIn("repeats the risk verdict", findings[0]["hint"])
+
+    def test_l06_ignores_a_verdict_carrying_conclusion_item_of_the_brief(self):
+        # D-189: the brief branch is the subsection count only; a verdict there changes nothing.
+        text = fixture("brief-clean").replace(
+            "- Ship a one-click withdrawal control, owned by Legal, before the flow ships.",
+            "- Ship a one-click withdrawal control, owned by Legal, before the flow ships. Risk: high.",
         )
         self.assertNotIn("L-06", self.rules(self.lint(text, template="executive-brief")))
 
@@ -797,6 +815,25 @@ class LocalizedGrammarTest(LintTestCase):
         para = "Die Verarbeitung ist gem. Art. 6 Abs. 1 DSGVO zulässig, vgl. Erwägungsgrund 47."
         self.assertEqual(1, len(quotes.sentence_spans(para, lint.grammar("de").abbreviations)))
         self.assertGreater(len(quotes.sentence_spans(para)), 1)
+
+    def test_a_russian_conclusion_item_carrying_the_verdict_is_an_l06(self):
+        # D-189: the verdict check runs through the memo-language grammar (Риск: средний.).
+        text = (
+            "# T\n\n"
+            "## 1. Резюме\n\n"
+            "- Основание доступно для потока. Риск: средний.\n\n"
+            "## 2. Факты\n\n"
+            "Факты потока.\n\n"
+            "## 3. Основание\n\n"
+            "Основание доступно [[src:gdpr-art-6 Art. 6(1)(a)]].\n\n"
+            "Риск: средний. Основание действует. Продукт оставляет отметку пустой.\n\n"
+            "## 4. Выводы\n\n"
+            "- Сохранить отметку пустой, владелец Продукт, до запуска. Риск: средний.\n\n"
+            "<!-- sources: generated -->\n"
+        )
+        findings = self.rule("L-06", text, language="ru")
+        self.assertEqual(1, len(findings))
+        self.assertIn("repeats the risk verdict", findings[0]["hint"])
 
 
 # --- commands ---------------------------------------------------------------

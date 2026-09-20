@@ -403,7 +403,7 @@ class DraftingWarningsBlockTest(unittest.TestCase):
     def test_the_writer_is_told_which_warnings_it_executes(self):
         prompt = self._writer_prompt(self.WARNINGS)
         self.assertIn("execute it, do not quote it", prompt)
-        self.assertIn("Key assumptions as one sentence", prompt)
+        self.assertIn("the Assumptions block of the facts section", prompt)
 
     def test_an_unknown_code_sorts_after_every_known_one(self):
         lines = dispatch.warning_lines(
@@ -996,6 +996,18 @@ class MemoLanguageTest(unittest.TestCase):
         self.assertIn("Risk: medium.", prompt)
         for level in ("high", "medium", "low", "undetermined"):
             self.assertIn(level, prompt)
+
+    def test_the_writer_prompt_carries_the_facts_labels(self):
+        # D-190: `${facts_labels}` reaches the writer next to `${section_titles}`.
+        for language, labels in (
+            ("en", ("Facts", "Assumptions", "Limitations")),
+            ("ru", ("Факты", "Допущения", "Ограничения")),
+        ):
+            with self.subTest(language=language):
+                prompt = self._writer_prompt(language)
+                for label in labels:
+                    self.assertIn(label, prompt)
+                self.assertNotIn("${", prompt)
 
     def test_no_prompt_contains_an_unsubstituted_variable(self):
         for language in ("en", "ru"):

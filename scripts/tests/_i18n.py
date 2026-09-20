@@ -25,6 +25,9 @@ RU: dict = {
     "memo.risk.levels.medium": "средний",
     "memo.risk.levels.low": "низкий",
     "memo.risk.levels.undetermined": "не определён",
+    "memo.facts.facts_label": "Факты",
+    "memo.facts.assumptions_label": "Допущения",
+    "memo.facts.limitations_label": "Ограничения",
     "memo.lint_off": ["L-03"],
     "memo.placeholders_ignore_case": False,
 }

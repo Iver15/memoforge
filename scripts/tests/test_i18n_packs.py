@@ -130,6 +130,13 @@ class PackParityTest(unittest.TestCase):
                 levels = list(dict(i18n.node(code, "memo.risk.levels")).values())
                 self.assertEqual(len(levels), len(set(levels)), levels)
 
+    def test_facts_labels_are_present_and_non_empty(self):
+        # D-190: the three bold labels of the facts section — `memo.facts.*_label`.
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                for key in ("facts_label", "assumptions_label", "limitations_label"):
+                    self.assertTrue(str(i18n.t(code, f"memo.facts.{key}")).strip(), key)
+
     def test_disclaimer_pattern_compiles_and_matches_probe_disclaimer(self):
         for code in PACK_CODES:
             with self.subTest(code=code):

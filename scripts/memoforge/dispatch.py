@@ -274,7 +274,10 @@ def language_context(state: dict) -> dict:
     `memo_language_name`/`ui_language_name` are the `LANGUAGE_NAMES` display names of the
     memo and interface languages; `section_titles` is one ``<kind>: `<title>` `` line per
     kind from the memo pack; `risk_line_example` is `<label>: <medium level>.` and
-    `risk_levels` the four level words, comma-separated. Findings stay English — only the
+    `risk_levels` the four level words, comma-separated. `facts_labels` is the three bold labels
+    of the classical facts section (D-190), one ``<kind>: `<label>` `` line per kind — the shared
+    writer prompt renders it for both templates; the executive-brief template simply does not
+    use the labels. Findings stay English — only the
     memo itself follows these values. For `en` this renders `English`, the six English
     titles, `Risk: medium.` and `high, medium, low, undetermined`.
     """
@@ -284,10 +287,19 @@ def language_context(state: dict) -> dict:
     label = i18n.t(memo, "memo.risk.label")
     levels = dict(i18n.node(memo, "memo.risk.levels"))
     ordered = [str(levels[key]) for key in ("high", "medium", "low", "undetermined")]
+    facts = dict(i18n.node(memo, "memo.facts"))
     return {
         "memo_language_name": i18n.LANGUAGE_NAMES[memo],
         "ui_language_name": i18n.LANGUAGE_NAMES[ui],
         "section_titles": "\n".join(f"{kind}: `{titles[kind]}`" for kind in SECTION_KINDS),
+        "facts_labels": "\n".join(
+            f"{kind}: `{facts[key]}`"
+            for kind, key in (
+                ("facts", "facts_label"),
+                ("assumptions", "assumptions_label"),
+                ("limitations", "limitations_label"),
+            )
+        ),
         "risk_line_example": f"{label}: {levels['medium']}.",
         "risk_levels": ", ".join(ordered),
     }

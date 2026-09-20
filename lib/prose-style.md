@@ -44,9 +44,14 @@ The per-template section list lives in `templates/<template_id>.md`; follow the 
 
 - The title states the subject and what the memo evaluates.
 - Context paragraphs say who is considering what, for what purpose, and what is out of scope.
-- Facts, material assumptions and limitations are visible, not implied inside the analysis.
-- The conclusion is a list of operational outputs tied to the subsections above, not a recap. Material assumptions carry a note on what to re-evaluate if they change; unresolved facts and untested law go in open questions.
+- Facts, material assumptions and limitations are visible where the template puts them, not implied inside the analysis.
+- The conclusion is a list of operational outputs tied to the subsections above, not a recap. Unresolved facts and untested law go in open questions.
 - The sources list and the appendix of unverified sources are generated from the frozen source pack. Do not write them.
+
+Two placement rules belong to one template only:
+
+- In `classical-memo`: Context does not retell the facts or restate the question — the facts are in the facts section, the question is on the `Question:` line. Facts, assumptions and limitations are stated only in that section, under its three labels, and are not repeated in Context or the executive summary. Open questions in the conclusion name the assumption or limitation of the facts section they would resolve and the subsection they affect, and the conclusion carries no second list of assumptions.
+- In `executive-brief`: the facts the analysis rests on go in the Context paragraph and material assumptions in `Key assumptions`, as `templates/executive-brief.md` says.
 
 ## Citing
 

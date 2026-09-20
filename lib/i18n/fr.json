@@ -47,12 +47,16 @@
     ],
     "lint_off": [],
     "ai_tells": [],
+      "facts": {
+        "facts_label": "Faits",
+        "assumptions_label": "Hypothèses",
+        "limitations_label": "Limites"
+      },
     "labels": {
       "sources_heading": "Sources",
       "no_sources_cited": "Aucune source n'a été citée dans ce projet.",
-      "appendix_heading": "Annexe — Hypothèses et sources non vérifiées",
+      "appendix_heading": "Annexe — Sources non vérifiées",
       "appendix_more": "… et autres dans summary.md : {count}",
-      "assumptions_label": "Hypothèses retenues pour l'analyse",
       "unverified_label": "Sources non vérifiées",
       "unresolved_label": "Références non résolues",
       "unresolved_bullet": "{raw_id} — absent du dossier de sources figé et du registre des citations ; signalé {marker} dans le texte.",

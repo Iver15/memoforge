@@ -47,12 +47,16 @@
     ],
     "lint_off": [],
     "ai_tells": [],
+      "facts": {
+        "facts_label": "Hechos",
+        "assumptions_label": "Supuestos",
+        "limitations_label": "Limitaciones"
+      },
     "labels": {
       "sources_heading": "Fuentes",
       "no_sources_cited": "No se citó ninguna fuente en este borrador.",
-      "appendix_heading": "Anexo — Supuestos y fuentes sin verificar",
+      "appendix_heading": "Anexo — Fuentes sin verificar",
       "appendix_more": "… y más en summary.md: {count}",
-      "assumptions_label": "Supuestos incorporados al análisis",
       "unverified_label": "Fuentes sin verificar",
       "unresolved_label": "Referencias sin resolver",
       "unresolved_bullet": "{raw_id} — no está en el paquete de fuentes congelado ni en el registro de citas; marcado {marker} en el texto.",
