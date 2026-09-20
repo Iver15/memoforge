@@ -137,6 +137,38 @@ class PackParityTest(unittest.TestCase):
                 for key in ("facts_label", "assumptions_label", "limitations_label"):
                     self.assertTrue(str(i18n.t(code, f"memo.facts.{key}")).strip(), key)
 
+    def test_full_text_integrity_note_is_the_brief_sentence_in_every_pack(self):
+        # D-200: the gate-11 digest prints the demotion through this label; a wrong or empty
+        # sentence in any pack would misreport it, and the generic parity checks cannot see that.
+        expected = {
+            "en": (
+                "saved text of {source_id} changed after it was saved by code; "
+                "it now counts as an agent copy"
+            ),
+            "de": (
+                "der von Code gespeicherte Text {source_id} hat sich geändert; "
+                "er gilt jetzt als Agentenkopie"
+            ),
+            "fr": (
+                "le texte de {source_id} enregistré par le code a changé ; "
+                "il compte désormais comme une copie de l'agent"
+            ),
+            "es": (
+                "el texto de {source_id} guardado por el código cambió; "
+                "ahora cuenta como copia del agente"
+            ),
+            "ru": (
+                "сохранённый код­ом текст {source_id} изменился после сохранения; "
+                "теперь он считается копией агента"
+            ),
+        }
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                note = str(i18n.t(code, "memo.labels.full_text_integrity_note"))
+                self.assertTrue(note.strip(), code)
+                self.assertIn("{source_id}", note, code)
+                self.assertEqual(expected[code], note, code)
+
     def test_disclaimer_pattern_compiles_and_matches_probe_disclaimer(self):
         for code in PACK_CODES:
             with self.subTest(code=code):

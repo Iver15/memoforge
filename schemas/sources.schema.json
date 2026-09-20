@@ -169,6 +169,10 @@
         },
         "raw_sha256": { "$ref": "#/$defs/sha256_or_null" },
         "raw_chars": { "type": "integer", "minimum": 0 },
+        "raw_kind": {
+          "description": "D-200: what the saved text is. Optional; the reader defaults it (`agent_summary` when the record holds raw, else `none`), so an old work dir keeps validating and is never rewritten.",
+          "enum": ["full_text", "excerpt", "agent_summary", "client_file", "none"]
+        },
         "meta": { "$ref": "#/$defs/meta" },
         "liveness": { "$ref": "#/$defs/liveness" },
         "verification": { "$ref": "#/$defs/verification" },

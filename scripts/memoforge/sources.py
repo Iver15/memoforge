@@ -18,7 +18,7 @@ import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 
-from . import events, i18n, limits, routing, schema, state_io, stepctx
+from . import events, i18n, limits, routing, schema, source_text, state_io, stepctx
 
 REGISTRY_PATH = "research/sources.json"
 PACK_PATH = "research/source-pack.json"
@@ -41,6 +41,18 @@ CONFIDENCE_ORDER: tuple[str, ...] = ("low", "medium", "high")
 BLOCKING_CURRENCY: tuple[str, ...] = ("do_not_use",)
 EXCEPTION_CURRENCY: tuple[str, ...] = ("do_not_use", "manual_check")
 
+RAW_KINDS: tuple[str, ...] = ("full_text", "excerpt", "agent_summary", "client_file", "none")
+"""D-200: what the saved text is. `full_text` = saved whole by code (`mf sources save`); `none` = no text."""
+
+AGENT_RAW_KINDS: tuple[str, ...] = ("excerpt", "agent_summary", "client_file")
+"""D-200: what `register --raw-kind` accepts. `full_text` and `none` never come from the agent."""
+
+SOURCES_FROZEN_HINT = "the source pack is frozen; registrations after the freeze never reach the memo"
+"""Answer of `register` and of `save` once `pack --freeze` has closed the registry (M6, §5.3)."""
+
+FULL_TEXT_INTEGRITY = "full_text_integrity"
+"""Warning code of the freeze integrity check (D-200): a `full_text` file that changed or vanished."""
+
 MAX_SLUG_LENGTH = 80
 
 # --- offline identifier syntax (§5.3 «оффлайн: синтаксис CELEX/ECLI/ELI/neutral citation») ---
@@ -61,11 +73,13 @@ IDENTIFIER_PATTERNS: dict[str, re.Pattern] = {
 
 EU_IDENTIFIERS: tuple[str, ...] = ("celex", "ecli", "eli")
 
-BODY_COMPARABLE_TOOLS: tuple[str, ...] = ("curl", "wget", "mf-fetch")
+BODY_COMPARABLE_TOOLS: tuple[str, ...] = ("curl", "wget", "mf-fetch", "mf-save")
 """D34-08: the only tools whose `raw_path` holds the bytes `url` served.
 
 `mf-fetch` joined them with D-149: `mf sources fetch` writes the response body byte for byte, so
-liveness may hash the page again and compare.
+liveness may hash the page again and compare. `mf-save` joined them with D-199: the stored text is
+the converted body of that very url, digested once by `prepare_raw` — the same normalisation
+liveness applies before it compares, so a page that has not moved can promote `provenance`.
 
 Everything else hands the agent processed text — an MCP server returns extracted markdown, and
 WebFetch returns the model's rendering of the page, not its body — whose sha256 can never equal the
@@ -344,6 +358,32 @@ def canonical_id(merged: dict, source_id: str) -> str:
     return current
 
 
+def raw_kind_of(record: dict) -> str:
+    """What the saved text is (D-200): the record's field when present, else `agent_summary` when it
+    holds a raw path or digest, else `none`. The default lives here, never in the data — an old
+    registry keeps working and is never rewritten."""
+    kind = record.get("raw_kind")
+    if kind in RAW_KINDS:
+        return kind
+    if record.get("raw_path") or record.get("raw_sha256"):
+        return "agent_summary"
+    return "none"
+
+
+def pack_raw_kind(entry: dict, snapshot_digest: str | None = None) -> str:
+    """What the saved text is after the freeze (D-200): the pack entry is authoritative. The field
+    wins when present; otherwise `agent_summary` when a digest was passed, else `none`.
+
+    The entry itself carries no digest (the pack keeps digests in `snapshot[]`), so the caller
+    passes the entry's snapshot-row digest explicitly — a bare `pack_raw_kind(entry)` answers
+    `none` for an entry without the field.
+    """
+    kind = entry.get("raw_kind")
+    if kind in RAW_KINDS:
+        return kind
+    return "agent_summary" if snapshot_digest else "none"
+
+
 # --- helpers --------------------------------------------------------------
 
 
@@ -424,6 +464,11 @@ def canonical_host(host: object) -> str:
     """
     text = str(host or "").strip().lower().rstrip(IDNA_DOTS)
     if not text:
+        return ""
+    if "%" in text:
+        # D-206: a percent-encoded host (`mcp%2ecasus%2elegal`) survives `urlsplit(...).hostname`
+        # undecided, so no classifier can read it — an address this code cannot read is an address
+        # a client must not be handed.
         return ""
     try:
         return text.encode("idna").decode("ascii").lower().rstrip(".")
@@ -748,8 +793,19 @@ def _new_record(
     return record
 
 
-def store_raw(work_dir: str | os.PathLike, layer: str, source_id: str, raw_file: str | os.PathLike) -> dict:
-    """Move the agent's temporary raw file to `research/raw/<layer>/<slug>.md` and hash it (§4.3)."""
+def store_raw(
+    work_dir: str | os.PathLike,
+    layer: str,
+    source_id: str,
+    raw_file: str | os.PathLike,
+    *,
+    raw_kind: str = "agent_summary",
+) -> dict:
+    """Move the agent's temporary raw file to `research/raw/<layer>/<slug>.md` and hash it (§4.3).
+
+    D-200: the returned `raw_kind` is the seam `mf sources save` (Task 4) will use; `register_source`
+    is its only caller today.
+    """
     src = Path(raw_file)
     if not src.is_file():
         raise ValueError(f"raw_file_not_found: {src}")
@@ -761,11 +817,20 @@ def store_raw(work_dir: str | os.PathLike, layer: str, source_id: str, raw_file:
             src.unlink()
         except OSError:  # a read-only source stays where it is; the copy is authoritative
             pass
-    text = payload.decode("utf-8-sig", errors="replace")
+    return raw_fields(work_dir, target, payload, raw_kind)
+
+
+def raw_fields(work_dir: str | os.PathLike, target: Path, payload: bytes, raw_kind: str) -> dict:
+    """The four fields a stored raw text writes into its record (§4.3, D-200).
+
+    One function for both storers — `store_raw` for the agent's file, `run_save` for the text the
+    code fetched and published itself (D-199) — so the two can never disagree about a record.
+    """
     return {
         "raw_path": stepctx.rel_path(work_dir, target),
         "raw_sha256": state_io.sha256_bytes(payload),
-        "raw_chars": len(text),
+        "raw_chars": len(payload.decode("utf-8-sig", errors="replace")),
+        "raw_kind": raw_kind,
     }
 
 
@@ -793,6 +858,7 @@ def register_source(
     tool: str = "unknown",
     tier: str = "supporting",
     raw_file: str | os.PathLike | None = None,
+    raw_kind: str = "agent_summary",
     meta: dict | None = None,
     identifiers: dict | None = None,
     source_id: str | None = None,
@@ -825,10 +891,7 @@ def register_source(
     with sources_lock(work_dir):
         # The freeze holds `sources.lock` for its whole transaction, so this check cannot race it.
         if is_frozen(work_dir):
-            return {
-                "errors": ["sources_frozen"],
-                "hint": "the source pack is frozen; registrations after the freeze never reach the memo",
-            }
+            return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
         registry = read_registry(work_dir)
         sources = registry["sources"]
         explicit_id = slugify(source_id) if source_id else None
@@ -839,12 +902,41 @@ def register_source(
             # branch — a repeat registration that matches by url is exactly how other raw bytes used
             # to overwrite the record under the same explicit id and answer `idempotent: true`.
             held = sources[explicit_id]
+            if raw_file and raw_kind_of(held) == "full_text":
+                # D-200: `full_text` is text saved by code (`mf sources save`); the agent's
+                # `--raw-file` never overwrites it, with same bytes or different ones. Refused
+                # before anything is written — and before the collision guard, whose
+                # "register under its own id" hint is the wrong advice for code-saved text.
+                return {
+                    "errors": [f"source_is_code_saved: {explicit_id} holds text saved by mf sources save"],
+                    "source_id": explicit_id,
+                    "hint": "raise the text with `mf sources save` over the same record, "
+                    "or register it under its own id",
+                }
             incoming_sha = None
             if raw_file and Path(raw_file).is_file():
                 # D-163: `store_raw` records the converted text, so the repeat check hashes the
                 # same normalised bytes — identical HTML re-registered under its id is a no-op.
                 incoming_sha = state_io.sha256_bytes(prepare_raw(Path(raw_file).read_bytes()))
-            if (held.get("raw_sha256") or None) != incoming_sha:
+            held_sha = held.get("raw_sha256") or None
+            if held_sha is None and incoming_sha is None:
+                # D-206: a citation-only or `background` record carries no hash on either side, so
+                # the hash comparison alone cannot tell a re-registration from a stranger's text —
+                # the dedup identity decides instead. Both keys use the incoming layer, so a layer
+                # difference is not mistaken for a different source and falls through to the
+                # layer-mismatch check below; equal keys take today's update branch, different
+                # keys the `source_id_collision` answer, and nothing is written.
+                if dedup_key(layer, held.get("url"), held.get("citation_form")) != dedup_key(
+                    layer, clean_url, citation
+                ):
+                    return {
+                        "errors": [f"source_id_collision: {explicit_id} already holds {held['title']!r}"],
+                        "source_id": explicit_id,
+                        "held_title": held["title"],
+                        "held_raw_sha256": held.get("raw_sha256"),
+                        "hint": "register the new text under its own id, or fix the existing record",
+                    }
+            elif held_sha != incoming_sha:
                 return {
                     "errors": [f"source_id_collision: {explicit_id} already holds {held['title']!r}"],
                     "source_id": explicit_id,
@@ -879,6 +971,18 @@ def register_source(
                 if dedup_key(record["layer"], record.get("url"), record.get("citation_form")) == key:
                     existing_id = candidate_id
                     break
+
+        if existing_id is not None and existing_id != explicit_id and raw_file:
+            # D-200: the dedup path reaches a held record without the explicit-`--id` guard above,
+            # and the same rule applies — code-saved text is never overwritten by the agent.
+            held = sources[existing_id]
+            if raw_kind_of(held) == "full_text":
+                return {
+                    "errors": [f"source_is_code_saved: {existing_id} holds text saved by mf sources save"],
+                    "source_id": existing_id,
+                    "hint": "raise the text with `mf sources save` over the same record, "
+                    "or register it under its own id",
+                }
 
         if existing_id is None:
             new_id = explicit_id or unique_slug(slugify(title), set(sources))
@@ -915,7 +1019,7 @@ def register_source(
             merged_meta.update(meta)
             record["meta"] = merged_meta
         if raw_file:
-            record.update(store_raw(work_dir, layer, existing_id, raw_file))
+            record.update(store_raw(work_dir, layer, existing_id, raw_file, raw_kind=raw_kind))
             record["provenance"] = "agent_saved"
 
         write_registry(work_dir, registry)
@@ -929,6 +1033,7 @@ def register_source(
         "raw_path": result.get("raw_path"),
         "raw_sha256": result.get("raw_sha256"),
         "raw_chars": result.get("raw_chars"),
+        "raw_kind": result.get("raw_kind"),
         "provenance": result.get("provenance"),
         "tier": result.get("tier"),
     }
@@ -956,6 +1061,7 @@ def run_register(args: argparse.Namespace) -> dict:
         tool=args.tool,
         tier=args.tier,
         raw_file=args.raw_file,
+        raw_kind=args.raw_kind,
         meta=meta,
         identifiers=identifiers,
         source_id=args.id,
@@ -1041,10 +1147,67 @@ def use_in_memo(roles: dict, currency_status: str, us: str) -> str:
     return chosen
 
 
-def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | None = None) -> tuple[dict, dict]:
-    """Build `source-pack.json` and the registry updates (currency + pack) it implies (§5.3)."""
+def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | None = None) -> tuple[dict, dict, list]:
+    """Build `source-pack.json` and the registry updates (currency + pack) it implies (§5.3).
+
+    Returns `(pack_document, registry, warnings)`. D-200: first the integrity pass — a record
+    whose `raw_kind_of` is `full_text` is checked against the file on disk (edited → `agent_summary`,
+    missing → `none`, each with a `full_text_integrity` warning) — so duplicate selection below sees
+    the corrected kinds. Records of any other kind are untouched. Non-empty warnings are also
+    written into the pack document itself (`integrity_warnings`).
+
+    Fix round 3: a demotion also stamps its evidence into the record (`meta.full_text_integrity`),
+    in the same write as the demotion itself, and the pass re-emits a stamped marker when the
+    record no longer classifies — so a retry after a crash between the registry write and the
+    publication reproduces exactly the interrupted run's warnings.
+    """
     sources = registry["sources"]
     currency = load_currency(work_dir, state=state)
+    # D-200 fix round 2: the freeze believes the file BEFORE duplicates are selected, so
+    # `canonical_of` sees the corrected kinds — a `full_text` record whose file vanished must not
+    # win canonicality over the usable copy. One observation per file: the digest classified here
+    # is reused for `raw_sha256` and the snapshot row below instead of hashing again.
+    warnings: list[dict] = []
+    observed: dict[str, str | None] = {}
+    for source_id in sorted(sources):
+        record = sources[source_id]
+        if raw_kind_of(record) == "full_text":
+            # D-200: the recorded sha is what the code saved; any other bytes — or no file at
+            # all — mean the text is no longer that document. A null recorded digest never equals
+            # the file's digest, so it demotes like any mismatch.
+            held_sha = record.get("raw_sha256") or None
+            path = Path(work_dir) / (record.get("raw_path") or "") if record.get("raw_path") else None
+            if path is None or not path.is_file():
+                now = "none"
+                observed[source_id] = None
+            else:
+                digest = state_io.sha256_file(path)
+                observed[source_id] = digest
+                now = "agent_summary" if digest != held_sha else None
+            if now is not None:
+                record["raw_kind"] = now
+                # Fix round 3: the evidence is part of the same write as the demotion — `meta`
+                # is open by design, so no schema change and no effect on old registries.
+                record.setdefault("meta", {})["full_text_integrity"] = {"was": "full_text", "now": now}
+                warnings.append(
+                    {"code": FULL_TEXT_INTEGRITY, "source_id": source_id, "was": "full_text", "now": now}
+                )
+            continue
+        marker = (record.get("meta") or {}).get("full_text_integrity")
+        if isinstance(marker, dict) and marker.get("was") == "full_text" and marker.get("now") in (
+            "agent_summary",
+            "none",
+        ):
+            # Fix round 3: a retry after a crash between the registry write and the publication —
+            # the record no longer classifies, but the stamped evidence re-emits the warning.
+            warnings.append(
+                {
+                    "code": FULL_TEXT_INTEGRITY,
+                    "source_id": source_id,
+                    "was": "full_text",
+                    "now": marker["now"],
+                }
+            )
     # D34-04: duplicates collapse into one canonical id before anything is projected onto the pack.
     merged, contradictory = merge_map(work_dir, sources)
     if contradictory:
@@ -1093,6 +1256,9 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
             "verification_us": us,
             "pack": pack,
         }
+        if record.get("raw_kind") in RAW_KINDS:
+            # D-200: after the integrity check, so the pack records the corrected value.
+            entry["raw_kind"] = record["raw_kind"]
         if record.get("identifiers"):
             entry["identifiers"] = dict(record["identifiers"])
         if record.get("retrieved_at"):
@@ -1106,6 +1272,18 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
     snapshot = []
     for source_id in kept:
         record = sources[source_id]
+        if source_id in observed:
+            # Fix round 2: reuse the classified digest — hashing again could pin bytes the check
+            # never saw. A record whose file vanished keeps today's behaviour (null row, the
+            # registry sha untouched).
+            digest = observed[source_id]
+            if digest is not None:
+                record["raw_sha256"] = digest
+                path = Path(work_dir) / (record.get("raw_path") or "")
+                if path.is_file():
+                    record["raw_chars"] = len(path.read_text(encoding="utf-8-sig", errors="replace"))
+            snapshot.append({"source_id": source_id, "raw_sha256": digest})
+            continue
         raw_path = record.get("raw_path")
         digest = None
         if raw_path:
@@ -1124,7 +1302,11 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
     }
     if merged:
         pack_document["merged_into"] = dict(sorted(merged.items()))
-    return pack_document, registry
+    if warnings:
+        # Fix round 2: the evidence lives in the frozen pack, not only in the step result — an
+        # interrupted-then-retried freeze and a replay recover it from here.
+        pack_document["integrity_warnings"] = warnings
+    return pack_document, registry, warnings
 
 
 def _as_timestamp(value: object) -> str | None:
@@ -1171,7 +1353,7 @@ def run_pack(args: argparse.Namespace) -> dict:
             registry = read_registry(work_dir)
             try:
                 # D-41: the freeze snapshots only inputs that still match `published[]`.
-                pack_document, registry = build_pack(work_dir, registry, state=state)
+                pack_document, registry, _ = build_pack(work_dir, registry, state=state)
             except stepctx.OutputModifiedAfterPublish as exc:
                 return stepctx.drift_result(exc)
             except ContradictoryDuplicates as exc:
@@ -1204,6 +1386,8 @@ def run_pack(args: argparse.Namespace) -> dict:
 
 
 def _pack_result(pack_document: dict, *, replayed: bool) -> dict:
+    # Fix round 2: warnings come from the pack document itself, so the fresh freeze and the replay
+    # answer the same thing — and an interrupted-then-retried freeze recovers the evidence.
     return {
         "source_pack_path": PACK_PATH,
         "frozen_at": pack_document.get("frozen_at"),
@@ -1213,6 +1397,7 @@ def _pack_result(pack_document: dict, *, replayed: bool) -> dict:
         "merged": len(pack_document.get("merged_into") or {}),
         "sources_frozen": True,
         "replayed": replayed,
+        "warnings": list(pack_document.get("integrity_warnings") or []),
     }
 
 
@@ -1242,13 +1427,30 @@ def _close_freeze(work_dir: Path, args: argparse.Namespace, result: dict, entry:
 # --- digest ---------------------------------------------------------------
 
 
-def collect_exceptions(work_dir: str | os.PathLike, state: dict) -> list[dict]:
+def collect_exceptions(work_dir: str | os.PathLike, state: dict, ui: str = "en") -> list[dict]:
     """Gate-11 exceptions of §2.4: critical sources in doubt, warnings, exhausted MCP budget."""
     registry = read_registry(work_dir)
     pack = read_pack(work_dir) or {}
     pack_by_id = {row["source_id"]: row for row in pack.get("entries") or [] if isinstance(row, dict)}
     merged = pack.get("merged_into") or {}
     exceptions: list[dict] = []
+
+    # D-200 fix round 2: the freeze demotion surfaces here too, for every tier, through the pack
+    # label — read from the frozen pack, which survives interruption and replay, never from the
+    # step result (whose `result_ref` shapes must stay none of this function's business).
+    for warning in pack.get("integrity_warnings") or []:
+        if not isinstance(warning, dict) or warning.get("code") != FULL_TEXT_INTEGRITY:
+            continue
+        source_id = warning.get("source_id")
+        if not source_id:
+            continue
+        exceptions.append(
+            {
+                "kind": FULL_TEXT_INTEGRITY,
+                "source_id": source_id,
+                "detail": i18n.t(ui, "memo.labels.full_text_integrity_note", source_id=source_id),
+            }
+        )
 
     for source_id in sorted(registry["sources"]):
         if source_id in merged:
@@ -1331,7 +1533,7 @@ def render_digest(
     """
     registry = read_registry(work_dir)
     pack = read_pack(work_dir)
-    exceptions = collect_exceptions(work_dir, state)
+    exceptions = collect_exceptions(work_dir, state, ui)
     lines: list[str] = []
     frozen = (
         i18n.t(ui, "ui.sources.digest_frozen")
@@ -2068,10 +2270,19 @@ def _fetch_answer(
     payload: bytes,
     final_url: str,
     hops: object = (),
+    short: bool = False,
 ) -> dict:
-    """Classify one answer the way liveness does, and say whether the body may be cited (D-149)."""
+    """Classify one answer the way liveness does, and say whether the body may be cited (D-149).
+
+    `truncated` is «this is not the whole body», from any of three causes: our own ceiling, a body
+    that ended before the `Content-Length` the server declared (`short`, measured on the bytes as
+    they arrived — before `_inflate`, since the header counts the compressed ones), and a
+    `206 Partial Content`, which says so itself. A page cut short reads like a whole document —
+    the act ends at «определила:» with the operative part simply absent — and `save` refuses every
+    one of the three rather than certify a part of a document as the whole of it (D-199).
+    """
     cap = limits.LIVENESS_MAX_BODY_BYTES
-    truncated = len(payload) > cap
+    truncated = short or code == 206 or len(payload) > cap
     payload = payload[:cap]
     content_type = header_value(headers, "Content-Type")
     interstitial = is_interstitial(payload, content_type)
@@ -2124,8 +2335,15 @@ def fetch_body(
             code = getattr(response, "status", None) or response.getcode()
             # cap + 1: one byte over the ceiling is how `truncated` is told from «exactly this long».
             payload = response.read(cap + 1)
+            # A bounded read that ends early raises nothing, so the promise the server made is the
+            # only way to know the document stopped mid-sentence; the header counts the bytes on the
+            # wire, so this is measured before `_inflate`.
+            # `Content-Length: 3661 ` is a header Python's parser accepts, so the value is stripped
+            # before it is read: an unstripped digit test silently skipped the whole comparison.
+            declared = header_value(response.headers, "Content-Length").strip()
+            short = declared.isdigit() and len(payload) < int(declared)
             payload = _inflate(payload, response.headers)
-            return _fetch_answer(url, code, response.headers, payload, response.geturl(), hops)
+            return _fetch_answer(url, code, response.headers, payload, response.geturl(), hops, short=short)
     except urllib.error.HTTPError as exc:
         return _fetch_answer(url, exc.code, exc.headers, _inflate(exc.read(cap + 1), exc.headers), url, hops)
     except RedirectRefused as exc:
@@ -2153,6 +2371,69 @@ def fetch_body(
         }
 
 
+def fetch_refusal(url: str, hosts: frozenset) -> tuple[str, dict] | None:
+    """`(reason, answer)` when an address may not be requested at all, or None (D-149, D-151).
+
+    One parser and one allowlist for both commands: `fetch` returns the answer as it is, `save`
+    records the reason as `meta.save_outcome` as well (D-199). A6: the refusal is journalled by
+    `cli.rejection_of`, so it names a redacted address.
+    """
+    problem = url_error(url)
+    if problem is not None:
+        return "url_error", {
+            "errors": [f"{problem}: {redacted_url(url)}"],
+            "hint": "only http(s) urls without credentials can be fetched",
+        }
+    host = request_host(url)
+    if not host_on_allowlist(host, hosts):
+        return "host_not_allowed", {
+            "errors": [f"host_not_allowed: {host}"],
+            "hint": "hooks/allowlist.txt is the same list the fetch permission gate enforces (§8.1)",
+        }
+    return None
+
+
+def fetch_request_body(method: str, raw_body: object) -> tuple[bytes | None, dict | None]:
+    """`(body, refusal)` — the bytes a POST sends, or why this call cannot be made (D-151).
+
+    D-151: `POST` exists for one prescribed route, the Normattiva URN endpoint; `save` speaks it too
+    (D-199), so the argument is read in one place for both commands.
+    """
+    body: bytes | None = b"" if method == "POST" else None
+    if raw_body in (None, ""):
+        return body, None
+    if method != "POST":
+        return None, {"errors": ["json_body_requires_post"], "hint": "--json is the body of a --method POST"}
+    try:
+        return json.dumps(json.loads(raw_body), ensure_ascii=False).encode("utf-8"), None
+    except ValueError as exc:
+        return None, {"errors": [f"invalid_json_body: {exc}"], "hint": "--json takes one JSON document"}
+
+
+def fetch_allowed(
+    url: str,
+    hosts: frozenset,
+    *,
+    accept: object = None,
+    lang: object = None,
+    timeout: float | None = None,
+    method: str = "GET",
+    body: bytes | None = None,
+) -> dict:
+    """The politeness pause this process owes the host, then one request (D-146, D-149, D-199).
+
+    The caller has already run `fetch_refusal`; `hosts` travels on so every redirect hop is checked
+    against the same list.
+    """
+    host = request_host(url)
+    since = _LAST_FETCH.get(host)
+    if since is not None:
+        _wait(host_delay(host) - (time.monotonic() - since))
+    answer = fetch_body(url, accept=accept, lang=lang, timeout=timeout, method=method, body=body, allowed=hosts)
+    _LAST_FETCH[host] = time.monotonic()
+    return answer
+
+
 def run_fetch(args: argparse.Namespace) -> dict:
     """`mf sources fetch` — the allow-listed, header-aware GET an agent reads a portal with (D-149).
 
@@ -2166,33 +2447,18 @@ def run_fetch(args: argparse.Namespace) -> dict:
     request through every redirect instead of guarding the first hop only.
     """
     url = str(getattr(args, "url", "") or "").strip()
-    problem = url_error(url)
-    if problem is not None:
-        # D-151: one parser, the permission gate's — a url it cannot read is never requested.
-        # A6: the refusal is journalled by `cli.rejection_of`, so it names a redacted address.
-        return {
-            "errors": [f"{problem}: {redacted_url(url)}"],
-            "hint": "only http(s) urls without credentials can be fetched",
-        }
-    host = request_host(url)
     hosts = allowlist_hosts()
-    if not host_on_allowlist(host, hosts):
-        return {
-            "errors": [f"host_not_allowed: {host}"],
-            "hint": "hooks/allowlist.txt is the same list the fetch permission gate enforces (§8.1)",
-        }
+    # D-151: one parser, the permission gate's — a url it cannot read is never requested.
+    refusal = fetch_refusal(url, hosts)
+    if refusal is not None:
+        return refusal[1]
+    host = request_host(url)
     method = str(getattr(args, "method", "GET") or "GET").strip().upper()
     if method not in FETCH_METHODS:
         return {"errors": [f"unsupported_method: {method}"], "hint": f"--method is one of {', '.join(FETCH_METHODS)}"}
-    raw_body = getattr(args, "json_body", None)
-    body: bytes | None = b"" if method == "POST" else None
-    if raw_body not in (None, ""):
-        if method != "POST":
-            return {"errors": ["json_body_requires_post"], "hint": "--json is the body of a --method POST"}
-        try:
-            body = json.dumps(json.loads(raw_body), ensure_ascii=False).encode("utf-8")
-        except ValueError as exc:
-            return {"errors": [f"invalid_json_body: {exc}"], "hint": "--json takes one JSON document"}
+    body, body_refusal = fetch_request_body(method, getattr(args, "json_body", None))
+    if body_refusal is not None:
+        return body_refusal
 
     work_dir = Path(args.workdir)
     try:
@@ -2201,19 +2467,15 @@ def run_fetch(args: argparse.Namespace) -> dict:
     except ValueError as exc:
         return {"errors": [str(exc)], "hint": "--out is a relative path under research/raw/"}
 
-    since = _LAST_FETCH.get(host)
-    if since is not None:
-        _wait(host_delay(host) - (time.monotonic() - since))
-    answer = fetch_body(
+    answer = fetch_allowed(
         url,
+        hosts,
         accept=args.accept,
         lang=args.lang,
         timeout=args.timeout,
         method=method,
         body=body,
-        allowed=hosts,
     )
-    _LAST_FETCH[host] = time.monotonic()
 
     payload = answer.pop("payload")
     if payload and answer["status"] in ("ok", "redirect"):
@@ -2253,6 +2515,359 @@ def run_fetch(args: argparse.Namespace) -> dict:
             else "not the document: nothing was saved"
         )
     return result
+
+
+# --- save -----------------------------------------------------------------
+
+
+SAVE_TOOL = "mf-save"
+"""D-199: the `retrieval_tool` of a text this command fetched and stored (`mf-save <host>`)."""
+
+SAVE_RESOLVERS: tuple[str, ...] = ("vsrf", "sudact")
+"""D-199: `--resolve` is declared with the command; the two resolvers land with their own tasks."""
+
+SAVE_TEXT_TYPES: frozenset = frozenset(
+    {"application/json", "application/ld+json", "application/rdf+xml", "application/xhtml+xml", "application/xml"}
+)
+"""Media types outside `text/*` whose body is still text — the BOE XML and the RIS/Normattiva JSON.
+
+Anything else, a PDF above all, is refused `unsupported_media_type`: D-201 is what teaches this
+command to keep an original and extract its text layer.
+"""
+
+SAVE_HINTS: dict[str, str] = {
+    "unchecked": "the server did not serve the document; nothing was registered",
+    "dead": "the address did not answer with a document; nothing was registered",
+    "interstitial": "the answer is a challenge page, not the document; nothing was registered",
+    "access_stub": "the answer is an access wall, not the document; nothing was registered",
+    "truncated": "the body was cut at the ceiling, and a partial document is never registered",
+    "host_not_allowed": "hooks/allowlist.txt is the same list the fetch permission gate enforces (§8.1)",
+    "unsupported_media_type": "only a text answer can be certified and saved today",
+    "requisites_mismatch": "the page does not carry --expect-number and --expect-date in their zones",
+    "url_error": "only http(s) urls without credentials can be fetched",
+}
+"""One line of advice per refusal; `meta.save_outcome` records `refused:<key>` (D-199)."""
+
+
+def save_text_type(content_type: object, payload: bytes = b"") -> bool:
+    """True when the answer is text this command can certify (D-199).
+
+    A declared type decides. With none declared the body is admitted as text — many portals send
+    no header — except for the one signature that really is served that way and really is not text:
+    `%PDF-`, which would otherwise be decoded with replacement characters, registered as certified
+    text and exported to the client as a `.txt` of mojibake. One signature, not a type sniffer;
+    D-201 is what teaches this command to keep a PDF and extract its text layer.
+    """
+    kind = str(content_type or "").split(";")[0].strip().lower()
+    if not kind:
+        return not payload.startswith(b"%PDF-")
+    return kind.startswith("text/") or kind in SAVE_TEXT_TYPES
+
+
+def save_admission(answer: dict, payload: bytes) -> tuple[str, str] | None:
+    """`(reason, detail)` — why this answer may not be registered at all, or None (D-199).
+
+    These rules judge the *answer*, which is why they live here and not in `source_text`: a status
+    that means «not served», a challenge page, an access wall, a body cut at the ceiling and a
+    media type that is not text never become a source, whatever the text of them would say.
+    """
+    error = str(answer.get("error") or "")
+    if error.startswith("redirect_not_allowed"):
+        # D-151 refused the hop before it was requested; the outcome names the hop.
+        return "host_not_allowed", error.partition(": ")[2]
+    if error == "interstitial_suspected":
+        return ("access_stub" if is_access_stub(payload) else "interstitial"), ""
+    if answer.get("status") == "unchecked":
+        return "unchecked", error
+    if answer.get("status") == "dead":
+        return "dead", error
+    if answer.get("truncated"):
+        # A partial document is the exact failure this command exists to stop: never an excerpt.
+        return "truncated", ""
+    if not save_text_type(answer.get("content_type"), payload):
+        # With no declared type the only body that fails is the one the signature named.
+        kind = str(answer.get("content_type") or "").split(";")[0].strip()
+        return "unsupported_media_type", kind or "application/pdf"
+    return None
+
+
+def same_source(layer: str, record: dict, url: object, citation: object) -> bool:
+    """D-199 identity guard: the same normalised url, or the same normalised citation form (D-206).
+
+    The incoming layer is used on both sides, so a record of another layer is never mistaken for a
+    different source — it falls through to the layer check, exactly as in `register_source`.
+    """
+    if dedup_key(layer, url, citation) == dedup_key(layer, record.get("url"), record.get("citation_form")):
+        return True
+    return dedup_key(layer, "", citation) == dedup_key(layer, "", record.get("citation_form"))
+
+
+def find_source(sources: dict, layer: str, url: object, citation: object) -> str | None:
+    """The id of the record this save is about, by the dedup identity of D-206, or None."""
+    for source_id, record in sources.items():
+        if record.get("layer") == layer and same_source(layer, record, url, citation):
+            return source_id
+    return None
+
+
+def save_guard(sources: dict, *, layer: str, source_id: str | None, url: str, citation: str) -> dict | None:
+    """The registry checks of D-199 steps 1 and 3 — before the network, and again after it."""
+    if not source_id or source_id not in sources:
+        return None
+    held = sources[source_id]
+    if not same_source(layer, held, url, citation):
+        # D-143: a stranger's text never lands under an occupied id, whatever it proves about itself.
+        return {
+            "errors": [f"source_id_collision: {source_id} already holds {held['title']!r}"],
+            "source_id": source_id,
+            "held_title": held["title"],
+            "held_raw_sha256": held.get("raw_sha256"),
+            "hint": "save the new text under its own id, or fix the existing record",
+        }
+    if held.get("layer") != layer:
+        return {
+            "errors": [f"source_id_layer_mismatch: {source_id} is registered under {held['layer']!r}"],
+            "source_id": source_id,
+            "held_layer": held["layer"],
+            "held_title": held["title"],
+            "hint": (
+                f"a record never changes layer: save again with --layer {held['layer']}, "
+                "or save this text under its own id"
+            ),
+        }
+    return None
+
+
+def save_refused(work_dir: Path, identity: dict, reason: str, answer: dict) -> dict:
+    """The refusal answer, and `meta.save_outcome` in a record that already existed (D-199).
+
+    That one field is the whole exception to «a failure never mutates»: the sufficiency reviewer has
+    to see that this source was attempted and refused, or it asks for the attempt to be repeated.
+    Nothing else moves — no file, no other field, and nothing at all when there is no such record.
+    """
+    outcome = f"refused:{reason}"
+    answer = {**answer, "save_outcome": outcome}
+    with sources_lock(work_dir):
+        if is_frozen(work_dir):
+            return answer
+        registry = read_registry(work_dir)
+        sources = registry["sources"]
+        if save_guard(sources, **identity) is not None:
+            # The id was free at step 1 and another process claimed it while this request was on
+            # the network: the record under it is not this source, and a failure never touches a
+            # record that is not its own.
+            return answer
+        held_id = identity["source_id"] if identity["source_id"] in sources else None
+        if held_id is None:
+            held_id = find_source(sources, identity["layer"], identity["url"], identity["citation"])
+        if held_id is None:
+            return answer
+        record = sources[held_id]
+        record["meta"] = {**(record.get("meta") or {}), "save_outcome": outcome}
+        write_registry(work_dir, registry)
+    return {**answer, "source_id": held_id}
+
+
+def run_save(args: argparse.Namespace) -> dict:
+    """`mf sources save` — one transaction from an address to a registered, certified text (D-199).
+
+    The agent was the glue between fetching and registering, and in the run this plan comes from 43
+    of 45 saved texts were retyped or summarised. Here the code fetches the page, converts it,
+    certifies with `source_text` that this is that document and that it is whole, and only then
+    writes: `full_text` means the code saved it.
+
+    Three steps, and the lock is held on the first and the third only, because three researchers
+    work at once and the network step is the long one: (1) the registry checks, nothing written;
+    (2) without the lock — politeness, the allowlist on the url and on every hop, the admission
+    rules, the conversion, one `prepare_raw`, the verdict, and the bytes into a temporary file
+    inside the target folder; (3) the same checks again, then and only then the duplicate search,
+    the id, the atomic publication and the registry write. A refusal or a crash leaves every file
+    and every record as it was; `meta.save_outcome` in an already existing record is the exception.
+    """
+    resolver = str(getattr(args, "resolve", "") or "").strip()
+    if resolver:
+        return {
+            "errors": [f"resolver_not_available: {resolver}"],
+            "hint": "pass --url: the resolvers that find an address from the requisites land later",
+        }
+    try:
+        meta = parse_json_argument(args.meta, "meta")
+        identifiers = parse_json_argument(args.identifiers, "identifiers")
+    except ValueError as exc:
+        return {"errors": [str(exc)]}
+    method = str(getattr(args, "method", "GET") or "GET").strip().upper()
+    body, body_refusal = fetch_request_body(method, getattr(args, "json_body", None))
+    if body_refusal is not None:
+        return body_refusal
+
+    work_dir = Path(args.workdir)
+    layer = str(args.layer)
+    tier = str(getattr(args, "tier", "supporting") or "supporting")
+    # A4/D-193: an address in any string the memo prints is scrubbed before it is stored.
+    title = scrub_urls(str(args.title))
+    citation = scrub_urls(str(args.citation))
+    meta = scrub_values(meta) if meta else {}
+    identifiers = scrub_values(identifiers) if identifiers else {}
+    url = str(getattr(args, "url", "") or "").strip()
+    # D-192: the address a client may be given; the request itself goes to the url as it was passed.
+    clean_url, retrieved_from = public_url(url)
+    explicit_id = slugify(args.id) if getattr(args, "id", None) else None
+    identity = {"layer": layer, "source_id": explicit_id, "url": clean_url, "citation": citation}
+
+    # Step 1 — under the lock, before the network: nothing here writes.
+    with sources_lock(work_dir):
+        if is_frozen(work_dir):
+            return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
+        refusal = save_guard(read_registry(work_dir)["sources"], **identity)
+    if refusal is not None:
+        return refusal
+
+    # Step 2 — without the lock: the network, the conversion, the certification.
+    hosts = allowlist_hosts()
+    refused = fetch_refusal(url, hosts)
+    if refused is not None:
+        return save_refused(work_dir, identity, refused[0], refused[1])
+    host = request_host(url)
+    answer = fetch_allowed(
+        url, hosts, accept=args.accept, lang=args.lang, timeout=args.timeout, method=method, body=body
+    )
+    payload = answer.pop("payload")
+    transport = {"url": clean_url, "host": host, "status": answer["status"], "code": answer["code"]}
+    admission = save_admission(answer, payload)
+    if admission is not None:
+        reason, detail = admission
+        errors = [f"{reason}: {detail}" if detail else reason]
+        return save_refused(work_dir, identity, reason, {"errors": errors, "hint": SAVE_HINTS[reason], **transport})
+
+    converted = markup_to_text(payload, answer["content_type"])
+    # `prepare_raw` runs once, on the converted text, so the digest stored is the one liveness can
+    # confirm against the page it came from (D-163, D-193, D-199).
+    stored = prepare_raw(converted if converted is not None else payload)
+    text = stored.decode("utf-8-sig", errors="replace")
+    call = source_text.verdict(
+        text,
+        layer=layer,
+        expect_number=args.expect_number,
+        expect_date=args.expect_date,
+        expect_article=args.expect_article,
+    )
+    if call["error"] is not None:
+        # D-203: a Russian judicial act missing a requisite in its own zone is not this document.
+        missing = ", ".join(name for name in ("number", "date") if not call["found"].get(name))
+        errors = [f"{call['error']}: {missing}" if missing else call["error"]]
+        return save_refused(
+            work_dir, identity, call["error"], {"errors": errors, "hint": SAVE_HINTS[call["error"]], **transport}
+        )
+    outcome = call["outcome"]
+    digest = state_io.sha256_bytes(stored)
+
+    target_dir = work_dir / RAW_DIR / layer
+    target_dir.mkdir(parents=True, exist_ok=True)
+    # Inside the target folder, so step 3 publishes with one atomic rename and writes nothing under
+    # the lock; the pid keeps two processes saving the same document out of each other's way.
+    temp = target_dir / f".{explicit_id or slugify(title)}.{os.getpid()}.tmp"
+    try:
+        with open(temp, "wb") as handle:
+            # Flushed to the platter before the rename, exactly as `state_io.write_bytes_atomic`
+            # does it: the registry must never name a file whose bytes a crash could still lose.
+            handle.write(stored)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        # Step 3 — under the lock again: the tree may have changed while the network ran.
+        with sources_lock(work_dir):
+            if is_frozen(work_dir):
+                return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
+            registry = read_registry(work_dir)
+            sources = registry["sources"]
+            refusal = save_guard(sources, **identity)
+            if refusal is not None:
+                return refusal
+            source_id = explicit_id if explicit_id in sources else find_source(sources, layer, clean_url, citation)
+            created = source_id is None
+            if created:
+                source_id = explicit_id or unique_slug(slugify(title), set(sources))
+                record = _new_record(layer, title, citation, clean_url, f"{SAVE_TOOL} {host}", tier, retrieved_from)
+                sources[source_id] = record
+            else:
+                record = sources[source_id]
+                if raw_kind_of(record) == "full_text":
+                    # Text saved by code is replaced by the same document, whole, and by nothing
+                    # else: an excerpt of it is a downgrade, other bytes are another text under an
+                    # occupied identity — the answer the loser of a race for one url gets.
+                    if call["raw_kind"] != "full_text":
+                        return {
+                            "errors": [f"source_is_code_saved: {source_id} holds text saved by mf sources save"],
+                            "source_id": source_id,
+                            "hint": "a shorter text never replaces one the code saved whole",
+                        }
+                    if record.get("raw_sha256") != digest:
+                        return {
+                            "errors": [f"source_id_collision: {source_id} already holds another saved text"],
+                            "source_id": source_id,
+                            "held_title": record["title"],
+                            "held_raw_sha256": record.get("raw_sha256"),
+                            "hint": "the address served other bytes: save this text under its own id",
+                        }
+            # The stored text is replaced only when the new outcome is `full_text` — a shorter
+            # excerpt never displaces a longer one, and then only `meta.save_outcome` is written —
+            # but where no text is stored nothing is displaced, so a new record and a record that
+            # holds none take what they are given. «Holds none» is read from the disk, not from the
+            # field alone: a publication interrupted after the registry write leaves a `raw_path`
+            # whose file was never written, and that record has no text to displace either — the
+            # next save repairs it instead of answering a hollow `idempotent` over a missing file.
+            held_text = record.get("raw_path") and (work_dir / record["raw_path"]).is_file()
+            publish = call["raw_kind"] == "full_text" or not held_text
+            target = target_dir / f"{source_id}.md"
+            if publish:
+                record.update(raw_fields(work_dir, target, stored, call["raw_kind"]))
+                record["title"] = title
+                record["citation_form"] = citation
+                record["tier"] = tier
+                record["retrieval_tool"] = f"{SAVE_TOOL} {host}"
+                record["provenance"] = "agent_saved"  # only liveness promotes a record to `confirmed`
+                if clean_url:
+                    record["url"] = clean_url
+                if retrieved_from:
+                    record["retrieved_from"] = retrieved_from
+                if identifiers:
+                    merged = dict(record.get("identifiers") or {})
+                    merged.update({name: value for name, value in identifiers.items() if value})
+                    record["identifiers"] = merged
+                if meta:
+                    record["meta"] = {**(record.get("meta") or {}), **meta}
+            record["meta"] = {**(record.get("meta") or {}), "save_outcome": outcome}
+            # Validate the complete candidate, persist the registry, publish the file last. The
+            # two writes cannot be made one transaction, so the order is chosen by what the
+            # surviving window costs: publishing first and being killed before the registry write
+            # loses the old text for good and leaves a record describing bytes that no longer
+            # exist. This way a kill in the window leaves the registry naming a digest the file
+            # does not have yet and the **old bytes intact** — the disagreement Task 2's freeze
+            # integrity check demotes with a `full_text_integrity` warning and C-02's triple sha
+            # equality blocks. Loud and safe rather than silent and lossy; no journal, no backup.
+            schema.validate_or_raise(registry, "sources")
+            write_registry(work_dir, registry)
+            if publish:
+                os.replace(temp, target)
+            result = dict(record)
+    finally:
+        temp.unlink(missing_ok=True)
+
+    return {
+        "source_id": source_id,
+        "created": created,
+        "idempotent": not created,
+        "layer": layer,
+        "raw_path": result.get("raw_path"),
+        "raw_sha256": result.get("raw_sha256"),
+        "raw_chars": result.get("raw_chars"),
+        "raw_kind": raw_kind_of(result),
+        "save_outcome": outcome,
+        "provenance": result.get("provenance"),
+        "tier": result.get("tier"),
+        "bytes": len(stored),
+        **transport,
+    }
 
 
 # --- verify ---------------------------------------------------------------
@@ -2299,11 +2914,12 @@ def duplicate_keys(record: dict) -> set:
 
 
 def canonical_of(sources: dict, group: list[str]) -> str:
-    """The id a duplicate group collapses into: not mislabelled, carrying raw text, registered first."""
+    """The canonical id of a duplicate group: labelled right, holding the full text, then first."""
     return sorted(
         group,
         key=lambda source_id: (
             is_mislabelled(source_id, sources[source_id]),
+            raw_kind_of(sources[source_id]) != "full_text",
             not sources[source_id].get("raw_sha256"),
             str(sources[source_id].get("retrieved_at") or ""),
             source_id,
@@ -2535,6 +3151,13 @@ def register(subparsers) -> None:
     reg.add_argument("--tool", dest="tool", default="unknown", help="retrieval tool name")
     reg.add_argument("--tier", default="supporting", choices=list(TIERS))
     reg.add_argument("--raw-file", dest="raw_file", default=None, help="full text saved by the agent")
+    reg.add_argument(
+        "--raw-kind",
+        dest="raw_kind",
+        default="agent_summary",
+        choices=list(AGENT_RAW_KINDS),
+        help="what the saved text is (D-200); full_text is saved by code only",
+    )
     reg.add_argument("--meta", default=None, help="JSON object of tool metadata (in_force, status …)")
     reg.add_argument("--identifiers", default=None, help="JSON object: celex/ecli/eli/neutral/reporter_cite")
     reg.add_argument("--id", default=None, help="explicit source_id slug")
@@ -2556,6 +3179,33 @@ def register(subparsers) -> None:
     fetch.add_argument("--layer", default=None, choices=list(LAYERS), help="research/raw/<layer>/")
     fetch.add_argument("--timeout", type=float, default=limits.LIVENESS_TIMEOUT_SECONDS)
     fetch.set_defaults(func=run_fetch)
+
+    save = group.add_parser("save", help="fetch, certify and register one source text (D-199)")
+    save.add_argument("--workdir", required=True)
+    save.add_argument("--layer", required=True, choices=list(LAYERS))
+    save.add_argument("--title", required=True)
+    save.add_argument("--citation", required=True, help="citation_form as it appears in the memo")
+    save.add_argument("--tier", default="supporting", choices=list(TIERS))
+    address = save.add_mutually_exclusive_group(required=True)
+    address.add_argument("--url", default="", help="the address the text is fetched from")
+    address.add_argument(
+        "--resolve",
+        default=None,
+        choices=list(SAVE_RESOLVERS),
+        help="find the address from the requisites instead of passing --url",
+    )
+    save.add_argument("--id", default=None, help="explicit source_id slug")
+    save.add_argument("--meta", default=None, help="JSON object of tool metadata (in_force, status …)")
+    save.add_argument("--identifiers", default=None, help="JSON object: celex/ecli/eli/neutral/reporter_cite")
+    save.add_argument("--expect-number", dest="expect_number", default=None, help="case number the act must carry")
+    save.add_argument("--expect-date", dest="expect_date", default=None, help="date of the act (ISO or DD.MM.YYYY)")
+    save.add_argument("--expect-article", dest="expect_article", default=None, help="article for --layer statutes")
+    save.add_argument("--method", default="GET", choices=list(FETCH_METHODS), help="POST for the IT URN route")
+    save.add_argument("--json", dest="json_body", default=None, help="JSON body of a --method POST")
+    save.add_argument("--accept", default=None, help="Accept header (BOE needs application/xml)")
+    save.add_argument("--lang", default=None, help="Accept-Language (Cellar takes eng/deu/fra)")
+    save.add_argument("--timeout", type=float, default=limits.LIVENESS_TIMEOUT_SECONDS)
+    save.set_defaults(func=run_save)
 
     pack = group.add_parser("pack", help="freeze the source pack (one transaction, M6)")
     pack.add_argument("--workdir", required=True)

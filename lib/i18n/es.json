@@ -65,6 +65,7 @@
       "eu_syntax_note": "Sintaxis del identificador UE sin verificar",
       "currency_note": "vigencia {status}",
       "no_saved_text_note": "sin texto fuente guardado — la cita no pudo comprobarse contra la fuente",
+      "full_text_integrity_note": "el texto de {source_id} guardado por el código cambió; ahora cuenta como copia del agente",
       "link_note": "enlace {status}",
       "retrieved_from_note": "texto obtenido de {server}",
       "legal_database": "una base de datos jurídica",

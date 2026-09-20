@@ -457,7 +457,8 @@ def normalise_pinpoint(value: object) -> str:
 
 _DISPLAY_LABELS: tuple[str, ...] = tuple(dict.fromkeys(name for _, name in _PINPOINT_LABELS))
 _DISPLAY_LABEL_RE = re.compile(
-    r"\b(?P<label>" + "|".join(_DISPLAY_LABELS) + rf")(?=$|\s+{_NUMERAL})"
+    r"\b(?P<label>" + "|".join(_DISPLAY_LABELS) + rf")\.?(?=$|\s+{_NUMERAL})",
+    re.IGNORECASE,
 )
 """D-195: a canonical label anywhere in the pinpoint, plural before singular.
 
@@ -484,7 +485,7 @@ def display_pinpoint(pinpoint: str, language: str = i18n.DEFAULT) -> str:
         return text  # D-186: printed as written in every language; `Art. 152(2)` is out of v1
 
     def translate(match: "re.Match[str]") -> str:
-        return citation_word(match.group("label"), language)
+        return citation_word(match.group("label").lower(), language)
 
     out: list[str] = []
     cursor = 0

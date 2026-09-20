@@ -20,7 +20,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import i18n, limits, sources, state_io, task  # noqa: E402
+from memoforge import cli, i18n, limits, sources, state_io, task  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -163,6 +163,80 @@ CELLAR_SNIPPET = (
 )
 """D-163: Cellar/EUR-Lex answer XHTML, so a shortened GDPR shape for the markup-to-text tests."""
 
+SOURCE_TEXT_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "source_text"
+"""D-203: the saved forms task 3 certifies; `mf sources save` serves them as pages (D-199)."""
+
+
+def act_page(*names: str) -> bytes:
+    """One or more D-203 fixtures inside the page a portal would serve them on (D-199).
+
+    `<pre>` keeps the line structure `source_text` reads, and the declared charset is what
+    `markup_to_text` decodes with — the conversion is part of what `save` has to get right.
+    """
+    body = "\n".join((SOURCE_TEXT_FIXTURES / (name + ".txt")).read_text(encoding="utf-8") for name in names)
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Портал</title></head><body><pre>'
+        + body
+        + "</pre></body></html>"
+    ).encode("utf-8")
+
+
+VS_ACT_PAGE = act_page("vs-html-act")
+"""The page of определение ВС РФ № 5-КГ25-14-К2 — the whole act, requisites and all."""
+
+VS_ACT_TEXT = (SOURCE_TEXT_FIXTURES / "vs-html-act.txt").read_bytes()
+"""The same act as a portal that declares no `Content-Type` and sends no markup serves it."""
+
+VS_ACT_CUT = VS_ACT_PAGE.index("определила:".encode("utf-8")) + len("определила:".encode("utf-8"))
+"""Where the gate's cut fell: the body ends on the operative marker, its ruling and signatures gone.
+
+Everything `source_text` looks for is still there — the requisites, «установила», the marker on its
+own line — so before D-199's fix round 2 those bytes certified as `full_text`.
+"""
+
+VS_ACT_VARIANT = VS_ACT_PAGE.replace(b"</pre>", "\nОпубликовано на портале.\n</pre>".encode("utf-8"))
+"""The same act with one more portal line: the same requisites, a different digest."""
+
+VS_ACT_NUMBER = "5-КГ25-14-К2"
+VS_ACT_DATE = "2025-03-04"
+VS_ACT_TITLE = "ВС РФ, определение № 5-КГ25-14-К2"
+VS_ACT_CITATION = "Определение ВС РФ от 04.03.2025 № 5-КГ25-14-К2"
+
+CASSATION_PAGE = act_page("cassation-ruling")
+"""Another act entirely — the page that must never land under an occupied id (D-143)."""
+
+STATUTE_PAGE = act_page("statute-table-of-contents", "statute-article-152")
+"""A statute page carrying ст. 152 whole and ст. 36 as a table-of-contents line only."""
+
+PDF_BYTES = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n"
+"""D-201 is the next task: until it lands, `save` refuses a non-text media type."""
+
+
+def save_namespace(work_dir: str, url: str, **overrides) -> dict:
+    """The namespace `mf sources save` parses, with the defaults its parser gives (D-199)."""
+    payload = {
+        "workdir": work_dir,
+        "layer": "case_law",
+        "title": VS_ACT_TITLE,
+        "citation": VS_ACT_CITATION,
+        "tier": "critical",
+        "url": url,
+        "resolve": None,
+        "id": None,
+        "meta": None,
+        "identifiers": None,
+        "expect_number": None,
+        "expect_date": None,
+        "expect_article": None,
+        "method": "GET",
+        "json_body": None,
+        "accept": None,
+        "lang": None,
+        "timeout": 5.0,
+    }
+    payload.update(overrides)
+    return payload
+
 
 # --- helpers shared with the spawned children ------------------------------
 
@@ -276,6 +350,59 @@ def worker_freeze(work_dir: str, step: str, ready: str, go: str, result: str) ->
     Path(result).write_text(json.dumps(outcome), encoding="utf-8")
 
 
+def worker_save(work_dir: str, url: str, barrier, result: str) -> None:
+    """Child process: one `mf sources save` of `url`, reported back as JSON (D-199 step 3).
+
+    The barrier is what makes the two children race: both block in it and leave it together, so
+    nothing here polls a clock or sleeps.
+    """
+    sys.path.insert(0, str(Path(work_dir).parents[1] / "scripts"))
+    from memoforge import sources as child_sources
+
+    # The allowlist of the child is its own: the test server lives on a loopback port.
+    child_sources.allowlist_hosts = lambda root=None: frozenset({child_sources.url_host(url)})
+    outcome: dict = {"error": None}
+    try:
+        barrier.wait(timeout=120)
+        outcome["result"] = child_sources.run_save(
+            argparse.Namespace(
+                **save_namespace(work_dir, url, expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            )
+        )
+    except BaseException as exc:  # noqa: BLE001 - reported to the parent
+        outcome["error"] = repr(exc)
+    Path(result).write_text(json.dumps(outcome), encoding="utf-8")
+
+
+def worker_save_killed_before_publishing(work_dir: str, url: str, overrides: dict, paused, result: str) -> None:
+    """Child process: a save that is terminated between the registry write and the publication.
+
+    The parent kills it while it sits in `write_registry`'s successor, so neither `except` nor
+    `finally` runs — a forced termination, not a mocked exception.
+    """
+    sys.path.insert(0, str(Path(work_dir).parents[1] / "scripts"))
+    from memoforge import sources as child_sources
+
+    child_sources.allowlist_hosts = lambda root=None: frozenset({child_sources.url_host(url)})
+    written = child_sources.write_registry
+
+    def write_then_wait_to_be_killed(child_work_dir, registry):
+        path = written(child_work_dir, registry)
+        paused.set()
+        threading.Event().wait(120)  # blocks until the parent terminates this process
+        return path
+
+    child_sources.write_registry = write_then_wait_to_be_killed
+    outcome: dict = {"error": None}
+    try:
+        outcome["result"] = child_sources.run_save(
+            argparse.Namespace(**save_namespace(work_dir, url, **overrides))
+        )
+    except BaseException as exc:  # noqa: BLE001 - reported to the parent
+        outcome["error"] = repr(exc)
+    Path(result).write_text(json.dumps(outcome), encoding="utf-8")
+
+
 def spawn(target, args):
     return multiprocessing.get_context("spawn").Process(target=target, args=args)
 
@@ -299,11 +426,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     }
     """D-146: the same codes, but with the header that names the interstitial (analysis/38 §7.4)."""
 
-    pages = {"/stub": ECFR_STUB, "/shell": CURIA_SHELL, "/ris.json": RIS_JSON}
+    pages = {"/stub": ECFR_STUB, "/shell": CURIA_SHELL, "/ris.json": RIS_JSON, "/act.pdf": PDF_BYTES}
     """D-146: HTTP 200 answers that are not the document — plus the RIS JSON that is one (D-149)."""
 
-    types = {"/ris.json": "application/json; charset=utf-8", "/stub": "text/html"}
+    types = {"/ris.json": "application/json; charset=utf-8", "/stub": "text/html", "/act.pdf": "application/pdf"}
     """D-149: the declared `Content-Type`, which is what `is_markup` and `fetch` read."""
+
+    variants: list = []
+    """D-199: consecutive bodies of `/varying`, so two saves of one url see two different texts."""
+
+    served = 0
+
+    short_bytes: int | None = None
+    """D-199: how much of `/short` really reaches the client; the header still promises all of it."""
+
+    length_suffix = ""
+    """D-199: trailing whitespace on `Content-Length`, which Python's parser accepts (fix round 3)."""
 
     seen: list = []
     """Every request the server received, so a test can assert on the headers `probe_url` sent."""
@@ -315,8 +453,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     """D-151: the `Location` of each redirecting path; `/offsite` needs the live port, see `_respond`."""
 
     def _payload(self) -> tuple[int, bytes]:
-        if self.path == "/ok":
+        if self.path in ("/ok", "/short"):
+            # D-199: `/short` declares this whole length and then sends two thirds of it.
             return 200, type(self).body
+        if self.path == "/partial":
+            return 206, type(self).body[: len(type(self).body) * 2 // 3]
+        if self.path == "/varying" and type(self).variants:
+            index = min(type(self).served, len(type(self).variants) - 1)
+            type(self).served += 1
+            return 200, type(self).variants[index]
         if self.path == "/changed":
             return 200, CHANGED_BODY
         if self.path == "/offsite" or self.path in self.locations:
@@ -343,9 +488,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header(name, value)
         if self.path in self.types:
             self.send_header("Content-Type", self.types[self.path])
-        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Length", str(len(payload)) + type(self).length_suffix)
         self.end_headers()
         if with_body:
+            if self.path == "/short":
+                # The body ends mid-document although the header promised the whole of it: the
+                # bounded read returns what arrived and raises nothing (D-199 fix round 2).
+                cut = type(self).short_bytes
+                payload = payload[: cut if cut is not None else len(payload) * 2 // 3]
             self.wfile.write(payload)
 
     def do_HEAD(self):  # noqa: N802 - BaseHTTPRequestHandler naming
@@ -369,10 +519,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 class LocalServer:
     """`http.server` on localhost — not an external network call (§9 allows the mock)."""
 
-    def __init__(self, body: bytes) -> None:
+    def __init__(
+        self, body: bytes, variants: tuple = (), short_bytes: int | None = None, length_suffix: str = ""
+    ) -> None:
         _Handler.body = body
         _Handler.seen = []
         _Handler.posted = []
+        _Handler.variants = list(variants)
+        _Handler.served = 0
+        _Handler.short_bytes = short_bytes
+        _Handler.length_suffix = length_suffix
         self.server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
         # `poll_interval` is what `shutdown()` waits for: the default 0.5 s was half a second of
         # sleep per server, and nearly every test in this file starts one.
@@ -581,6 +737,65 @@ class RegisterTest(SourcesTestCase):
         self.assertEqual("gdpr-art3", first["source_id"])
         self.assertEqual("gdpr-art3", second["source_id"])
         self.assertNotIn("gdpr-art3-2", sources.read_registry(self.work_dir)["sources"])
+
+    def test_an_occupied_id_without_hashes_on_either_side_is_a_collision(self):
+        """D-206: citation-only records carry `None` on both sides — a stranger's text must not update."""
+        import json
+
+        self.register(source_id="bygrave", url="", citation="Bygrave, Data Privacy Law (OUP 2014) 121")
+        before = json.loads(
+            json.dumps(sources.read_registry(self.work_dir)["sources"]["bygrave"], sort_keys=True)
+        )
+        result = self.register(
+            source_id="bygrave", url="", citation="Another Author, Other Book (OUP 2020) 5", title="Stranger"
+        )
+        self.assertEqual(
+            ["source_id_collision: bygrave already holds 'GDPR Article 6'"], result["errors"]
+        )
+        self.assertEqual("bygrave", result["source_id"])
+        self.assertEqual("GDPR Article 6", result["held_title"])
+        self.assertIsNone(result["held_raw_sha256"])
+        self.assertIn("hint", result)
+        after = json.loads(
+            json.dumps(sources.read_registry(self.work_dir)["sources"]["bygrave"], sort_keys=True)
+        )
+        self.assertEqual(before, after, "a refused registration writes nothing")
+
+    def test_an_occupied_id_without_hashes_and_the_same_citation_stays_a_no_op(self):
+        self.register(source_id="bygrave", url="", citation="Bygrave, Data Privacy Law (OUP 2014) 121")
+        again = self.register(
+            source_id="bygrave",
+            url="",
+            citation="Bygrave, Data Privacy Law (OUP 2014) 121",
+            title="Bygrave, revised",
+        )
+        self.assertFalse(again["created"])
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(1, len(sources.read_registry(self.work_dir)["sources"]))
+
+    def test_an_occupied_id_without_hashes_and_another_layer_is_a_layer_mismatch(self):
+        """D-206 fix round 1: the dedup comparison uses the incoming layer on both sides, so a
+        layer difference falls through to the dedicated check instead of reading as a collision."""
+        import json
+
+        self.register(source_id="bygrave", url="", citation="Bygrave, Data Privacy Law (OUP 2014) 121")
+        before = json.loads(
+            json.dumps(sources.read_registry(self.work_dir)["sources"]["bygrave"], sort_keys=True)
+        )
+        result = self.register(
+            layer="case_law",
+            source_id="bygrave",
+            url="",
+            citation="Bygrave, Data Privacy Law (OUP 2014) 121",
+        )
+        self.assertEqual(
+            ["source_id_layer_mismatch: bygrave is registered under 'statutes'"], result["errors"]
+        )
+        self.assertEqual("statutes", result["held_layer"])
+        after = json.loads(
+            json.dumps(sources.read_registry(self.work_dir)["sources"]["bygrave"], sort_keys=True)
+        )
+        self.assertEqual(before, after, "a refused registration writes nothing")
 
     def test_registry_validates_against_the_sources_schema(self):
         self.register(raw_file=self.raw_file(), identifiers={"celex": "32016R0679"})
@@ -2012,6 +2227,35 @@ class FetchTest(SourcesTestCase):
         self.assertEqual(state_io.sha256_bytes(body[:1024]), result["sha256"])
         self.assertEqual(1024, (self.work_dir / result["path"]).stat().st_size)
 
+    def test_a_body_shorter_than_its_declared_length_is_truncated(self):
+        """D-199 fix round 2: a bounded read that ends early raises nothing — the header tells."""
+        body = LIVE_TEXT.encode("utf-8")
+        with LocalServer(body) as base:
+            self.allow(sources.url_host(base))
+            result = self.fetch(f"{base}/short")
+        self.assertTrue(result["truncated"], "the server promised more than it sent")
+        self.assertLess(result["bytes"], len(body))
+
+    def test_a_partial_content_answer_is_never_a_whole_document(self):
+        with LocalServer(LIVE_TEXT.encode("utf-8")) as base:
+            self.allow(sources.url_host(base))
+            result = self.fetch(f"{base}/partial")
+        self.assertEqual(206, result["code"])
+        self.assertTrue(result["truncated"])
+
+    def test_a_declared_length_with_trailing_whitespace_still_counts(self):
+        """Python's parser accepts `Content-Length: 3661 `; the value is stripped before it is read."""
+        body = LIVE_TEXT.encode("utf-8")
+        for suffix, name in ((" ", "space"), ("\t", "tab")):
+            with self.subTest(suffix=name):
+                with LocalServer(body, length_suffix=suffix) as base:
+                    self.allow(sources.url_host(base))
+                    short = self.fetch(f"{base}/short")
+                    whole = self.fetch(f"{base}/ok")
+                self.assertTrue(short["truncated"], "the server promised more than it sent")
+                self.assertLess(short["bytes"], len(body))
+                self.assertFalse(whole["truncated"], "a whole body is whole whatever the header's spacing")
+
     def test_an_interstitial_is_saved_but_never_ok(self):
         with LocalServer(LIVE_TEXT.encode("utf-8")) as base:
             self.allow(sources.url_host(base))
@@ -2185,6 +2429,691 @@ class FetchTest(SourcesTestCase):
             )["checked"][0]
         self.assertEqual("ok", row["status"])
         self.assertEqual("confirmed", row["provenance"])
+
+
+# --- save (D-199) -----------------------------------------------------------
+
+
+class SaveTestCase(SourcesTestCase):
+    """The helpers the `mf sources save` tests share (D-199)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        sources._LAST_FETCH.clear()
+        self.addCleanup(sources._LAST_FETCH.clear)
+
+    def allow(self, *hosts: str) -> None:
+        """Point the command at a test allowlist; the real file is exercised by its own test."""
+        original = sources.allowlist_hosts
+        sources.allowlist_hosts = lambda root=None: frozenset(hosts)
+        self.addCleanup(setattr, sources, "allowlist_hosts", original)
+
+    def save(self, url: str, **overrides) -> dict:
+        return sources.run_save(argparse.Namespace(**save_namespace(str(self.work_dir), url, **overrides)))
+
+    def records(self) -> dict:
+        return sources.read_registry(self.work_dir)["sources"]
+
+    def raw_files(self) -> list:
+        root = self.work_dir / sources.RAW_DIR
+        return sorted(path.name for path in root.rglob("*") if path.is_file())
+
+    def temp_files(self) -> list:
+        return [name for name in self.raw_files() if name.endswith(".tmp") or name.startswith(".")]
+
+    def stored(self, record: dict) -> bytes:
+        return (self.work_dir / record["raw_path"]).read_bytes()
+
+    def snapshot(self, source_id: str) -> dict:
+        return json.loads(json.dumps(self.records()[source_id], sort_keys=True))
+
+    def assert_only_the_outcome_moved(self, before: dict, after: dict, outcome: str) -> None:
+        """Failure never mutates: `meta.save_outcome` is the one field a failed save may write."""
+        self.assertEqual(outcome, after["meta"]["save_outcome"])
+        for field in sorted(set(before) | set(after)):
+            with self.subTest(field=field):
+                if field == "meta":
+                    self.assertEqual({**before.get("meta", {}), "save_outcome": outcome}, after["meta"])
+                else:
+                    self.assertEqual(before.get(field), after.get(field))
+
+
+class SaveTest(SaveTestCase):
+    """D-199: one transaction from an address to a registered, certified source text."""
+
+    # --- the happy path -----------------------------------------------------
+
+    def test_a_full_russian_act_page_is_saved_as_full_text(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual([], result.get("errors", []))
+        self.assertTrue(result["created"])
+        self.assertFalse(result["idempotent"])
+        self.assertEqual("case_law", result["layer"])
+        self.assertEqual("full_text", result["raw_kind"])
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual("ok", result["status"])
+        self.assertEqual(200, result["code"])
+        self.assertEqual("agent_saved", result["provenance"])
+        self.assertEqual("critical", result["tier"])
+        source_id = result["source_id"]
+        self.assertEqual(1, len(self.records()))
+        record = self.records()[source_id]
+        self.assertEqual(f"research/raw/case_law/{source_id}.md", record["raw_path"])
+        self.assertEqual(result["raw_path"], record["raw_path"])
+        self.assertEqual(f"mf-save {sources.url_host(record['url'])}", record["retrieval_tool"])
+        self.assertTrue(record["retrieval_tool"].startswith("mf-save "), record["retrieval_tool"])
+        self.assertEqual("full_text", sources.raw_kind_of(record))
+        self.assertEqual("full_text", record["meta"]["save_outcome"])
+        saved = self.stored(record)
+        self.assertEqual(state_io.sha256_bytes(saved), record["raw_sha256"])
+        self.assertEqual(result["raw_sha256"], record["raw_sha256"])
+        self.assertEqual(len(saved), result["bytes"])
+        text = saved.decode("utf-8")
+        self.assertEqual(len(text), record["raw_chars"])
+        self.assertIn(VS_ACT_NUMBER, text)
+        self.assertNotIn("<pre>", text, "the page is converted before it is stored")
+        self.assertEqual([f"{source_id}.md"], self.raw_files())
+
+    def test_a_saved_text_is_body_comparable_so_liveness_can_confirm_it(self):
+        """`prepare_raw` ran once, on the converted text: the digest is the one liveness recomputes."""
+        self.assertIn("mf-save", sources.BODY_COMPARABLE_TOOLS)
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            self.assertTrue(sources.body_comparable(self.records()[result["source_id"]]))
+            row = sources.run_liveness(
+                argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+            )["checked"][0]
+        self.assertEqual("ok", row["status"])
+        self.assertEqual("confirmed", row["provenance"])
+
+    def test_without_the_two_flags_the_page_is_only_an_excerpt(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok")
+        self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
+        self.assertEqual("excerpt", result["raw_kind"])
+        record = self.records()[result["source_id"]]
+        self.assertEqual("excerpt", record["raw_kind"])
+        self.assertEqual("excerpt:identity_unverified", record["meta"]["save_outcome"])
+        self.assertTrue((self.work_dir / record["raw_path"]).is_file())
+
+    def test_a_wrong_expected_number_registers_nothing(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number="5-КГ25-15-К2", expect_date=VS_ACT_DATE)
+        self.assertEqual(["requisites_mismatch: number"], result["errors"])
+        self.assertEqual("refused:requisites_mismatch", result["save_outcome"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files(), "a refusal writes no file")
+
+    def test_an_article_page_reaches_full_text(self):
+        with LocalServer(STATUTE_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(
+                f"{base}/ok",
+                layer="statutes",
+                title="ГК РФ, ст. 152",
+                citation="ГК РФ, ст. 152",
+                expect_article="152",
+            )
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual("full_text", result["raw_kind"])
+        self.assertTrue(result["raw_path"].startswith("research/raw/statutes/"), result["raw_path"])
+
+    def test_a_table_of_contents_entry_is_not_the_article(self):
+        with LocalServer(STATUTE_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(
+                f"{base}/ok",
+                layer="statutes",
+                title="ТК РФ, ст. 36",
+                citation="ТК РФ, ст. 36",
+                expect_article="36",
+            )
+        self.assertEqual("excerpt:too_short", result["save_outcome"])
+        self.assertEqual("excerpt", result["raw_kind"])
+
+    # --- the admission rules ------------------------------------------------
+
+    def test_an_answer_that_is_not_the_document_registers_nothing(self):
+        cases = (
+            ("/forbidden", "unchecked"),
+            ("/waf", "unchecked"),
+            ("/missing", "dead"),
+            ("/stub", "access_stub"),
+            ("/shell", "interstitial"),
+        )
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            for path, reason in cases:
+                with self.subTest(path=path):
+                    result = self.save(f"{base}{path}", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+                    self.assertEqual(f"refused:{reason}", result["save_outcome"])
+                    self.assertTrue(result["errors"][0].startswith(reason), result["errors"])
+                    self.assertEqual({}, self.records())
+                    self.assertEqual([], self.raw_files())
+
+    def test_a_truncated_body_is_refused_outright(self):
+        """A partial document is exactly what this command exists to stop: never an excerpt."""
+        original = limits.LIVENESS_MAX_BODY_BYTES
+        limits.LIVENESS_MAX_BODY_BYTES = 3072
+        self.addCleanup(setattr, limits, "LIVENESS_MAX_BODY_BYTES", original)
+        self.assertGreater(len(VS_ACT_PAGE), limits.LIVENESS_MAX_BODY_BYTES)
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("refused:truncated", result["save_outcome"])
+        self.assertEqual(["truncated"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_body_cut_short_by_the_server_is_never_certified(self):
+        """The act ends on «определила:» with its ruling absent — and used to certify as whole."""
+        with LocalServer(VS_ACT_PAGE, short_bytes=VS_ACT_CUT) as base:
+            self.allow(sources.url_host(base))
+            for path in ("/short", "/partial"):
+                with self.subTest(path=path):
+                    result = self.save(f"{base}{path}", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+                    self.assertEqual("refused:truncated", result["save_outcome"])
+                    self.assertEqual(["truncated"], result["errors"])
+                    self.assertEqual({}, self.records())
+                    self.assertEqual([], self.raw_files())
+
+    def test_a_declared_length_with_trailing_whitespace_is_still_a_declaration(self):
+        """`Content-Length: 3661 ` parses; an unstripped digit test skipped the comparison."""
+        for suffix, name in ((" ", "space"), ("\t", "tab")):
+            with self.subTest(suffix=name):
+                with LocalServer(VS_ACT_PAGE, short_bytes=VS_ACT_CUT, length_suffix=suffix) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.save(f"{base}/short", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+                self.assertEqual("refused:truncated", result["save_outcome"])
+                self.assertEqual({}, self.records())
+                self.assertEqual([], self.raw_files())
+
+    def test_a_non_text_media_type_is_refused(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/act.pdf", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("refused:unsupported_media_type", result["save_outcome"])
+        self.assertEqual(["unsupported_media_type: application/pdf"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_an_undeclared_pdf_is_refused_by_its_signature(self):
+        """A portal that sends a PDF with no `Content-Type` must not be decoded into mojibake."""
+        with LocalServer(PDF_BYTES) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual(["unsupported_media_type: application/pdf"], result["errors"])
+        self.assertEqual("refused:unsupported_media_type", result["save_outcome"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_plain_text_answer_without_a_declared_type_is_still_saved(self):
+        with LocalServer(VS_ACT_TEXT) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(VS_ACT_TEXT, self.stored(self.records()[result["source_id"]]))
+
+    def test_a_redirect_off_the_allowlist_names_the_hop(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/offsite", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual(["host_not_allowed: localhost"], result["errors"])
+        self.assertEqual("refused:host_not_allowed", result["save_outcome"])
+        self.assertEqual({}, self.records())
+
+    def test_a_host_outside_the_allowlist_is_never_requested(self):
+        result = self.save("https://example.org/act")
+        self.assertEqual(["host_not_allowed: example.org"], result["errors"])
+        self.assertEqual("refused:host_not_allowed", result["save_outcome"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_url_that_is_not_http_is_refused(self):
+        result = self.save("file:///etc/passwd")
+        self.assertEqual(["unsupported_scheme: [address removed]"], result["errors"])
+        self.assertEqual("refused:url_error", result["save_outcome"])
+        self.assertEqual({}, self.records())
+
+    def test_a_resolver_is_declared_but_not_available_yet(self):
+        result = self.save("", resolve="vsrf")
+        self.assertEqual(["resolver_not_available: vsrf"], result["errors"])
+        self.assertEqual({}, self.records())
+
+    # --- the freeze ---------------------------------------------------------
+
+    def test_a_save_after_the_freeze_is_refused_before_the_network(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(layer="case_law", title=VS_ACT_TITLE, citation=VS_ACT_CITATION, url=f"{base}/ok")
+            self.write_findings([{"source_id": next(iter(self.records()))}], layer="case_law")
+            self.freeze()
+            _Handler.seen = []
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            self.assertEqual([], _Handler.seen, "the freeze is checked before the address is called")
+        self.assertEqual(["sources_frozen"], result["errors"])
+        self.assertEqual([], self.raw_files())
+
+    def test_an_occupied_id_after_the_freeze_changes_nothing(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(),
+                raw_kind="excerpt",
+            )
+            self.write_findings([{"source_id": "vs-act"}], layer="case_law")
+            self.freeze()
+            before = self.snapshot("vs-act")
+            before_bytes = self.stored(self.records()["vs-act"])
+            result = self.save(f"{base}/ok", id="vs-act", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual(["sources_frozen"], result["errors"])
+        self.assertEqual(before, self.snapshot("vs-act"))
+        self.assertEqual(before_bytes, self.stored(self.records()["vs-act"]))
+
+    # --- failure never mutates ----------------------------------------------
+
+    def test_a_refusal_on_an_existing_record_writes_only_the_outcome(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(),
+                raw_kind="excerpt",
+            )
+            before = self.snapshot("vs-act")
+            before_bytes = self.stored(self.records()["vs-act"])
+            result = self.save(f"{base}/ok", expect_number="5-КГ25-15-К2", expect_date=VS_ACT_DATE)
+        self.assertEqual("refused:requisites_mismatch", result["save_outcome"])
+        self.assertEqual("vs-act", result["source_id"])
+        self.assert_only_the_outcome_moved(before, self.snapshot("vs-act"), "refused:requisites_mismatch")
+        self.assertEqual(before_bytes, self.stored(self.records()["vs-act"]))
+
+    def test_a_refusal_never_stamps_a_record_that_is_not_this_source(self):
+        """`--id X` was free at step 1; another process claims it while this request is on the net."""
+        stranger: dict = {}
+
+        def claim_the_id_then_fail(url, hosts, **kwargs):
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title="АС МО, постановление № А40-12345/2024",
+                citation="Постановление АС МО от 14.03.2025 № А40-12345/2024",
+                url="https://example.org/other-act",
+                raw_file=self.raw_file(),
+                raw_kind="excerpt",
+            )
+            stranger.update(self.snapshot("vs-act"))
+            return {
+                "status": "dead",
+                "code": 404,
+                "content_type": "",
+                "truncated": False,
+                "interstitial": False,
+                "error": "http_404",
+                "redirects": [],
+                "payload": b"",
+            }
+
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            original = sources.fetch_allowed
+            sources.fetch_allowed = claim_the_id_then_fail
+            self.addCleanup(setattr, sources, "fetch_allowed", original)
+            result = self.save(f"{base}/ok", id="vs-act", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("refused:dead", result["save_outcome"])
+        self.assertNotIn("source_id", result, "nothing was written, so no record is named")
+        self.assertEqual(stranger, self.snapshot("vs-act"))
+        self.assertNotIn("save_outcome", self.records()["vs-act"].get("meta") or {})
+
+    # --- the candidate is validated before anything is published ------------
+
+    def test_a_registry_the_schema_rejects_publishes_no_file(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            with self.assertRaises(ValueError):
+                self.save(
+                    f"{base}/ok",
+                    expect_number=VS_ACT_NUMBER,
+                    expect_date=VS_ACT_DATE,
+                    identifiers='{"unexpected": "x"}',
+                )
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files(), "the file is published only after the candidate validates")
+
+    def test_a_registry_write_that_fails_leaves_the_old_text_in_place(self):
+        """The earlier window: the registry is persisted before the file, so nothing was published."""
+
+        def refuse_to_write(work_dir, registry):
+            raise OSError("disk gone")
+
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(text="Выдержка из определения.\n"),
+                raw_kind="excerpt",
+            )
+            before = self.snapshot("vs-act")
+            before_bytes = self.stored(self.records()["vs-act"])
+            original = sources.write_registry
+            sources.write_registry = refuse_to_write
+            self.addCleanup(setattr, sources, "write_registry", original)
+            with self.assertRaises(OSError):
+                self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            sources.write_registry = original
+        self.assertEqual(before, self.snapshot("vs-act"))
+        self.assertEqual(before_bytes, self.stored(self.records()["vs-act"]))
+        self.assertEqual([], self.temp_files())
+
+    # --- the upward path ----------------------------------------------------
+
+    def test_a_record_holding_no_text_takes_the_excerpt(self):
+        """Nothing is displaced where nothing is stored: a citation-only record gains the text."""
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                tier="background",
+            )
+            self.assertIsNone(self.records()["vs-act"]["raw_path"])
+            result = self.save(f"{base}/ok")
+        self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
+        self.assertTrue(result["idempotent"])
+        self.assertEqual("vs-act", result["source_id"])
+        record = self.records()["vs-act"]
+        self.assertEqual("excerpt", record["raw_kind"])
+        self.assertEqual("research/raw/case_law/vs-act.md", record["raw_path"])
+        self.assertIn(VS_ACT_NUMBER, self.stored(record).decode("utf-8"))
+        self.assertEqual(state_io.sha256_bytes(self.stored(record)), record["raw_sha256"])
+        self.assertEqual("excerpt:identity_unverified", record["meta"]["save_outcome"])
+
+    def test_the_upward_path_replaces_an_excerpt_with_the_saved_full_text(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(text="Выдержка из определения.\n"),
+                raw_kind="excerpt",
+            )
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("vs-act", result["source_id"])
+        self.assertFalse(result["created"])
+        self.assertTrue(result["idempotent"])
+        self.assertEqual("full_text", result["raw_kind"])
+        record = self.records()["vs-act"]
+        self.assertEqual("full_text", record["raw_kind"])
+        self.assertEqual("full_text", record["meta"]["save_outcome"])
+        self.assertIn(VS_ACT_NUMBER, self.stored(record).decode("utf-8"))
+        self.assertEqual(state_io.sha256_bytes(self.stored(record)), record["raw_sha256"])
+        self.assertEqual(1, len(self.records()))
+        self.assertEqual(["vs-act.md"], self.raw_files())
+
+    def test_a_new_excerpt_never_displaces_the_text_already_stored(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(text="Развёрнутая выдержка из определения. " * 200),
+                raw_kind="excerpt",
+            )
+            before = self.snapshot("vs-act")
+            before_bytes = self.stored(self.records()["vs-act"])
+            result = self.save(f"{base}/ok")
+        self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
+        self.assertTrue(result["idempotent"])
+        self.assertEqual("vs-act", result["source_id"])
+        self.assert_only_the_outcome_moved(before, self.snapshot("vs-act"), "excerpt:identity_unverified")
+        self.assertEqual(before_bytes, self.stored(self.records()["vs-act"]))
+
+    def test_another_act_under_an_occupied_id_is_a_collision(self):
+        with LocalServer(CASSATION_PAGE) as base:
+            self.allow(sources.url_host(base))
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/other",
+                raw_file=self.raw_file(),
+                raw_kind="excerpt",
+            )
+            before = self.snapshot("vs-act")
+            _Handler.seen = []
+            result = self.save(
+                f"{base}/ok",
+                id="vs-act",
+                title="АС МО, постановление № А40-12345/2024",
+                citation="Постановление АС МО от 14.03.2025 № А40-12345/2024",
+                expect_number="А40-12345/2024",
+                expect_date="2025-03-14",
+            )
+            self.assertEqual([], _Handler.seen, "a collision is answered before the address is called")
+        self.assertTrue(result["errors"][0].startswith("source_id_collision: vs-act"), result["errors"])
+        self.assertEqual(before, self.snapshot("vs-act"))
+        self.assertNotIn("save_outcome", self.records()["vs-act"].get("meta") or {})
+
+    def test_another_text_over_a_code_saved_record_is_refused(self):
+        with LocalServer(VS_ACT_PAGE, variants=(VS_ACT_PAGE, VS_ACT_VARIANT)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/varying", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            before = self.snapshot(first["source_id"])
+            before_bytes = self.stored(self.records()[first["source_id"]])
+            second = self.save(f"{base}/varying", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual("full_text", first["save_outcome"])
+        self.assertTrue(second["errors"][0].startswith("source_id_collision"), second["errors"])
+        self.assertEqual(before, self.snapshot(first["source_id"]), "the held record is intact")
+        self.assertEqual(before_bytes, self.stored(self.records()[first["source_id"]]))
+        self.assertEqual([f"{first['source_id']}.md"], self.raw_files())
+        self.assertTrue(self.waits, "the second call waited out the politeness pause it owed the host")
+
+    def test_a_downgrade_over_a_code_saved_record_is_refused(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            before = self.snapshot(first["source_id"])
+            second = self.save(f"{base}/ok")
+        self.assertEqual(
+            [f"source_is_code_saved: {first['source_id']} holds text saved by mf sources save"],
+            second["errors"],
+        )
+        self.assertEqual(before, self.snapshot(first["source_id"]))
+
+    # --- the temporary file -------------------------------------------------
+
+    def test_the_temporary_file_is_gone_after_a_success_and_after_a_refusal(self):
+        with LocalServer(VS_ACT_PAGE, variants=(VS_ACT_PAGE, VS_ACT_VARIANT)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/varying", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            self.assertEqual("full_text", first["save_outcome"])
+            self.assertEqual([], self.temp_files(), "the success path removes its temporary file")
+            second = self.save(f"{base}/varying", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            self.assertTrue(second["errors"])
+            self.assertEqual([], self.temp_files(), "the refusal path removes its temporary file")
+        self.assertEqual(1, len(self.raw_files()))
+
+
+class KilledSaveTest(SaveTestCase):
+    """D-199 fix round 2: the registry is persisted first, so a kill cannot lose the old text."""
+
+    def test_a_kill_between_the_registry_write_and_the_publication_keeps_the_old_text(self):
+        expected = state_io.sha256_bytes(sources.prepare_raw(sources.markup_to_text(VS_ACT_PAGE, "")))
+        context = multiprocessing.get_context("spawn")
+        paused = context.Event()
+        result = str(self.root / "result")
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.register(
+                layer="case_law",
+                source_id="vs-act",
+                title=VS_ACT_TITLE,
+                citation=VS_ACT_CITATION,
+                url=f"{base}/ok",
+                raw_file=self.raw_file(text="Выдержка из определения.\n"),
+                raw_kind="excerpt",
+            )
+            before = (self.work_dir / "research/raw/case_law/vs-act.md").read_bytes()
+            process = context.Process(
+                target=worker_save_killed_before_publishing,
+                args=(
+                    str(self.work_dir),
+                    f"{base}/ok",
+                    {"expect_number": VS_ACT_NUMBER, "expect_date": VS_ACT_DATE},
+                    paused,
+                    result,
+                ),
+            )
+            process.start()
+            self.assertTrue(paused.wait(timeout=120), "the child never reached the registry write")
+            process.terminate()
+            process.join(timeout=120)
+        self.assertFalse(Path(result).exists(), "the child was killed, not allowed to finish")
+        record = sources.read_registry(self.work_dir)["sources"]["vs-act"]
+        self.assertEqual(expected, record["raw_sha256"], "the registry was persisted first")
+        self.assertEqual("full_text", record["raw_kind"])
+        stored = self.work_dir / record["raw_path"]
+        self.assertEqual(before, stored.read_bytes(), "the old text is still on disk, whole")
+        self.assertNotEqual(expected, state_io.sha256_file(stored))
+        # The disagreement is loud, not silent: the freeze demotes the record and says so.
+        self.write_findings([{"source_id": "vs-act"}], layer="case_law")
+        answer = self.freeze()
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": "vs-act",
+                "was": "full_text",
+                "now": "agent_summary",
+            },
+            answer["warnings"],
+        )
+
+    def test_an_interrupted_excerpt_publication_is_repaired_by_the_retry(self):
+        """A record whose file is missing has no text, so the next save publishes instead of idling."""
+        context = multiprocessing.get_context("spawn")
+        paused = context.Event()
+        result = str(self.root / "result")
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            process = context.Process(
+                target=worker_save_killed_before_publishing,
+                args=(str(self.work_dir), f"{base}/ok", {}, paused, result),
+            )
+            process.start()
+            self.assertTrue(paused.wait(timeout=120), "the child never reached the registry write")
+            process.terminate()
+            process.join(timeout=120)
+            self.assertFalse(Path(result).exists(), "the child was killed, not allowed to finish")
+            records = self.records()
+            self.assertEqual(1, len(records))
+            source_id, record = next(iter(records.items()))
+            self.assertTrue(record["raw_path"], "the registry was committed first")
+            self.assertFalse(
+                (self.work_dir / record["raw_path"]).is_file(), "the file was never published"
+            )
+            # A killed process cannot run its `finally`, so its temporary file stays behind: hidden,
+            # `.tmp`, named by no record and matched by no `<id>.md` glob.
+            self.assertEqual(self.temp_files(), self.raw_files(), "nothing was published")
+            answer = self.save(f"{base}/ok")
+        self.assertEqual(source_id, answer["source_id"])
+        self.assertTrue(answer["idempotent"])
+        self.assertEqual("excerpt:identity_unverified", answer["save_outcome"])
+        self.assertEqual("excerpt", answer["raw_kind"])
+        repaired = self.records()[source_id]
+        stored = self.work_dir / repaired["raw_path"]
+        self.assertTrue(stored.is_file(), "the retry published the text it fetched")
+        self.assertEqual(repaired["raw_sha256"], state_io.sha256_file(stored))
+        self.assertEqual(record["raw_sha256"], repaired["raw_sha256"], "the same bytes as the first run")
+        self.assertIn(VS_ACT_NUMBER, stored.read_bytes().decode("utf-8"))
+
+
+class ConcurrentSaveTest(SourcesTestCase):
+    """D-199 step 3: the lock names the winner, and the loser answers with the winner's id."""
+
+    def _run(self, url: str) -> list[dict]:
+        """Two real processes, released together by a barrier: no sleep and no clock (§9)."""
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(2)
+        results = [str(self.root / f"result-{i}") for i in range(2)]
+        processes = [
+            context.Process(target=worker_save, args=(str(self.work_dir), url, barrier, results[i]))
+            for i in range(2)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=120)
+            self.assertEqual(0, process.exitcode, "a child crashed")
+        return [json.loads(Path(path).read_text(encoding="utf-8")) for path in results]
+
+    def raw_files(self) -> list:
+        root = self.work_dir / sources.RAW_DIR
+        return sorted(path.name for path in root.rglob("*") if path.is_file())
+
+    def test_two_saves_of_one_url_leave_one_record_and_one_file(self):
+        with LocalServer(VS_ACT_PAGE) as base:
+            outcomes = self._run(f"{base}/ok")
+        self.assertEqual([None, None], [row["error"] for row in outcomes])
+        answers = [row["result"] for row in outcomes]
+        created = [answer for answer in answers if answer.get("created")]
+        idempotent = [answer for answer in answers if answer.get("idempotent")]
+        self.assertEqual(1, len(created), answers)
+        self.assertEqual(1, len(idempotent), answers)
+        self.assertEqual(created[0]["source_id"], idempotent[0]["source_id"])
+        registry = sources.read_registry(self.work_dir)["sources"]
+        self.assertEqual(1, len(registry))
+        record = registry[created[0]["source_id"]]
+        self.assertEqual("full_text", record["raw_kind"])
+        self.assertEqual([f"{created[0]['source_id']}.md"], self.raw_files())
+        self.assertEqual(
+            state_io.sha256_bytes((self.work_dir / record["raw_path"]).read_bytes()), record["raw_sha256"]
+        )
+
+    def test_two_saves_of_one_url_with_different_bodies_refuse_the_loser(self):
+        with LocalServer(VS_ACT_PAGE, variants=(VS_ACT_PAGE, VS_ACT_VARIANT)) as base:
+            outcomes = self._run(f"{base}/varying")
+        self.assertEqual([None, None], [row["error"] for row in outcomes])
+        answers = [row["result"] for row in outcomes]
+        winners = [answer for answer in answers if answer.get("created")]
+        losers = [answer for answer in answers if answer.get("errors")]
+        self.assertEqual(1, len(winners), answers)
+        self.assertEqual(1, len(losers), answers)
+        self.assertTrue(losers[0]["errors"][0].startswith("source_id_collision"), losers[0]["errors"])
+        registry = sources.read_registry(self.work_dir)["sources"]
+        self.assertEqual(1, len(registry))
+        record = registry[winners[0]["source_id"]]
+        self.assertEqual(winners[0]["raw_sha256"], record["raw_sha256"])
+        self.assertEqual(
+            state_io.sha256_bytes((self.work_dir / record["raw_path"]).read_bytes()), record["raw_sha256"]
+        )
+        self.assertEqual([f"{winners[0]['source_id']}.md"], self.raw_files())
 
 
 # --- verify ----------------------------------------------------------------
@@ -2577,6 +3506,23 @@ class CanonicalHostTest(unittest.TestCase):
             with self.subTest(url=shape):
                 scrubbed = sources.scrub_urls(f"See {shape}?t=TESTTOKEN for the text.")
                 self.assertEqual("See [retrieved via CasusLegal (RU)] for the text.", scrubbed)
+
+    def test_a_percent_encoded_host_has_no_readable_address(self):
+        """D-206: `%2e` survives `urlsplit(...).hostname`, so the host is unreadable, not public."""
+        self.assertEqual("", sources.canonical_host("mcp%2ecasus%2elegal"))
+        self.assertEqual(("", ""), sources.public_url("https://mcp%2ecasus%2elegal/case/34232?t=TESTTOKEN"))
+
+    def test_the_scrub_removes_a_percent_encoded_host_whole(self):
+        scrubbed = sources.scrub_urls("See https://mcp%2ecasus%2elegal/case/34232?t=TESTTOKEN for the text.")
+        self.assertIn(sources.ADDRESS_REMOVED, scrubbed)
+        self.assertNotIn("casus", scrubbed)
+        self.assertNotIn("TESTTOKEN", scrubbed)
+
+    def test_a_percent_encoded_path_is_not_a_host(self):
+        """D-206: a `%` in the path or query is normal and keeps working — only the host kills it."""
+        url = "https://sudact.ru/regular/doc/%D0%90/"
+        self.assertEqual((url, ""), sources.public_url(url))
+        self.assertEqual(url, sources.clean_public_url(url))
 
 
 class CredentialsOutsideTheQueryTest(unittest.TestCase):
@@ -3216,6 +4162,501 @@ class EmptyUrlLivenessTest(SourcesTestCase):
         self.assertEqual(1, len(result["checked"]))
         self.assertEqual("unchecked", result["checked"][0]["status"])
         self.assertEqual("no_url", result["checked"][0]["error"])
+
+
+class RawKindTest(SourcesTestCase):
+    """D-200: `raw_kind` — what the saved text is. Writers write it, readers default it."""
+
+    def test_the_closed_enum_is_published(self):
+        self.assertEqual(("full_text", "excerpt", "agent_summary", "client_file", "none"), sources.RAW_KINDS)
+        self.assertEqual(("excerpt", "agent_summary", "client_file"), sources.AGENT_RAW_KINDS)
+
+    def test_raw_kind_of_answers_the_field_when_present(self):
+        for kind in sources.RAW_KINDS:
+            with self.subTest(kind=kind):
+                self.assertEqual(kind, sources.raw_kind_of({"raw_kind": kind}))
+
+    def test_raw_kind_of_defaults_by_what_the_record_holds(self):
+        self.assertEqual("agent_summary", sources.raw_kind_of({"raw_path": "research/raw/statutes/x.md"}))
+        self.assertEqual("agent_summary", sources.raw_kind_of({"raw_sha256": "a" * 64}))
+        self.assertEqual("agent_summary", sources.raw_kind_of({"raw_path": None, "raw_sha256": "a" * 64}))
+        self.assertEqual("none", sources.raw_kind_of({}))
+        self.assertEqual("none", sources.raw_kind_of({"raw_path": None, "raw_sha256": None}))
+
+    def test_store_raw_writes_the_default_kind(self):
+        result = self.register(raw_file=self.raw_file())
+        self.assertEqual("agent_summary", result["raw_kind"])
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("agent_summary", record["raw_kind"])
+
+    def test_store_raw_accepts_an_explicit_kind(self):
+        raw = self.raw_file()
+        stored = sources.store_raw(self.work_dir, "statutes", "gdpr-article-6", raw, raw_kind="client_file")
+        self.assertEqual("client_file", stored["raw_kind"])
+
+    def test_register_raw_kind_client_file_is_stored(self):
+        result = sources.register_source(
+            self.work_dir,
+            layer="statutes",
+            title="GDPR Article 6",
+            citation="GDPR, Art. 6",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+            tool="mcp__ldh__get_document",
+            tier="critical",
+            raw_file=self.raw_file(),
+            raw_kind="client_file",
+        )
+        self.assertEqual("client_file", result["raw_kind"])
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("client_file", record["raw_kind"])
+
+    def test_register_rejects_full_text_and_none_at_the_parser(self):
+        import contextlib
+        import io
+
+        parser = cli.build_parser()
+        for kind in ("full_text", "none"):
+            with self.subTest(kind=kind):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                    parser.parse_args(
+                        [
+                            "sources", "register",
+                            "--workdir", str(self.work_dir),
+                            "--layer", "statutes",
+                            "--title", "T",
+                            "--citation", "C",
+                            "--raw-file", str(self.raw_file(name=f"{kind}.md")),
+                            "--raw-kind", kind,
+                        ]
+                    )
+                self.assertIn("--raw-kind", err.getvalue())
+
+    def test_raw_file_over_a_code_saved_record_is_refused(self):
+        import json
+
+        first = self.register(raw_file=self.raw_file(), source_id="code-saved")
+        registry = sources.read_registry(self.work_dir)
+        record = registry["sources"][first["source_id"]]
+        record["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        before = json.loads(json.dumps(record, sort_keys=True))
+        other = self.raw_file(name="other.md", text="# Article 113 - Entry into force\n\nText.\n")
+        result = self.register(source_id=first["source_id"], raw_file=other)
+        self.assertEqual(
+            [f"source_is_code_saved: {first['source_id']} holds text saved by mf sources save"],
+            result["errors"],
+        )
+        self.assertEqual(first["source_id"], result["source_id"])
+        self.assertIn("mf sources save", result["hint"])
+        after = sources.read_registry(self.work_dir)["sources"][first["source_id"]]
+        self.assertEqual(before, json.loads(json.dumps(after, sort_keys=True)))
+        self.assertTrue(other.exists(), "a refused registration does not consume the raw file")
+        stored = (self.work_dir / after["raw_path"]).read_text(encoding="utf-8")
+        self.assertEqual(RAW_TEXT, stored)
+
+
+class PackRawKindIntegrityTest(SourcesTestCase):
+    """D-200: the freeze believes the file — an edited or deleted `full_text` file is demoted."""
+
+    def _register_full_text(self, source_id: str = "gdpr-article-6") -> dict:
+        result = self.register(raw_file=self.raw_file(), source_id=source_id)
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][result["source_id"]]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        return result
+
+    def test_a_demoted_duplicate_loses_canonicality_to_the_copy_with_text(self):
+        """Fix round 2: the integrity pass runs before duplicate selection, so a `full_text`
+        record whose file vanished cannot win canonicality over the usable copy."""
+        intact = self.register(
+            source_id="dup-intact",
+            title="GDPR Article 88",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art88",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="dup-a.md", text="Processing in the context of employment\n"),
+        )
+        lost = self.register(
+            source_id="dup-lost",
+            title="GDPR Article 88",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_88",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="dup-b.md", text="Processing in the context of employment\n"),
+        )
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][lost["source_id"]]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        (self.work_dir / lost["raw_path"]).unlink()
+        self.write_findings([{"source_id": intact["source_id"]}])
+        answer = self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual({"dup-lost": "dup-intact"}, pack["merged_into"])
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": "dup-lost",
+                "was": "full_text",
+                "now": "none",
+            },
+            answer["warnings"],
+        )
+        snapshot = {row["source_id"]: row["raw_sha256"] for row in pack["snapshot"]}
+        self.assertEqual(
+            state_io.sha256_file(self.work_dir / intact["raw_path"]), snapshot["dup-intact"]
+        )
+
+    def test_an_edited_full_text_file_freezes_as_agent_summary_with_a_warning(self):
+        from memoforge import schema
+
+        result = self._register_full_text()
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": result["source_id"]}])
+        answer = self.freeze()
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": result["source_id"],
+                "was": "full_text",
+                "now": "agent_summary",
+            },
+            answer["warnings"],
+        )
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual([], schema.validate(pack, "source-pack"))
+        entry = next(row for row in pack["entries"] if row["source_id"] == result["source_id"])
+        self.assertEqual("agent_summary", entry["raw_kind"])
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("agent_summary", record["raw_kind"])
+        self.assertEqual(state_io.sha256_file(stored), record["raw_sha256"])
+
+    def test_a_deleted_full_text_file_freezes_as_none_with_a_warning(self):
+        result = self._register_full_text()
+        (self.work_dir / result["raw_path"]).unlink()
+        self.write_findings([{"source_id": result["source_id"]}])
+        answer = self.freeze()
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": result["source_id"],
+                "was": "full_text",
+                "now": "none",
+            },
+            answer["warnings"],
+        )
+        pack_entries = sources.read_pack(self.work_dir)["entries"]
+        entry = next(row for row in pack_entries if row["source_id"] == result["source_id"])
+        self.assertEqual("none", entry["raw_kind"])
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("none", record["raw_kind"])
+
+    def test_a_full_text_record_with_no_recorded_digest_freezes_as_agent_summary(self):
+        """Fix round 1: a null recorded digest never equals the file's digest — unverified bytes
+        must not be stamped as code-saved text."""
+        from memoforge import schema
+
+        result = self._register_full_text()
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][result["source_id"]]["raw_sha256"] = None
+        sources.write_registry(self.work_dir, registry)
+        self.write_findings([{"source_id": result["source_id"]}])
+        answer = self.freeze()
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": result["source_id"],
+                "was": "full_text",
+                "now": "agent_summary",
+            },
+            answer["warnings"],
+        )
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual([], schema.validate(pack, "source-pack"))
+        pack_entries = pack["entries"]
+        entry = next(row for row in pack_entries if row["source_id"] == result["source_id"])
+        self.assertEqual("agent_summary", entry["raw_kind"])
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("agent_summary", record["raw_kind"])
+        self.assertEqual(
+            state_io.sha256_file(self.work_dir / result["raw_path"]), record["raw_sha256"]
+        )
+
+    def test_an_untouched_full_text_file_freezes_quietly(self):
+        result = self._register_full_text()
+        self.write_findings([{"source_id": result["source_id"]}])
+        answer = self.freeze()
+        self.assertEqual([], answer["warnings"])
+        pack_entries = sources.read_pack(self.work_dir)["entries"]
+        entry = next(row for row in pack_entries if row["source_id"] == result["source_id"])
+        self.assertEqual("full_text", entry["raw_kind"])
+
+    def test_the_snapshot_reuses_the_classified_digest(self):
+        """Fix round 2: one observation per file — bytes edited between classification and the
+        snapshot write cannot end up pinned as code-saved text."""
+        result = self._register_full_text()
+        raw_path = str(self.work_dir / result["raw_path"])
+        real = state_io.sha256_file
+        classified = real(raw_path)
+        calls: list[str] = []
+
+        def spy(path):
+            calls.append(str(path))
+            if str(path) == raw_path and calls.count(raw_path) > 1:
+                return "0" * 64  # bytes the integrity pass never saw
+            return real(path)
+
+        with mock.patch.object(state_io, "sha256_file", side_effect=spy):
+            self.write_findings([{"source_id": result["source_id"]}])
+            answer = self.freeze()
+        self.assertEqual(1, calls.count(raw_path))
+        self.assertEqual([], answer["warnings"])
+        pack = sources.read_pack(self.work_dir)
+        snapshot = {row["source_id"]: row["raw_sha256"] for row in pack["snapshot"]}
+        self.assertEqual(classified, snapshot[result["source_id"]])
+        entry = next(row for row in pack["entries"] if row["source_id"] == result["source_id"])
+        self.assertEqual("full_text", entry["raw_kind"])
+
+    def test_a_non_full_text_record_is_untouched_by_the_integrity_check(self):
+        result = self.register(raw_file=self.raw_file())
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": result["source_id"]}])
+        answer = self.freeze()
+        self.assertEqual([], answer["warnings"])
+        pack_entries = sources.read_pack(self.work_dir)["entries"]
+        entry = next(row for row in pack_entries if row["source_id"] == result["source_id"])
+        self.assertEqual("agent_summary", entry["raw_kind"])
+
+    def test_an_old_registry_without_raw_kind_freezes_byte_for_byte(self):
+        import copy
+
+        result = self.register(raw_file=self.raw_file())
+        # An old work dir never heard of `raw_kind`: strip what `store_raw` wrote.
+        registry = sources.read_registry(self.work_dir)
+        del registry["sources"][result["source_id"]]["raw_kind"]
+        sources.write_registry(self.work_dir, registry)
+        expected = copy.deepcopy(sources.read_registry(self.work_dir)["sources"][result["source_id"]])
+        self.assertNotIn("raw_kind", expected)
+        expected.pop("pack")
+        expected.pop("currency")
+        self.write_findings([{"source_id": result["source_id"]}])
+        self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        entry = next(row for row in pack["entries"] if row["source_id"] == result["source_id"])
+        self.assertNotIn("raw_kind", entry)
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertNotIn("raw_kind", record)
+        for key, value in expected.items():
+            self.assertEqual(value, record[key], key)
+
+    def test_pack_raw_kind_reads_the_pack_entry_first(self):
+        self.assertEqual("full_text", sources.pack_raw_kind({"raw_kind": "full_text"}))
+        self.assertEqual("excerpt", sources.pack_raw_kind({"raw_kind": "excerpt"}, "a" * 64))
+        self.assertEqual("agent_summary", sources.pack_raw_kind({}, "a" * 64))
+        self.assertEqual("none", sources.pack_raw_kind({}))
+        self.assertEqual("none", sources.pack_raw_kind({}, None))
+
+    def test_canonical_of_prefers_the_full_text_member(self):
+        first = self.register(
+            source_id="gdpr-art88-a",
+            title="GDPR Article 88",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art88",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="a88a.md", text="Processing in the context of employment\n"),
+        )
+        second = self.register(
+            source_id="gdpr-art88-b",
+            title="GDPR Article 88",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_88",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="a88b.md", text="Processing in the context of employment\n"),
+        )
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][second["source_id"]]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        group = sorted(registry["sources"])
+        canonical = sources.canonical_of(registry["sources"], group)
+        self.assertEqual(second["source_id"], canonical)
+        self.assertEqual(first["source_id"], sorted(group)[0])
+
+    def test_canonical_of_still_prefers_a_correct_label_over_a_mislabelled_full_text(self):
+        self.register(
+            source_id="gdpr-article-3-territorial-scope",
+            title="GDPR Article 88 (Processing in the context of employment)",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="m1.md", text="Processing in the context of employment\n"),
+        )
+        self.register(
+            source_id="gdpr-art88",
+            title="GDPR Article 88",
+            citation="Regulation (EU) 2016/679 (GDPR), art 88",
+            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_88",
+            identifiers={"celex": "32016R0679"},
+            raw_file=self.raw_file(name="m2.md", text="Processing in the context of employment\n"),
+        )
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-3-territorial-scope"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        group = sorted(registry["sources"])
+        self.assertEqual("gdpr-art88", sources.canonical_of(registry["sources"], group))
+
+
+class FullTextIntegrityDigestTest(SourcesTestCase):
+    """D-200: the freeze warning also surfaces in the gate-11 digest."""
+
+    def test_the_integrity_warning_appears_in_the_gate_11_digest(self):
+        result = self.register(raw_file=self.raw_file(), source_id="gdpr-article-6")
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        self.freeze()
+        rendered = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
+        self.assertTrue(rendered["has_exceptions"])
+        self.assertIn("full_text_integrity", {row["kind"] for row in rendered["exceptions"]})
+        self.assertIn("gdpr-article-6", rendered["text"])
+
+    def test_a_replayed_freeze_answers_with_the_warning_from_the_pack(self):
+        """Fix round 2: the evidence lives in the frozen pack, so the replay recovers it."""
+        result = self.register(raw_file=self.raw_file(), source_id="gdpr-article-6")
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        self.freeze()
+
+        def rollback(state: dict) -> None:
+            state["sources_frozen"] = False
+            state["steps"] = []
+            state["published"] = []
+
+        state_io.write_state(self.work_dir, rollback)
+        answer = self.freeze(step="s-010", attempt=2)
+        self.assertTrue(answer["replayed"])
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": "gdpr-article-6",
+                "was": "full_text",
+                "now": "agent_summary",
+            },
+            answer["warnings"],
+        )
+
+    def test_an_interrupted_freeze_retried_before_publication_still_warns(self):
+        """Fix round 2: a crash before anything was written leaves the record intact, so the
+        retry classifies it fresh and warns."""
+        result = self.register(raw_file=self.raw_file(), source_id="gdpr-article-6")
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        real_write = sources.write_registry
+        with mock.patch.object(sources, "write_registry", side_effect=[RuntimeError("crash"), None]) as patched:
+            with self.assertRaises(RuntimeError):
+                self.freeze()
+
+            def passthrough(work_dir, registry):
+                return real_write(work_dir, registry)
+
+            patched.side_effect = passthrough
+            answer = self.freeze()
+        self.assertIn(
+            {
+                "code": "full_text_integrity",
+                "source_id": "gdpr-article-6",
+                "was": "full_text",
+                "now": "agent_summary",
+            },
+            answer["warnings"],
+        )
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual(
+            [
+                {
+                    "code": "full_text_integrity",
+                    "source_id": "gdpr-article-6",
+                    "was": "full_text",
+                    "now": "agent_summary",
+                }
+            ],
+            pack["integrity_warnings"],
+        )
+
+    def test_a_crash_between_registry_write_and_publication_loses_no_warning_on_retry(self):
+        """Fix round 3: the evidence is stamped into the record in the same write as the
+        demotion, so the retry re-emits the warning even though the record no longer classifies."""
+        from memoforge import stepctx
+
+        result = self.register(raw_file=self.raw_file(), source_id="gdpr-article-6")
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        real_publish = stepctx.publish_file
+        calls: list[str] = []
+
+        def crash_once(work_dir, work_path, canonical_path, **kwargs):
+            calls.append(str(canonical_path))
+            if len(calls) == 1:
+                raise RuntimeError("crash before publication")
+            return real_publish(work_dir, work_path, canonical_path, **kwargs)
+
+        with mock.patch.object(stepctx, "publish_file", side_effect=crash_once):
+            with self.assertRaises(RuntimeError):
+                self.freeze()
+        self.assertIsNone(sources.read_pack(self.work_dir))
+        demoted = sources.read_registry(self.work_dir)["sources"]["gdpr-article-6"]
+        self.assertEqual("agent_summary", demoted["raw_kind"])
+        self.assertEqual(
+            {"was": "full_text", "now": "agent_summary"},
+            (demoted.get("meta") or {}).get("full_text_integrity"),
+        )
+        answer = self.freeze()
+        expected = {
+            "code": "full_text_integrity",
+            "source_id": "gdpr-article-6",
+            "was": "full_text",
+            "now": "agent_summary",
+        }
+        self.assertIn(expected, answer["warnings"])
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual([expected], pack["integrity_warnings"])
+        rendered = sources.render_digest(self.work_dir, state_io.read_state(self.work_dir), True)
+        self.assertIn("full_text_integrity", {row["kind"] for row in rendered["exceptions"]})
+        record = sources.read_registry(self.work_dir)["sources"]["gdpr-article-6"]
+        self.assertEqual("agent_summary", record["raw_kind"])
+
+    def test_a_string_result_ref_renders_the_digest_without_raising(self):
+        """Fix round 2: `result_ref` may be a plain string (state schema allows it); the digest
+        reads warnings from the pack, so the shape must never break it."""
+        result = self.register(raw_file=self.raw_file(), source_id="gdpr-article-6")
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["gdpr-article-6"]["raw_kind"] = "full_text"
+        sources.write_registry(self.work_dir, registry)
+        stored = self.work_dir / result["raw_path"]
+        stored.write_bytes((RAW_TEXT + "An agent appended a sentence.\n").encode("utf-8"))
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        self.freeze()
+        state = state_io.read_state(self.work_dir)
+        state["steps"] = [{"step_id": "s-005", "result_ref": "research/statutes.json"}]
+        rendered = sources.render_digest(self.work_dir, state, True)
+        self.assertTrue(rendered["has_exceptions"])
+        self.assertIn("full_text_integrity", {row["kind"] for row in rendered["exceptions"]})
 
 
 if __name__ == "__main__":

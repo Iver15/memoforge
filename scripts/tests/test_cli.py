@@ -305,6 +305,54 @@ class CommandLabelTest(unittest.TestCase):
         self.assertEqual("statutes/gdpr.xhtml", args.out)
         self.assertEqual("statutes", args.layer)
 
+    def test_sources_save_parses_the_options_of_d_199(self):
+        args = cli.build_parser().parse_args(
+            [
+                "sources", "save",
+                "--workdir", ".",
+                "--layer", "case_law",
+                "--title", "ВС РФ, определение № 5-КГ25-14-К2",
+                "--citation", "Определение ВС РФ от 04.03.2025 № 5-КГ25-14-К2",
+                "--tier", "critical",
+                "--url", "https://vsrf.ru/stor_pdf.php?id=1",
+                "--id", "vs-act",
+                "--meta", "{}",
+                "--identifiers", "{}",
+                "--expect-number", "5-КГ25-14-К2",
+                "--expect-date", "2025-03-04",
+                "--expect-article", "152",
+                "--method", "POST",
+                "--json", '{"urn": "x"}',
+                "--accept", "text/html",
+                "--lang", "ru",
+                "--timeout", "5",
+            ]
+        )
+        self.assertEqual(("sources", "save"), cli.command_labels(args))
+        self.assertIs(sources.run_save, args.func)
+        self.assertEqual("case_law", args.layer)
+        self.assertEqual("critical", args.tier)
+        self.assertEqual("vs-act", args.id)
+        self.assertEqual("5-КГ25-14-К2", args.expect_number)
+        self.assertEqual("2025-03-04", args.expect_date)
+        self.assertEqual("152", args.expect_article)
+        self.assertEqual('{"urn": "x"}', args.json_body)
+        self.assertEqual("ru", args.lang)
+        self.assertIsNone(args.resolve)
+
+    def test_save_takes_either_a_url_or_a_resolver_but_not_both(self):
+        """D-199: `--resolve` is declared here and is mutually exclusive with `--url`."""
+        parser = cli.build_parser()
+        base = ["sources", "save", "--workdir", ".", "--layer", "case_law", "--title", "t", "--citation", "c"]
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(base + ["--url", "https://sudact.ru/x", "--resolve", "vsrf"])
+            with self.assertRaises(SystemExit):
+                parser.parse_args(base)
+        args = parser.parse_args(base + ["--resolve", "sudact"])
+        self.assertEqual("sudact", args.resolve)
+        self.assertEqual("", args.url)
+
     def test_bytes_out_matches_the_emitted_payload(self):
         result = {"a": "ю", "b": [1, 2]}
         payload = json.dumps(result, ensure_ascii=False)

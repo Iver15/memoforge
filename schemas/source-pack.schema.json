@@ -23,6 +23,11 @@
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/source_id" },
       "additionalProperties": { "$ref": "#/$defs/source_id" }
+    },
+    "integrity_warnings": {
+      "description": "D-200 fix round 2: the freeze demotions of code-saved text, so the evidence survives interruption and replay. Absent when the freeze demoted nothing; an old pack without it keeps validating.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/integrity_warning" }
     }
   },
   "$defs": {
@@ -65,7 +70,18 @@
         }
       }
     },
-    "pack": {
+    "integrity_warning": {
+      "description": "D-200 fix round 2: one demotion of code-saved text at the freeze.",
+      "type": "object",
+      "required": ["code", "source_id", "was", "now"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "const": "full_text_integrity" },
+        "source_id": { "$ref": "#/$defs/source_id" },
+        "was": { "const": "full_text" },
+        "now": { "enum": ["agent_summary", "none"] }
+      }
+    },    "pack": {
       "type": "object",
       "required": ["role_by_issue", "weight", "confidence", "use_in_memo"],
       "additionalProperties": false,
@@ -103,6 +119,10 @@
         },
         "retrieved_at": { "$ref": "#/$defs/timestamp" },
         "tier": { "enum": ["critical", "supporting", "background"] },
+        "raw_kind": {
+          "description": "D-200: what the saved text is, recorded after the freeze integrity check. Optional; after the freeze the entry is authoritative, and an old frozen pack without the field keeps validating.",
+          "enum": ["full_text", "excerpt", "agent_summary", "client_file", "none"]
+        },
         "currency_status": {
           "enum": ["current", "outdated_but_usable", "do_not_use", "manual_check", "unchecked"]
         },

@@ -65,6 +65,7 @@
       "eu_syntax_note": "Syntaxe de l'identifiant UE non vérifiée",
       "currency_note": "actualité {status}",
       "no_saved_text_note": "aucun texte source enregistré — la citation n'a pas pu être vérifiée sur la source",
+      "full_text_integrity_note": "le texte de {source_id} enregistré par le code a changé ; il compte désormais comme une copie de l'agent",
       "link_note": "lien {status}",
       "retrieved_from_note": "texte obtenu via {server}",
       "legal_database": "une base de données juridique",

@@ -71,6 +71,7 @@
       "eu_syntax_note": "EU-Kennungsyntax nicht geprüft",
       "currency_note": "Aktualität {status}",
       "no_saved_text_note": "kein gespeicherter Quelltext — das Zitat konnte nicht am Quelltext geprüft werden",
+      "full_text_integrity_note": "der von Code gespeicherte Text {source_id} hat sich geändert; er gilt jetzt als Agentenkopie",
       "link_note": "Link {status}",
       "retrieved_from_note": "Text aus {server} abgerufen",
       "legal_database": "einer Rechtsdatenbank",

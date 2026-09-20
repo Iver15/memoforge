@@ -1,0 +1,125 @@
+Neutral Citation Number: [2026] EWHC 9001 (Comm)
+
+IN THE HIGH COURT OF JUSTICE
+BUSINESS AND PROPERTY COURTS OF ENGLAND AND WALES
+COMMERCIAL COURT (KBD)
+
+Case No: CL-2025-000914
+
+Date: 12 February 2026
+
+Before: MR JUSTICE FICTIONAL
+
+Between:
+
+ALPHA HOLDINGS LIMITED
+Claimant
+
+- and -
+
+BETA SERVICES LIMITED
+Defendant
+
+JUDGMENT
+
+Introduction
+
+1. This is a claim for sums said to be due under a framework supply agreement
+dated 3 March 2023 ("the Framework Agreement"), together with contractual
+interest and damages for repudiatory breach. The claimant, Alpha Holdings
+Limited ("Alpha"), is a trading company incorporated in England. The defendant,
+Beta Services Limited ("Beta"), is a logistics operator incorporated in the same
+jurisdiction.
+
+2. The issues for decision are, in short: (i) whether the Framework Agreement
+was varied orally in the course of a meeting in September 2024; (ii) whether
+Beta was entitled to suspend performance in reliance on clause 14.3; and (iii)
+whether Alpha's acceptance of a reduced payment operated as an accord and
+satisfaction discharging the balance of the debt.
+
+The factual background
+
+3. The Framework Agreement provided for the supply of warehousing and
+distribution services on call-off terms. Each call-off order was to be
+confirmed in writing, and clause 4.1 provided that no variation of the
+agreement would be effective unless made in writing and signed by an authorised
+representative of each party.
+
+4. Between March 2023 and August 2024 the parties performed the Framework
+Agreement without material difficulty. Volumes were stable, invoices were
+rendered monthly, and payment was generally made within the thirty-day period
+stipulated by clause 9.2.
+
+5. In September 2024 the parties met to discuss a reduction in volumes. Alpha's
+commercial director gave evidence that at that meeting the parties agreed a
+temporary reduction in the minimum volume commitment. Beta's managing director
+gave evidence that the discussion was exploratory only and that no agreement was
+reached. No note of the meeting was made by either party.
+
+6. From October 2024 Beta rendered invoices calculated on the reduced volume
+basis. Alpha paid those invoices without protest for four months. In February
+2025 Alpha's newly appointed finance director reviewed the account and asserted
+that the full contractual minimum remained payable for the whole of that period.
+
+The issue of oral variation
+
+7. Clause 4.1 is an anti-oral variation clause in familiar terms. The law is
+settled that effect is to be given to such a clause according to its terms: a
+party who wishes to vary a contract containing such a clause must do so in the
+manner the clause prescribes. The commercial purpose of the clause is to avoid
+disputes of precisely the kind that have arisen here, in which two witnesses
+give honest but irreconcilable accounts of an undocumented conversation.
+
+8. Alpha submits that the conduct of the parties after September 2024 gives rise
+to an estoppel precluding Beta from relying on clause 4.1. For an estoppel of
+that kind there must be some words or conduct amounting to a clear and
+unequivocal representation that the varied terms would be valid notwithstanding
+their informality. The mere fact of performance on the varied basis will not
+ordinarily suffice, because performance is equally consistent with a temporary
+indulgence.
+
+9. On the evidence I am not satisfied that any such representation was made. The
+invoices rendered by Beta were consistent with a concession made without
+prejudice to its contractual entitlement, and the correspondence contains no
+acknowledgement that the Framework Agreement itself had been altered. The claim
+to an oral variation therefore fails.
+
+The suspension issue
+
+10. Clause 14.3 entitled Beta to suspend performance if any undisputed sum
+remained unpaid for more than sixty days. Beta suspended performance on 4 April
+2025. By that date the only sums outstanding were those which Alpha had disputed
+in writing in February 2025. A sum that has been disputed in writing is not an
+undisputed sum within the meaning of the clause, whatever the merits of the
+dispute may later prove to be.
+
+11. It follows that the suspension was not authorised by clause 14.3 and
+constituted a breach of the Framework Agreement. Whether that breach was
+repudiatory depends on whether it deprived Alpha of substantially the whole
+benefit of the contract. The suspension lasted eleven days and was lifted on
+notice. Alpha obtained alternative warehousing at a modest additional cost.
+
+12. In those circumstances the breach was serious but not repudiatory. Alpha is
+entitled to damages measured by the additional cost of the alternative
+warehousing, which the parties have agreed at the sum pleaded in the schedule to
+the particulars of claim.
+
+Accord and satisfaction
+
+13. Beta contends that Alpha's acceptance in March 2025 of a payment expressed
+to be "in full and final settlement" discharged the balance of the debt. The
+doctrine of accord and satisfaction requires an agreement supported by
+consideration. Payment of a lesser sum than that which is due is not, without
+more, consideration for the discharge of the greater.
+
+14. There is no suggestion here of any additional benefit conferred on Alpha, of
+payment by a third party, or of a binding compromise of a genuine dispute as to
+the whole of the sum claimed. The defence of accord and satisfaction therefore
+fails.
+
+Conclusion
+
+15. There will be judgment for the claimant for the sums outstanding under the
+Framework Agreement, together with contractual interest under clause 9.4 and
+damages in the agreed sum in respect of the unlawful suspension. I will hear
+counsel on the form of order and on costs if these cannot be agreed.

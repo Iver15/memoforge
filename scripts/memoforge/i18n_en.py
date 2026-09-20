@@ -78,6 +78,12 @@ EN: dict = {
             "no_saved_text_note": (
                 "no saved source text — the citation could not be checked against the source"
             ),
+            # D-200: the freeze demoted a `full_text` file that changed or vanished; the gate-11
+            # digest prints it as an exception row, so the warning is read, not just returned.
+            "full_text_integrity_note": (
+                "saved text of {source_id} changed after it was saved by code; "
+                "it now counts as an agent copy"
+            ),
             "link_note": "link {status}",
             # D-192: the Sources annex of a source with no public url — the database it came from
             # instead of an address. `{server}` is a bundled server's label, or `legal_database`

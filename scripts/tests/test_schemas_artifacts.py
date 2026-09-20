@@ -514,6 +514,34 @@ class SourcesSchemaTest(unittest.TestCase):
             set(record["verification"]),
         )
 
+    def test_raw_kind_is_an_optional_closed_enum_of_the_record(self):
+        """D-200: the field is declared, closed, and absent by default — an old registry validates."""
+        payload = self._sources()
+        self.assertNotIn("raw_kind", payload["sources"]["gdpr-art-6"])
+        self.assertEqual([], errors_for("sources", payload))
+
+        payload = self._sources()
+        payload["sources"]["gdpr-art-6"]["raw_kind"] = "full_text"
+        self.assertEqual([], errors_for("sources", payload))
+
+        payload = self._sources()
+        payload["sources"]["gdpr-art-6"]["raw_kind"] = "wrong"
+        self.assertTrue(errors_for("sources", payload))
+
+    def test_raw_kind_is_an_optional_closed_enum_of_the_pack_entry(self):
+        """D-200: same three shapes for a pack entry — an old frozen pack validates."""
+        payload = read_json(fixture_dir("source-pack") / "valid-1.json")
+        self.assertNotIn("raw_kind", payload["entries"][0])
+        self.assertEqual([], errors_for("source-pack", payload))
+
+        payload = read_json(fixture_dir("source-pack") / "valid-1.json")
+        payload["entries"][0]["raw_kind"] = "full_text"
+        self.assertEqual([], errors_for("source-pack", payload))
+
+        payload = read_json(fixture_dir("source-pack") / "valid-1.json")
+        payload["entries"][0]["raw_kind"] = "wrong"
+        self.assertTrue(errors_for("source-pack", payload))
+
     def test_retrieved_from_is_an_optional_string_of_the_record(self):
         """D-192: the endpoint address the public url rule kept out of `url`."""
         payload = self._sources()

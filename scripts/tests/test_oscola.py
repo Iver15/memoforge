@@ -852,6 +852,27 @@ class LocalizedCitationTest(unittest.TestCase):
             oscola.display_pinpoint("s 5 «art 3 of the offer»", "ru"),
         )
 
+    def test_an_internal_label_with_a_capital_or_a_dot_is_translated(self):
+        """D-206: the display pattern carries the `\\.?` and IGNORECASE of `_PINPOINT_RE`."""
+        self.assertEqual("ст. 998 п. 1", oscola.display_pinpoint("art 998 Para. 1", "ru"))
+        self.assertEqual("art 998 para 1", oscola.display_pinpoint("Art. 998 para 1", "en"))
+        self.assertEqual("ст. 998 п. 1", oscola.display_pinpoint("Art. 998 Para. 1", "ru"))
+
+    def test_a_single_letter_label_and_a_non_label_are_not_matched(self):
+        self.assertEqual("art 6 s 2", oscola.display_pinpoint("art 6 s 2", "en"))
+        self.assertEqual("ст. 6 ст. 2", oscola.display_pinpoint("art 6 s 2", "ru"))
+        self.assertEqual("art analysis", oscola.display_pinpoint("art analysis", "en"))
+        self.assertEqual("art maps 2", oscola.display_pinpoint("art maps 2", "en"))
+
+    def test_a_quoted_capitalised_label_and_a_cyrillic_pinpoint_stay_as_written(self):
+        self.assertEqual(
+            "ст. 5 «Para. 1»", oscola.display_pinpoint("s 5 «Para. 1»", "ru")
+        )
+        self.assertEqual(
+            "п. 3 разд. «Возмещение»",
+            oscola.display_pinpoint("п. 3 разд. «Возмещение»", "en"),
+        )
+
     def test_a_word_is_not_taken_for_a_roman_numeral_on_display_either(self):
         self.assertTrue(
             oscola.display_pinpoint("art Insurance para 1.7", "ru").startswith("art Insurance")
