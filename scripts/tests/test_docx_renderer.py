@@ -234,6 +234,44 @@ class ListsTest(GoldenCase):
         self.assertIn('<w:t xml:space="preserve">2. </w:t>', text)
         self.assertNotIn("ListNumber", text)
 
+    def test_three_level_bullets_carry_the_word_list_glyphs(self):
+        # D-188: level 0 is U+F0B7/Symbol (U+2022 has no Symbol glyph and prints an empty box),
+        # level 1 `o`/Courier New, level 2 U+F0A7/Wingdings — Word's own built-in list definitions.
+        # The pairs are asserted on the renderer's own `w:abstractNum` (the one the list's `w:num`
+        # points at), not on python-docx's template definitions.
+        from lxml import etree as _etree
+
+        path = self.render("- a\n  - b\n    - c\n")
+        namespaces = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        with zipfile.ZipFile(path) as archive:
+            document = _etree.fromstring(archive.read(DOCUMENT_PART))
+            numbering = _etree.fromstring(archive.read("word/numbering.xml"))
+        paragraph = next(
+            node
+            for node in document.findall(".//w:p", namespaces)
+            if node.find("w:pPr/w:numPr", namespaces) is not None
+        )
+        num_id = paragraph.find("w:pPr/w:numPr", namespaces).find("w:numId", namespaces).get(
+            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+        )
+        abstract_id = numbering.find(f".//w:num[@w:numId='{num_id}']/w:abstractNumId", namespaces).get(
+            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+        )
+        abstract = numbering.find(f".//w:abstractNum[@w:abstractNumId='{abstract_id}']", namespaces)
+        self.assertIsNotNone(abstract, "the rendered list points at a renderer-owned abstractNum")
+        qn = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        pairs = {}
+        for level in abstract.findall("w:lvl", namespaces):
+            ilvl = level.get(f"{qn}ilvl")
+            glyph = level.find("w:lvlText", namespaces).get(f"{qn}val")
+            font = level.find("w:rPr/w:rFonts", namespaces).get(f"{qn}ascii")
+            pairs[ilvl] = (glyph, font)
+        self.assertEqual(("\uf0b7", "Symbol"), pairs["0"])
+        self.assertEqual(("o", "Courier New"), pairs["1"])
+        self.assertEqual(("\uf0a7", "Wingdings"), pairs["2"])
+        for glyph, font in pairs.values():
+            self.assertFalse(glyph == "•" and font == "Symbol")
+
 
 class TableTest(GoldenCase):
     DRAFT = "| Rule | Effect |\n|---|---|\n| a \\| b | applies |\n"
@@ -383,7 +421,9 @@ class SourcesSectionTest(GoldenCase):
         self.assertNotIn("General Data Protection Regulation", text)
         self.assertNotIn("Schrems II", text)
 
-    def test_the_appendix_carries_warnings_and_unresolved_ids(self):
+    def test_the_appendix_carries_unverified_sources_and_unresolved_ids(self):
+        # D-191: warnings live in the facts section; the appendix opens for unverified sources
+        # and unresolved markers only.
         index = sample_index()
         index.sources["stale"] = {
             "citation_form": "Some Circular 2011",
@@ -398,13 +438,14 @@ class SourcesSectionTest(GoldenCase):
         )
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
-        self.assertIn("Assumptions &amp; Unverified Sources", text)
-        self.assertIn("case_law incomplete", text)
+        self.assertIn("Unverified Sources", text)
+        self.assertNotIn("Assumptions", text)
+        self.assertNotIn("case_law incomplete", text)
         self.assertIn("Some Circular 2011", text)
         self.assertIn("ghost", text)
 
-    def test_the_docx_appendix_is_the_condensed_one_of_the_markdown_fallback(self):
-        """D-113: `deliverable.docx` and `deliverable.md` carry the same appendix."""
+    def test_the_docx_appendix_matches_the_markdown_fallback(self):
+        """D-191: `deliverable.docx` and `deliverable.md` carry the same appendix (no warnings)."""
         index = sample_index()
         index.currency_unavailable = True
         index.sources["stale"] = {
@@ -420,15 +461,20 @@ class SourcesSectionTest(GoldenCase):
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
 
-        bullets = [row for row in text.splitlines() if "<w:t>Assumption " in row]
-        self.assertLessEqual(len(bullets), fallback.APPENDIX_WARNING_LIMIT)
-        self.assertIn(escape("… and 2 more in summary.md"), text)
         self.assertEqual(1, text.count(escape(fallback.label('currency_unavailable_note'))))
         self.assertNotIn("currency unchecked", text)
         self.assertIn(escape("Some Circular 2011 — link changed"), text)
         self.assertNotIn("Only currency was unchecked", text)
         self.assertNotIn("research/doctrine.json", text)
         self.assertNotIn("unresolved_research_gap", text)
+        self.assertNotIn("Assumption ", text)
+
+    def test_warnings_alone_write_no_docx_appendix(self):
+        # D-191: warnings without unverified sources, the currency note or unresolved ids.
+        path = self.render("Body.\n", drafting_warnings=[{"code": "gap", "message": "A gap."}])
+        with zipfile.ZipFile(path) as archive:
+            text = normalise(archive.read(DOCUMENT_PART))
+        self.assertNotIn(escape(fallback.label("appendix_heading")), text)
 
 
 class StatusSectionTest(GoldenCase):
@@ -440,7 +486,7 @@ class StatusSectionTest(GoldenCase):
         tail = text.partition(f"<w:t>{STATUS_LABEL}</w:t>")[2]
         return [row.split(">", 1)[1].rsplit("<", 1)[0] for row in tail.splitlines() if "<w:t" in row]
 
-    def render_forced_exit(self, **kwargs):
+    def render_forced_exit(self, draft: str = "Body of the memo.\n", **kwargs):
         payload = {
             "final_status": "forced_exit_on_v1_with_remaining_issues",
             "banners": [
@@ -451,7 +497,7 @@ class StatusSectionTest(GoldenCase):
             ],
         }
         payload.update(kwargs)
-        return self.render("Body of the memo.\n", **payload)
+        return self.render(draft, **payload)
 
     def test_the_banners_and_the_blockers_are_printed_under_the_heading(self):
         rows = self.status_paragraphs(self.render_forced_exit())
@@ -462,7 +508,8 @@ class StatusSectionTest(GoldenCase):
         self.assertIn(STATUS_ISSUES_LABEL, rows)
 
     def test_the_status_section_stands_before_the_appendix(self):
-        path = self.render_forced_exit(drafting_warnings=[{"code": "gap", "message": "A gap."}])
+        # D-191: an unresolved marker opens the appendix after the status section.
+        path = self.render_forced_exit(draft="Body [[src:ghost]].\n")
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
         self.assertLess(
@@ -865,18 +912,21 @@ class LocalizedDocxTest(GoldenCase):
         self.assertIn('<w:lang w:val="en-US"', self.part(STYLES_PART))
 
     def test_the_generated_sections_are_localized(self):
+        # D-191: an unresolved marker opens the appendix; warnings alone would not.
         text = normalise(
             self.part(
                 DOCUMENT_PART,
+                draft="Правомерно по [[src:gdpr art 6(1)(f)]].\n\nПризрак [[src:ghost]].\n",
                 language="ru",
                 drafting_warnings=["Одно допущение."],
                 final_status="forced_exit_on_v1",
                 remaining_blocking_issues=[{"severity": "blocker", "issue": "Нет нормы."}],
             ).encode("utf-8")
         )
-        for key in ("sources_heading", "appendix_heading", "status_label", "assumptions_label"):
+        for key in ("sources_heading", "appendix_heading", "status_label"):
             self.assertIn(escape(i18n.t("ru", f"memo.labels.{key}")), text, key)
             self.assertNotIn(f"<w:t>{i18n.t('en', f'memo.labels.{key}')}</w:t>", text, key)
+        self.assertNotIn("Одно допущение.", text)
 
     def test_the_banner_table_is_localized(self):
         text = self.part(

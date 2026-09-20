@@ -197,7 +197,9 @@ def build_fallback_summary(state: dict, work_dir: Path, reason: str | None) -> s
     else:
         lines.append(md_fallback_summary("fallback_none", language))
     lines.append("")
-    # D-113: this file is delivered to the client too, so it carries the short form of the warnings.
+    # D-113/D-191: this file is delivered to the client too, so it carries the condensed
+    # client form of the warnings (`assumption_bullets`) — first sentence, no `(warning_id)`
+    # tags, no protocol file names — while `summary.md` keeps every warning verbatim.
     bullets = md_fallback.assumption_bullets(state.get("drafting_warnings") or [], language)
     if bullets:
         lines.append(md_fallback_summary("fallback_open_questions", language))

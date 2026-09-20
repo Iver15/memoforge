@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _i18n  # noqa: E402
 from memoforge import i18n  # noqa: E402
 
-ASSUMPTIONS_MD = f"**{md_fallback.label('assumptions_label')}**"
+ASSUMPTIONS_MD = "**Assumptions carried into the analysis**"
 UNVERIFIED_MD = f"**{md_fallback.label('unverified_label')}**"
 UNRESOLVED_MD = f"**{md_fallback.label('unresolved_label')}**"
 """The English appendix sub-headings, bolded the way the markdown deliverable writes them."""
@@ -946,6 +946,29 @@ class SalvageTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("research/findings.json", body)
         self.assertEqual(result["final_status"], "fallback_summary_delivered")
 
+    def test_the_fallback_summary_condenses_warnings_for_the_client(self):
+        # D-191: `fallback-summary.md` is published to the client when nothing else exists, so
+        # its warnings are the condensed client form — first sentence, no protocol file names,
+        # no `(warning_id)` tags — while `summary.md` keeps every warning verbatim.
+        def mutate(state: dict) -> None:
+            state["drafting_warnings"] = [
+                {
+                    "code": "unresolved_research_gap",
+                    "message": (
+                        "Nothing in intake states the retention period, "
+                        "research/doctrine.json records the rest (w_1). Second sentence."
+                    ),
+                },
+            ]
+
+        work_dir = self.make_task(with_draft=False, mutate=mutate)
+        summary = finalize.build_fallback_summary(state_io.read_state(work_dir), work_dir, None)
+
+        self.assertIn("Nothing in intake states the retention period", summary)
+        self.assertNotIn("research/doctrine.json", summary)
+        self.assertNotIn("w_1", summary)
+        self.assertNotIn("Second sentence.", summary)
+
 
 class TidyTest(_WorkDirMixin, unittest.TestCase):
     def test_tidy_removes_tmp_and_seen_markers_but_keeps_locks_and_steps(self):
@@ -1255,7 +1278,7 @@ class DeliverableBindingTest(_WorkDirMixin, unittest.TestCase):
 
 
 class AppendixTest(_WorkDirMixin, unittest.TestCase):
-    """D-113: the client appendix is a short list; `summary.md` keeps the reviewer prose verbatim."""
+    """D-191: the client appendix carries unverified sources only; `summary.md` keeps every warning verbatim."""
 
     def make_appendix_task(self, *, currency_unavailable: bool = False, **kwargs) -> Path:
         def mutate(state: dict) -> None:
@@ -1293,29 +1316,23 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
         block = appendix.partition(label)[2].strip().split("\n\n")[0]
         return [line[2:] for line in block.splitlines() if line.startswith("- ")]
 
-    def test_a_warning_becomes_one_short_bullet(self):
+    def test_warnings_stay_out_of_the_appendix(self):
+        # D-191: drafting warnings live in the facts section; only unverified sources open it.
         work_dir = self.make_appendix_task()
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), ASSUMPTIONS_MD)
+        appendix = self.appendix(work_dir)
 
-        self.assertTrue(rows[0].startswith("Nothing in intake"))
-        self.assertTrue(rows[0].endswith("…"), rows[0])
-        self.assertNotIn("research/doctrine.json", rows[0])
-        self.assertLessEqual(len(rows[0]), md_fallback.APPENDIX_WARNING_CHARS)
-        self.assertNotIn("unresolved_research_gap", "\n".join(rows))
-        self.assertNotIn("currency_unchecked", "\n".join(rows))
-        self.assertNotIn(".json", "\n".join(rows))
+        self.assertNotIn(ASSUMPTIONS_MD, appendix)
+        self.assertNotIn("Nothing in intake", appendix)
+        self.assertIn(UNVERIFIED_MD, appendix)
 
-    def test_repeated_warnings_are_listed_once_and_the_list_is_capped(self):
+    def test_an_appendix_without_unverified_sources_is_absent(self):
+        # D-191: warnings alone do not open the appendix.
         work_dir = self.make_appendix_task()
+        (work_dir / "research" / "sources.json").write_text(json.dumps(SOURCES), encoding="utf-8")
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), ASSUMPTIONS_MD)
-
-        self.assertEqual(len([row for row in rows if row.startswith("Nothing in intake")]), 1)
-        # 15 warnings, one of them a repeat: 14 bullets, 12 printed and the rest pointed at.
-        self.assertEqual(len(rows), md_fallback.APPENDIX_WARNING_LIMIT + 1)
-        self.assertEqual(rows[-1], "… and 2 more in summary.md")
-        self.assertTrue(all(len(row) <= md_fallback.APPENDIX_WARNING_CHARS for row in rows))
+        body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
+        self.assertNotIn("## Appendix", body)
 
     def test_the_summary_still_carries_every_warning_verbatim(self):
         work_dir = self.make_appendix_task()
@@ -1350,7 +1367,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
 
         self.assertIn(UNRESOLVED_MD, appendix)
         self.assertIn("ghost", appendix)
-        self.assertIn(ASSUMPTIONS_MD, appendix)
+        self.assertNotIn(ASSUMPTIONS_MD, appendix)
 
     def test_a_currency_check_that_ran_keeps_its_per_source_lines(self):
         work_dir = self.make_appendix_task()
@@ -1410,7 +1427,8 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("- … and 3 more in summary.md", status)
 
     def test_the_status_section_stands_before_the_appendix(self):
-        work_dir = self.make_exited_task(drafting_warnings=warnings_fixture())
+        # D-191: the exited task's currency-unavailable banner opens the appendix.
+        work_dir = self.make_exited_task()
         finalize.run_finalize(finalize_args(work_dir))
         body = self.deliverable(work_dir)
 
@@ -1805,8 +1823,7 @@ class LocalizedTailTest(unittest.TestCase):
     """D-175: the parse-back of a rendered deliverable runs in the language it was rendered in."""
 
     RU = {
-        "memo.labels.appendix_heading": "Приложение — допущения",
-        "memo.labels.assumptions_label": "Допущения",
+        "memo.labels.appendix_heading": "Приложение — непроверенные источники",
         "memo.labels.status_label": "Статус",
         "memo.labels.status_lead": "Итоговый статус: {final_status}. Требуется проверка.",
         "memo.labels.registered_sources_heading": "Источники (зарегистрированы, не заморожены)",
@@ -1834,8 +1851,10 @@ class LocalizedTailTest(unittest.TestCase):
         }
 
     def exported(self) -> str:
+        # D-191: warnings alone open no appendix; the unresolved marker opens it under the
+        # NEW heading, which `condense_appendix` must partition on (no back-compat).
         return md_fallback.render(
-            "Тело меморандума.\n",
+            "Тело меморандума [[src:ghost]].\n",
             md_fallback.SourceIndex(),
             drafting_warnings=["Одно допущение."],
             state=self.state(),
@@ -1989,7 +2008,7 @@ class SalvageLocalizedExportTest(_WorkDirMixin, unittest.TestCase):
     English one is appended. With a draft still on disk the draft is rendered afresh."""
 
     RU = {
-        "memo.labels.appendix_heading": "Приложение — допущения",
+        "memo.labels.appendix_heading": "Приложение — непроверенные источники",
         "memo.labels.status_label": "Статус",
         "memo.labels.status_lead": "Итоговый статус: {final_status}. Требуется проверка.",
     }

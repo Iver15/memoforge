@@ -7,8 +7,9 @@ every `[[src:<id> <pinpoint>]]` and every blockquote `[[q:<quote_id>]]` becomes 
 styles) — the citation of a blockquote as an attribution line under the quote, never inside it
 (D34-22) — the §Sources section is generated at the `<!-- sources: generated -->` marker, a `Status`
 section states the banners and the unresolved blockers of a run that did not end approved (D34-11)
-and the «Assumptions & Unverified Sources» appendix comes from `drafting_warnings` plus the
-per-source `verification`/`currency`/`liveness` records — the same data the stdlib fallback uses.
+and the «Unverified Sources» appendix comes from the per-source
+`verification`/`currency`/`liveness` records — never from `drafting_warnings`, whose home is the
+facts section (D-191) — the same data the stdlib fallback uses.
 
 Importing this module requires `python-docx` and `mistune`; `docx/__init__.py` catches the
 `ImportError` and takes the stdlib fallback branch instead (§5.5, §5.6).
@@ -268,9 +269,9 @@ def _ensure_footnote_styles(doc) -> None:
 
 
 BULLET_LEVELS = (
-    ("•", "Symbol"),
+    ("\uf0b7", "Symbol"),
     ("o", "Courier New"),
-    ("§", "Wingdings"),
+    ("\uf0a7", "Wingdings"),
 )
 
 
@@ -850,16 +851,12 @@ def _render_appendix(
     currency_unavailable: bool = False,
     language: str = i18n.DEFAULT,
 ) -> None:
-    """«Assumptions & Unverified Sources» — the same three groups, and the same condensed text as
-    the markdown fallback: both deliverables carry one appendix (§5.5, D-113)."""
-    bullets = fallback.assumption_bullets(warnings, language)
-    if not bullets and not unverified and not unresolved and not currency_unavailable:
+    """«Unverified Sources» — the same groups, and the same text as the markdown fallback: both
+    deliverables carry one appendix (§5.5, D-113, D-191)."""
+    _ = warnings
+    if not unverified and not unresolved and not currency_unavailable:
         return
     _plain_paragraph(doc, fallback.label("appendix_heading", language), bold=True)
-    if bullets:
-        _plain_paragraph(doc, fallback.label("assumptions_label", language), bold=True)
-        for bullet in bullets:
-            _plain_paragraph(doc, bullet)
     if unverified or currency_unavailable:
         _plain_paragraph(doc, fallback.label("unverified_label", language), bold=True)
         if currency_unavailable:

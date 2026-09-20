@@ -5,9 +5,10 @@ source in the inline style, a `[n]` marker in the footnote style (D-150) — the
 built from the frozen `research/source-pack.json` snapshot plus `research/sources.json` and carries
 the full record of every cited source, an id that resolves in neither becomes `[unresolved: <id>]`
 and raises the `unresolved_reference` banner, a `## Status` section states the banners and the
-unresolved blockers of a run that did not end approved (D34-11) and the «Assumptions & Unverified
-Sources» appendix is generated from `drafting_warnings` and the per-source
-`verification`/`currency`/`liveness` records. No `python-docx`, no `mistune`, no network.
+unresolved blockers of a run that did not end approved (D34-11) and the «Unverified Sources»
+appendix is generated from the per-source `verification`/`currency`/`liveness` records — never
+from `drafting_warnings`, whose home is the facts section (D-191). No `python-docx`, no `mistune`,
+no network.
 
 The scan of the citation tokens and the numbering of the mentions live here and are shared with
 `renderer.py`: both deliverables must decide every citation the same way (D-150).
@@ -107,10 +108,10 @@ UNVERIFIED_CURRENCY: tuple[str, ...] = ("manual_check", "do_not_use", "unchecked
 UNVERIFIED_LIVENESS: tuple[str, ...] = ("dead", "changed")
 """`liveness.status` values that put a source into the appendix (§5.3)."""
 
-# --- the appendix is written for the client (D-113) ------------------------
+# --- the appendix is written for the client (D-113, D-191) ------------------------
 
 APPENDIX_WARNING_LIMIT = 12
-"""How many assumption bullets the appendix carries before it points at `summary.md` (D-113)."""
+"""How many condensed warning bullets `fallback-summary.md` carries before pointing at `summary.md` (D-113)."""
 
 APPENDIX_WARNING_CHARS = 240
 """Hard cap per bullet, ellipsis included (D-113)."""
@@ -157,10 +158,12 @@ is a boundary as well, otherwise dropping the file name would glue the two sente
 
 
 def assumption_bullets(warnings: list, language: str = i18n.DEFAULT) -> list[str]:
-    """One short bullet per `drafting_warnings[]` entry for the appendix (D-113).
+    """One short bullet per `drafting_warnings[]` entry for the fallback summary (D-113, D-191).
 
-    The warnings are the sufficiency reviewer's prose *addressed to the writer* — in the run that
-    motivated this the 15 of them made a 2 670-word appendix under a 1 000-word memo. The client
+    D-191 removed the assumptions group from the deliverable appendix, so this is the only
+    condensed client form left: `finalize.build_fallback_summary` prints it into
+    `fallback-summary.md`, which is published when no docx, draft or prior export exists.
+    The warnings are the sufficiency reviewer's prose *addressed to the writer* — the client
     gets the first sentence of each, without the `(warning_id)` tag and without the names of
     protocol files; `summary.md` keeps every warning verbatim, and the last bullet says so.
     """
@@ -794,21 +797,16 @@ def render_appendix(
     currency_unavailable: bool = False,
     language: str = i18n.DEFAULT,
 ) -> str:
-    """«Assumptions & Unverified Sources» appendix (§5.5); empty string when there is nothing to say.
+    """«Unverified Sources» appendix (§5.5, D-191); empty string when there is nothing to say.
 
-    The client form of D-113: one condensed bullet per warning, capped, and a single currency
-    notice instead of «currency unchecked» under every source.
+    D-191: the condensed `drafting_warnings` bullets repeated what the writer already placed in
+    the facts section — the appendix opens only for unverified sources, the currency-unavailable
+    note or unresolved markers. `summary.md` still keeps every warning verbatim (`warning_text`).
     """
-    bullets = assumption_bullets(warnings, language)
-    if not bullets and not unverified and not unresolved and not currency_unavailable:
+    _ = warnings
+    if not unverified and not unresolved and not currency_unavailable:
         return ""
     lines = [appendix_heading(language), ""]
-    if bullets:
-        lines.append(f"**{label('assumptions_label', language)}**")
-        lines.append("")
-        for bullet in bullets:
-            lines.append(f"- {bullet}")
-        lines.append("")
     if unverified or currency_unavailable:
         lines.append(f"**{label('unverified_label', language)}**")
         lines.append("")
@@ -838,8 +836,9 @@ def render_appendix(
 def warning_text(warning: object) -> str:
     """One `drafting_warnings[]` entry (string or {code,message}) verbatim, tag included.
 
-    The long form, for `summary.md` — the report of the run. The appendix of the deliverable uses
-    `assumption_bullet` instead (D-113).
+    The long form, for `summary.md` — the report of the run. The deliverable appendix carries no
+    warnings at all (D-191); `summary.md` is its only reader — `fallback-summary.md` prints the
+    condensed `assumption_bullets` form instead.
     """
     if isinstance(warning, dict):
         message = warning.get("message") or warning.get("code") or ""

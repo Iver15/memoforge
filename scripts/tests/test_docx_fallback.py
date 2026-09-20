@@ -466,7 +466,8 @@ class RealRunAnnexTest(unittest.TestCase):
 
 
 class AppendixTest(unittest.TestCase):
-    def test_drafting_warnings_go_into_the_appendix(self):
+    def test_drafting_warnings_stay_out_of_the_appendix(self):
+        # D-191: warnings live in the facts section; the appendix ignores them.
         rendered = fallback.render(
             "Body [[src:gdpr-art6]].",
             index(),
@@ -475,11 +476,9 @@ class AppendixTest(unittest.TestCase):
                 "doctrine gap accepted by the user",
             ],
         )
-        self.assertIn("Assumptions & Unverified Sources", rendered["markdown"])
-        self.assertIn("case_law layer did not complete", rendered["markdown"])
-        self.assertIn("doctrine gap accepted by the user", rendered["markdown"])
-        # D-113: the `(warning_id)` tag is machine talk and stays in `summary.md`.
-        self.assertNotIn("`research_partial`", rendered["markdown"])
+        self.assertNotIn("case_law layer did not complete", rendered["markdown"])
+        self.assertNotIn("doctrine gap accepted by the user", rendered["markdown"])
+        self.assertNotIn(fallback.appendix_heading(), rendered["markdown"])
 
     def test_verification_puts_unverified_sources_into_the_appendix(self):
         unverified = fallback.SourceIndex(
@@ -508,12 +507,27 @@ class AppendixTest(unittest.TestCase):
 
     def test_no_appendix_when_there_is_nothing_to_disclose(self):
         rendered = fallback.render("Body [[src:gdpr-art6]].", index())
-        self.assertNotIn("Assumptions & Unverified Sources", rendered["markdown"])
+        self.assertNotIn("Unverified Sources", rendered["markdown"])
 
     def test_unresolved_ids_are_listed_in_the_appendix(self):
         rendered = fallback.render("Body [[src:ghost]].", index())
         self.assertIn("Unresolved references", rendered["markdown"])
         self.assertIn("`ghost`", rendered["markdown"])
+
+    def test_warnings_alone_write_no_appendix(self):
+        # D-191: drafting warnings live in the facts section; only unverified sources, the
+        # currency-unavailable note or unresolved markers open the appendix.
+        rendered = fallback.render(
+            "Body [[src:gdpr-art6]].",
+            index(),
+            drafting_warnings=["a gap the facts section already states"],
+        )
+        self.assertNotIn(fallback.appendix_heading(), rendered["markdown"])
+        self.assertNotIn("Assumptions carried into the analysis", rendered["markdown"])
+
+    def test_the_appendix_heading_names_unverified_sources_only(self):
+        # D-191: the renamed heading carries no assumptions group.
+        self.assertEqual("## Appendix — Unverified Sources", fallback.appendix_heading())
 
 
 LONG_WARNING = (
@@ -541,8 +555,23 @@ def warnings_fixture() -> list:
     return rows
 
 
+class WarningTextTest(unittest.TestCase):
+    """D-191: `summary.md` keeps every warning verbatim; the appendix carries none of them."""
+
+    def test_a_warning_is_kept_verbatim_with_its_tag(self):
+        self.assertEqual(
+            "case_law layer did not complete (`research_partial`)",
+            fallback.warning_text({"code": "research_partial", "message": "case_law layer did not complete"}),
+        )
+
+    def test_a_plain_string_warning_is_kept_as_written(self):
+        self.assertEqual(
+            "doctrine gap accepted by the user", fallback.warning_text("doctrine gap accepted by the user")
+        )
+
+
 class AssumptionBulletsTest(unittest.TestCase):
-    """D-113: the appendix carries the gist of each warning, not the reviewer's prose."""
+    """D-113/D-191: the fallback summary carries the gist of each warning, not the reviewer's prose."""
 
     def test_a_warning_is_cut_to_its_first_sentence_without_tags_or_file_names(self):
         bullets = fallback.assumption_bullets([{"code": "gap", "message": LONG_WARNING}])
@@ -609,10 +638,9 @@ class StatusSectionTest(unittest.TestCase):
 
     def test_the_status_section_stands_before_the_appendix(self):
         markdown = fallback.render(
-            "Body.\n",
+            "Body [[src:ghost]].\n",
             index(),
             state=FORCED_EXIT_STATE,
-            drafting_warnings=["one warning"],
         )["markdown"]
         self.assertLess(
             markdown.index(STATUS_HEADING), markdown.index(APPENDIX_HEADING)
@@ -730,7 +758,7 @@ class CurrencyUnavailableTest(unittest.TestCase):
         self.assertEqual(1, markdown.count(fallback.label('currency_unavailable_note')))
         self.assertNotIn("currency unchecked", markdown)
         self.assertIn("- AI Act, Annex III(4) — link changed", markdown)
-        self.assertIn("- … and 2 more in summary.md", markdown)
+        self.assertNotIn("summary.md", markdown)
 
 
 class UnresolvedIdsTest(unittest.TestCase):
@@ -1211,9 +1239,8 @@ class SlugTest(unittest.TestCase):
 RU_DELIVERABLE: dict = {
     "memo.labels.sources_heading": "Источники",
     "memo.labels.no_sources_cited": "В этом проекте не процитировано ни одного источника.",
-    "memo.labels.appendix_heading": "Приложение — допущения и непроверенные источники",
+    "memo.labels.appendix_heading": "Приложение — непроверенные источники",
     "memo.labels.appendix_more": "… и ещё {count} в summary.md",
-    "memo.labels.assumptions_label": "Допущения, принятые в анализе",
     "memo.labels.unverified_label": "Непроверенные источники",
     "memo.labels.unresolved_label": "Неразрешённые ссылки",
     "memo.labels.unresolved_bullet": "{raw_id} — нет во замороженном пакете; помечено {marker}.",
@@ -1242,7 +1269,6 @@ LOCALIZED_KEYS: tuple[str, ...] = (
     "sources_heading",
     "appendix_heading",
     "status_label",
-    "assumptions_label",
     "unverified_label",
     "unresolved_label",
 )
