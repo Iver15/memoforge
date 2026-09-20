@@ -27,9 +27,23 @@ SEVERITY_BY_MODE: dict[str, dict[str, str]] = {BRIEF_MODE: {"C-07": "info"}}
 """D34-10: in `brief` the pack is wider than 1 200 words can carry, so an uncited rule source is
 informational; in `full` it stays the `major` of §5.4."""
 
+CYRILLIC_LABEL = r"(?:раздел|разд|прил|абз|пп|ст|гл|ч|п)"
+"""D-186/D-195: the pinpoint labels a Russian source uses, longest alternative first.
+
+`ст`, `п`, `пп`, `ч`, `абз` number a statute; `разд`/`раздел`, `гл` and `прил` number a contract
+or an offer — its sections, chapters and annexes. `прил` precedes `п` and `раздел` precedes `разд`
+so the longer label wins; `ч` and `п` come last for the same reason.
+"""
+
+_CYRILLIC_NUMBER = r"\d+(?:[.\-]\d+)*[а-яa-z]?(?:\([^()\s]+\))*"
+_CYRILLIC_SEGMENT = rf"{CYRILLIC_LABEL}\.?\s*{_CYRILLIC_NUMBER}"
+_CYRILLIC_HEADING = r"(?:раздел|разд)\.?\s*«[^«»]+»"
+"""D-195: a section of a contract may be named by its heading instead of a number —
+`разд. «Возмещение»`. Only `разд.` may stand without a digit; every other label needs one."""
+
 CYRILLIC_PINPOINT = re.compile(
-    r"^(?:ст|пп|п|ч|абз)\.?\s*\d+(?:[.\-]\d+)*[а-яa-z]?(?:\([^()\s]+\))*"
-    r"(?:[\s,]+(?:ст|пп|п|ч|абз)\.?\s*\d+(?:[.\-]\d+)*[а-яa-z]?(?:\([^()\s]+\))*)*\s*$",
+    rf"^(?:{_CYRILLIC_SEGMENT}|{_CYRILLIC_HEADING})"
+    rf"(?:[\s,]+(?:{_CYRILLIC_SEGMENT}|{_CYRILLIC_HEADING}))*\s*$",
     re.IGNORECASE,
 )
 """D-186: the pinpoint as the Russian source numbers it — `п. 2 ст. 152`, `ч. 1 ст. 14.3`.
@@ -42,6 +56,9 @@ Fix round 2: `re.IGNORECASE`, as in `docx/oscola.py::CYRILLIC_PINPOINT_RE` — a
 `Ст. 152` is the same pinpoint and was drawing a C-06 major while the renderer printed it happily.
 The case fold reaches the trailing letter too (`ст. 10А` as well as `ст. 10а`); it does not loosen
 the number fragment, so `ст. foo 152` stays rejected and a bare `152` is still `BARE_PINPOINT`'s.
+
+D-195: the labels of a contract or an offer join the statute ones, and a section heading in
+guillemets may stand where a number would — `п. 3 разд. «Возмещение»`, `разд. «FBO»`.
 """
 
 PINPOINT = re.compile(

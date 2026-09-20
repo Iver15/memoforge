@@ -245,25 +245,100 @@ def is_approved(final_status: object) -> bool:
     return str(final_status or "").startswith(APPROVED_STATUS_PREFIXES)
 
 
-def blocking_issue_line(issue: object) -> str:
+STATUS_VERSION_RE = re.compile(r"_(?:on_)?v(\d+)")
+"""D-197: the draft version inside a `final_status`, wherever the code puts it.
+
+`approved_on_v1` and `approved_v3` carry it at the end; `forced_exit_on_v2_with_remaining_issues`
+carries it in the middle. What is left after cutting it out is the status FAMILY, which is what a
+pack names.
+"""
+
+SECTION_ID_RE = re.compile(r"^s-(\d+(?:-\d+)*)$")
+"""`s-5-1` -> section 5.1; anything else is not a numbered section anchor."""
+
+WHOLE_MEMO_IDS: frozenset = frozenset({"general", "document"})
+"""The `section_id` values a reviewer uses for a finding that belongs to no section (§4.2)."""
+
+
+def status_family(final_status: object) -> tuple[str, str]:
+    """`forced_exit_on_v2_with_remaining_issues` -> `("forced_exit_with_remaining_issues", "2")`."""
+    text = str(final_status or "").strip()
+    match = STATUS_VERSION_RE.search(text)
+    if match is None:
+        return text, ""
+    return (text[: match.start()] + text[match.end():]).strip("_"), match.group(1)
+
+
+def status_name(final_status: object, language: str = i18n.DEFAULT) -> str:
+    """`final_status` as a sentence in the memo language; an unknown family stays raw (D-197).
+
+    The reader of a memorandum is not the reader of `state.json`: `approved_on_v1` is a record,
+    «approved on version 1» is the sentence. A family no pack knows falls back to the code itself,
+    because a status the pipeline grows tomorrow must not stop the export.
+    """
+    raw = str(final_status or "").strip()
+    if not raw:
+        return ""
+    family, version = status_family(raw)
+    sentence = oscola.token_name("status_names", family, language)
+    if sentence == family:
+        return raw  # unknown family: the code itself, never a half-translated sentence
+    if "{version}" in sentence and not version:
+        return raw  # a versioned family without a version would print «on version », which is worse
+    return sentence.format(version=version) if "{version}" in sentence else sentence
+
+
+def reason_name(reason: object, language: str = i18n.DEFAULT) -> str:
+    """One `final_status_reasons[]` code as a sentence; free text and unknown codes stay (D-197)."""
+    return oscola.token_name("status_reasons", reason, language)
+
+
+def severity_name(severity: object, language: str = i18n.DEFAULT) -> str:
+    """`blocker` / `major` / `minor` / `info` in the memo language (D-197)."""
+    return oscola.token_name("severity", severity, language)
+
+
+def section_label(section_id: object, language: str = i18n.DEFAULT) -> str:
+    """`s-5-1` -> «section 5.1», `general`/`document` -> the pack's word for the whole memo (D-197).
+
+    A `section_id` the convention does not cover (`s-title`) is printed as it stands: inventing a
+    name for it would be worse than showing the anchor the reviewer used.
+    """
+    text = str(section_id or "").strip()
+    if not text:
+        return ""
+    if text.lower() in WHOLE_MEMO_IDS:
+        return label("whole_memo", language)
+    match = SECTION_ID_RE.match(text)
+    if match is None:
+        return text
+    return f"{label('section_word', language)} {match.group(1).replace('-', '.')}"
+
+
+def blocking_issue_line(issue: object, language: str | None = None) -> str:
     """One `severity · section_id · issue` row of `state.remaining_blocking_issues` (D34-11).
 
     D-173a: a finding that carries its client-facing sentence prints that instead of `issue`.
+
+    D-197: with a `language` the severity and the section anchor are printed in words — that is the
+    row the deliverable carries. Without one the raw ids stand, which is what `summary.md` keeps:
+    the technical record of the run has to stay greppable against `state.json`.
     """
     if not isinstance(issue, dict):
         return re.sub(r"\s+", " ", str(issue or "")).strip()
     text = str(issue.get("issue_client") or issue.get("issue") or issue.get("category") or "")
-    parts = [
-        str(issue.get("severity") or "").strip(),
-        str(issue.get("section_id") or "").strip(),
-        re.sub(r"\s+", " ", text).strip(),
-    ]
+    severity = str(issue.get("severity") or "").strip()
+    section_id = str(issue.get("section_id") or "").strip()
+    if language is not None:
+        severity = severity_name(severity, language)
+        section_id = section_label(section_id, language)
+    parts = [severity, section_id, re.sub(r"\s+", " ", text).strip()]
     return STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
 
 
 def blocking_issue_lines(issues: list, language: str = i18n.DEFAULT) -> list[str]:
     """The blocker rows of the deliverable: capped, the rest pointed at `summary.md` (D34-11)."""
-    rows = [line for line in (blocking_issue_line(issue) for issue in issues or ()) if line]
+    rows = [line for line in (blocking_issue_line(issue, language) for issue in issues or ()) if line]
     if len(rows) <= STATUS_ISSUE_LIMIT:
         return rows
     rest = len(rows) - STATUS_ISSUE_LIMIT
@@ -320,7 +395,7 @@ def render_status(inputs: dict) -> str:
     lines = [
         status_heading(language),
         "",
-        label("status_lead", language, final_status=inputs["final_status"]),
+        label("status_lead", language, final_status=status_name(inputs["final_status"], language)),
         "",
     ]
     if inputs["banners"]:
@@ -463,20 +538,29 @@ class SourceIndex:
         """The `oscola` citation view of a canonical id — the one both renderers cite from (D-150)."""
         return oscola.view_of(source_id, self.entries.get(source_id), self.sources.get(source_id))
 
-    def unverified_rows(self, language: str = i18n.DEFAULT) -> list[dict]:
+    def unverified_rows(
+        self, language: str = i18n.DEFAULT, cited: set | None = None
+    ) -> list[dict]:
         """Sources whose verification/currency/liveness belongs in the appendix (§5.5).
 
         When the currency checker was unavailable for the whole run the `unchecked` status says
         nothing about the individual source, so it is left to the one notice line the appendix
         prints and a source with no other problem drops out of the list entirely (D-113).
 
-        D-175: the note is a label around a machine token — `unresolved`, `unchecked`, `dead` are
-        the recorded statuses and are printed as they stand, in every language.
+        D-175: the note is a label around the recorded status.
+
+        D-197: `cited` is the set of source ids the memorandum actually names. A registry record no
+        `[[src:]]` token cites — a placeholder the research left behind — is not a source of this
+        memorandum and is not disclosed as one. `None` means the caller does not know the citations
+        and every unverified record is listed, which is what it always did. The recorded currency
+        and liveness tokens are printed through `memo.currency_names` / `memo.link_names`.
         """
         rows: list[dict] = []
         for source_id in sorted(self.sources):
             record = self.sources.get(source_id)
             if not isinstance(record, dict):
+                continue
+            if cited is not None and source_id not in cited:
                 continue
             notes: list[str] = []
             verification = record.get("verification")
@@ -489,7 +573,9 @@ class SourceIndex:
             if status in UNVERIFIED_CURRENCY and not (
                 self.currency_unavailable and status == "unchecked"
             ):
-                notes.append(label("currency_note", language, status=status))
+                notes.append(
+                    label("currency_note", language, status=oscola.currency_name(status, language))
+                )
             # D-158: the frozen snapshot decides, exactly as it does for C-08 — the registry may
             # still carry the hash of a raw file that was gone by the time the freeze ran.
             if (
@@ -500,7 +586,13 @@ class SourceIndex:
                 notes.append(label("no_saved_text_note", language))
             liveness = record.get("liveness")
             if isinstance(liveness, dict) and liveness.get("status") in UNVERIFIED_LIVENESS:
-                notes.append(label("link_note", language, status=liveness["status"]))
+                notes.append(
+                    label(
+                        "link_note",
+                        language,
+                        status=oscola.link_name(liveness["status"], language),
+                    )
+                )
             if notes:
                 rows.append(
                     {
@@ -603,6 +695,19 @@ def scan_mentions(text: str, index: SourceIndex, style: str | None = None) -> di
         # The id each instrument was first cited under — what `## Sources` is built from (D-150).
         "cited": [first_of[key] for key in instruments if key in first_of],
         "style": style,
+    }
+
+
+def cited_source_ids(mentions: list) -> set:
+    """The canonical ids of every source the draft cites, quotes included (D-197).
+
+    What the appendix is allowed to disclose: a registry record no `[[src:]]` or `[[q:]]` token
+    names is not a source of this memorandum.
+    """
+    return {
+        mention["source_id"]
+        for mention in mentions or ()
+        if isinstance(mention, dict) and mention.get("resolved") and mention.get("source_id")
     }
 
 
@@ -866,6 +971,7 @@ def render(
     language = memo_language(state)
     body = SOURCES_MARKER.sub("", draft_text).rstrip() + "\n"
     scanned = scan_mentions(body, index, style)
+    cited = cited_source_ids(scanned["mentions"])
     rows = source_rows(scanned, index, language)
     body_text = attribute_blockquotes(
         drop_omitted(scanned["text"], scanned["mentions"]), scanned["mentions"]
@@ -885,7 +991,7 @@ def render(
         parts.extend(["", status])
     appendix = render_appendix(
         list(drafting_warnings or []),
-        index.unverified_rows(language),
+        index.unverified_rows(language, cited),
         replaced["unresolved"],
         currency_unavailable=index.currency_unavailable,
         language=language,

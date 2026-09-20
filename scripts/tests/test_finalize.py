@@ -81,6 +81,10 @@ SOURCES = {
 QUOTES = {"quotes": {"q-001": {"source_id": "gdpr-art6", "raw_sha256": "0" * 64}}}
 
 SIGNED_OFF = "approved_on_v1"
+
+NAME_FORCED_EXIT_V1 = md_fallback.status_name("forced_exit_on_v1_with_remaining_issues")
+NAME_MANUAL_REVIEW_V1 = md_fallback.status_name("manual_review_required_on_v1")
+"""D-197: what a `final_status` reads like in the deliverable — the code stays in state.json."""
 """The `final_status` the revision decision writes before the export phase runs (revision.py, D-123).
 
 An export is only the deliverable when its `## Status` section says what `finalize` is about to say,
@@ -1187,8 +1191,9 @@ class DeliverableBindingTest(_WorkDirMixin, unittest.TestCase):
         self.assertFalse((work_dir / finalize.DELIVERABLE_DOCX).is_file())
         self.assertTrue(self.memo_docx(work_dir).is_file(), "the export itself stays where it was")
         body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
-        self.assertIn("forced_exit_on_v1_with_remaining_issues", body)
-        self.assertNotIn("manual_review_required_on_v1", body)
+        # D-197: the deliverable carries the status as a sentence, not as a code.
+        self.assertIn(NAME_FORCED_EXIT_V1, body)
+        self.assertNotIn(NAME_MANUAL_REVIEW_V1, body)
 
     def test_a_banner_raised_after_the_export_makes_it_stale_too(self):
         """D-123: the banners are half of what the `## Status` section says."""
@@ -1222,7 +1227,7 @@ class DeliverableBindingTest(_WorkDirMixin, unittest.TestCase):
 
         self.assertEqual(result["deliverable_kind"], "md")
         body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
-        self.assertIn("- blocker · s-1 · Art. 17(1) carries no rule.", body)
+        self.assertIn("- blocker · section 1 · Art. 17(1) carries no rule.", body)
 
     def test_a_banner_whose_text_changed_makes_the_export_stale(self):
         """D-144 (R2-03): the section prints banner *texts*; the old signature carried only ids."""
@@ -1304,6 +1309,15 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
             "verification": {"eu_syntax_ok": False},
         }
         state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
+        # D-197: the appendix discloses cited sources, so the draft names the two extra records.
+        (work_dir / "drafts" / "v1.md").write_text(
+            DRAFT.replace(
+                "<!-- sources: generated -->",
+                "Also [[src:ai-act Annex III(4)]] and [[src:edpb-op28]].\n\n"
+                "<!-- sources: generated -->",
+            ),
+            encoding="utf-8",
+        )
         return work_dir
 
     def appendix(self, work_dir: Path) -> str:
@@ -1330,6 +1344,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
         # D-191: warnings alone do not open the appendix.
         work_dir = self.make_appendix_task()
         (work_dir / "research" / "sources.json").write_text(json.dumps(SOURCES), encoding="utf-8")
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT, encoding="utf-8")
         finalize.run_finalize(finalize_args(work_dir))
         body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
         self.assertNotIn("## Appendix", body)
@@ -1378,6 +1393,84 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
         self.assertEqual(len([row for row in rows if "currency unchecked" in row]), 3)
 
 
+class AppendixWithoutADraftTest(_WorkDirMixin, unittest.TestCase):
+    """FF2/FF3: with no draft to establish citation membership, the pipeline does not guess.
+
+    The recovery of fix round 1 (a citation set recorded on the render step, a tier heuristic) was
+    removed: the recorded set was not bound to the delivered bytes and the heuristic inferred «not
+    cited» from a tier. An existing export's «Unverified sources» block is preserved instead — it
+    was written while the draft existed and is already filtered — and with no export at all the
+    pre-Task-2 behaviour stands.
+    """
+
+    PLACEHOLDER = "Placeholder Opinion 1/2024"
+
+    def make_task_with_a_placeholder(self) -> Path:
+        work_dir = self.make_task()
+        registry = json.loads(json.dumps(SOURCES))
+        registry["sources"]["gdpr-art6"]["currency"] = {"status": "unchecked"}
+        registry["sources"]["placeholder"] = {
+            "layer": "doctrine",
+            "title": "A record nothing cites",
+            "citation_form": self.PLACEHOLDER,
+            "tier": "background",
+            "currency": {"status": "unchecked"},
+        }
+        state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
+        return work_dir
+
+    def appendix_of(self, body: str) -> str:
+        self.assertIn(md_fallback.appendix_heading(), body)
+        return body.partition(md_fallback.appendix_heading())[2].rstrip()
+
+    def test_the_render_step_records_no_citation_set(self):
+        # FF2: a recorded set is applied to whatever bytes finalize happens to deliver, so a v1 set
+        # could filter a v2 export. There is no recorded set any more, so that cannot happen.
+        work_dir = self.make_task_with_a_placeholder()
+        result = render_export(work_dir)
+        self.assertNotIn("cited_source_ids", result)
+        for row in state_io.read_state(work_dir).get("steps") or []:
+            ref = row.get("result_ref") if isinstance(row, dict) else None
+            stored = ref.get("result") if isinstance(ref, dict) else None
+            if isinstance(stored, dict):
+                self.assertNotIn("cited_source_ids", stored)
+
+    def test_the_exports_unverified_block_is_preserved_when_the_draft_is_gone(self):
+        # FF3 (a): the export was rendered while the draft existed, so its appendix is already the
+        # filtered one — it is delivered as it stands, block for block.
+        work_dir = self.make_task_with_a_placeholder()
+        render_export(work_dir)
+        exported = self.appendix_of(md_fallback_export(work_dir))
+        self.assertIn("Regulation (EU) 2016/679", exported)
+        self.assertNotIn(self.PLACEHOLDER, exported)
+
+        (work_dir / "drafts" / "v1.md").unlink()
+        finalize.run_finalize(finalize_args(work_dir))
+        delivered = self.appendix_of(
+            (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
+        )
+        self.assertEqual(exported, delivered)
+        self.assertNotIn(self.PLACEHOLDER, delivered)
+
+    def test_without_a_draft_and_without_an_export_the_full_list_stands(self):
+        # FF3 (c): the fallback summary is the deliverable and nothing rebuilds a filtered appendix;
+        # `unverified_rows(..., None)` keeps its pre-Task-2 meaning for whoever asks it.
+        work_dir = self.make_task_with_a_placeholder()
+        (work_dir / "drafts" / "v1.md").unlink()
+        result = finalize.run_finalize(finalize_args(work_dir))
+        body = (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8")
+        self.assertEqual("fallback_summary_delivered", result["final_status"])
+        self.assertNotIn(md_fallback.appendix_heading(), body)
+        rows = md_fallback.SourceIndex.load(work_dir).unverified_rows()
+        self.assertEqual(["gdpr-art6", "placeholder"], [row["source_id"] for row in rows])
+
+    def test_the_index_has_no_tier_heuristic_any_more(self):
+        self.assertFalse(hasattr(md_fallback.SourceIndex, "citable_ids"))
+        from memoforge import docx as docx_pkg
+
+        self.assertFalse(hasattr(docx_pkg, "rendered_cited_source_ids"))
+
+
 class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
     """D34-11: the banners and `state.remaining_blocking_issues` reach the client, not only state."""
 
@@ -1413,9 +1506,9 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir))
         status = self.status(self.deliverable(work_dir))
 
-        self.assertIn("forced_exit_on_v1_with_remaining_issues", status)
+        self.assertIn(NAME_FORCED_EXIT_V1, status)
         self.assertIn("Currency check unavailable", status)
-        self.assertIn("- blocker · s-1 · Art. 17(1) is cited without a rule in section 1.", status)
+        self.assertIn("- blocker · section 1 · Art. 17(1) is cited without a rule in section 1.", status)
 
     def test_the_blocker_list_is_capped_and_points_at_the_summary(self):
         work_dir = self.make_exited_task()
@@ -1473,15 +1566,15 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir))
         status = self.status(self.deliverable(work_dir))
 
-        self.assertIn("forced_exit_on_v1_with_remaining_issues", status)
-        self.assertIn("- blocker · s-1 · Art. 17(1) is cited without a rule in section 1.", status)
+        self.assertIn(NAME_FORCED_EXIT_V1, status)
+        self.assertIn("- blocker · section 1 · Art. 17(1) is cited without a rule in section 1.", status)
 
     def test_a_stale_status_section_is_replaced_not_doubled(self):
         """The export already carries a `## Status`; the run ended on another one (D-123)."""
         work_dir = self.make_task(final_status="manual_review_required_on_v1")
         render_export(work_dir)
         exported = (work_dir / "memo-gdpr-transcripts.md").read_text(encoding="utf-8")
-        self.assertIn("manual_review_required_on_v1", exported)
+        self.assertIn(NAME_MANUAL_REVIEW_V1, exported)
         self.assertNotIn(md_fallback.appendix_heading(), exported)
         (work_dir / "memo-gdpr-transcripts.docx").unlink()
 
@@ -1493,8 +1586,8 @@ class StatusSectionTest(_WorkDirMixin, unittest.TestCase):
         body = self.deliverable(work_dir)
 
         self.assertEqual(1, body.count(md_fallback.status_heading()))
-        self.assertIn("forced_exit_on_v2_with_remaining_issues", body)
-        self.assertNotIn("manual_review_required_on_v1", body)
+        self.assertIn(md_fallback.status_name("forced_exit_on_v2_with_remaining_issues"), body)
+        self.assertNotIn(NAME_MANUAL_REVIEW_V1, body)
 
     def test_no_banner_is_raised_after_the_deliverable_is_chosen(self):
         """D-144 + fix wave (D-166): only copy/telemetry rows arrive after `choose_deliverable`.
@@ -1893,12 +1986,38 @@ class LocalizedTailTest(unittest.TestCase):
         self.assertNotIn("Sources (registered, not frozen)", rendered)
 
 
+class SummaryStatusLineTest(_WorkDirMixin, unittest.TestCase):
+    """D-197: the status sentence of `summary.md` is in words; the code stays for the record."""
+
+    def summary_status(self, final_status: str) -> str:
+        work_dir = self.make_task()
+        summary = finalize.build_summary(
+            {"task_id": work_dir.name},
+            work_dir,
+            phase="done",
+            final_status=final_status,
+            deliverable={"deliverable": "deliverable.md", "source": "memo-x.md"},
+            reason=None,
+            banners=[],
+        )
+        return next(row for row in summary.splitlines() if row.startswith("- Status:"))
+
+    def test_the_status_line_names_the_status_and_keeps_the_code(self):
+        line = self.summary_status("forced_exit_on_v1_with_remaining_issues")
+        self.assertIn(md_fallback.status_name("forced_exit_on_v1_with_remaining_issues"), line)
+        self.assertIn("`forced_exit_on_v1_with_remaining_issues`", line)
+
+    def test_an_unknown_status_prints_the_code_only_once_as_a_name(self):
+        line = self.summary_status("brand_new_status")
+        self.assertIn("brand_new_status", line)
+
+
 class BannerLanguageSummaryTest(_WorkDirMixin, unittest.TestCase):
     """D-175: `summary.md` strings and banner rows come from `memo.summary`/`memo.banners`."""
 
     RU_SUMMARY = {
         "memo.summary.title": "Сводка запуска memoforge — {task_id}",
-        "memo.summary.status": "- Статус: **{final_status}**",
+        "memo.summary.status": "- Статус: **{status_name}** (`{final_status}`)",
         "memo.summary.terminal_phase": "- Терминальная фаза: `{phase}`",
         "memo.summary.mode": "- Режим: {mode}",
         "memo.summary.question": "- Вопрос: {question}",

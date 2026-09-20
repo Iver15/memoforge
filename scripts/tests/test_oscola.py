@@ -43,6 +43,9 @@ EU_LEGISLATION = {
         "short_name": "GDPR",
     },
     "currency": {"status": "unchecked"},
+    # D-197: the annex prints `checked <date>` only for a link the run actually reached, so the
+    # record of a source whose date is asserted below carries the successful check that earned it.
+    "liveness": {"status": "ok", "code": 200, "checked_at": "2026-09-10T09:55:07.615Z"},
 }
 UK_LEGISLATION = {
     "layer": "statutes",
@@ -298,6 +301,18 @@ class PinpointTest(unittest.TestCase):
             oscola.normalise_pinpoint("point 2 of the operative part"),
         )
         self.assertEqual("", oscola.normalise_pinpoint(None))
+
+    def test_a_word_beginning_with_a_roman_letter_is_not_a_numeral(self):
+        # D-195: the `(?=[0-9IVXL(])` lookahead read `Insurance`, `Liability` and `Violation`
+        # as Roman numerals, so a clause of an offer was relabelled as an article.
+        for text in ("Art. Insurance para 1.7", "Art. Liability 3", "s Violation 2"):
+            with self.subTest(text=text):
+                self.assertEqual(text, oscola.normalise_pinpoint(text))
+
+    def test_a_real_roman_numeral_still_gets_the_label(self):
+        self.assertEqual("art IV", oscola.normalise_pinpoint("Art. IV"))
+        self.assertEqual("art IV(2)", oscola.normalise_pinpoint("Art. IV(2)"))
+        self.assertEqual("annex III point 4(b)", oscola.normalise_pinpoint("Annex III point 4(b)"))
 
 
 class StyleResolutionTest(unittest.TestCase):
@@ -555,6 +570,26 @@ class AnchorTest(unittest.TestCase):
     def test_a_source_without_a_url_is_not_linked(self):
         self.assertEqual("", oscola.anchor_url(view({"title": "Unpublished note"}), "para 1"))
 
+    def test_a_router_fragment_carrying_a_credential_is_never_linked_or_printed(self):
+        # FF1: `#?t=…` and `#/document?t=…` survived the fragment check, so the token reached the
+        # inline hyperlink and the angle-bracket URL of the annex.
+        for fragment in ("#?t=TESTTOKEN", "#/document?t=TESTTOKEN"):
+            with self.subTest(fragment=fragment):
+                record = dict(EU_LEGISLATION, url=EU_LEGISLATION["url"] + fragment)
+                linked = oscola.anchor_url(view(record), "art 35(3)(a)")
+                entry = oscola.sources_entry(row(record, pinpoints="cited at art 35(3)(a)"))
+                self.assertEqual(EU_LEGISLATION["url"], linked)
+                self.assertIn(f"<{EU_LEGISLATION['url']}>", entry)
+                self.assertNotIn("TESTTOKEN", linked)
+                self.assertNotIn("TESTTOKEN", entry)
+
+    def test_a_router_anchor_without_a_credential_still_reaches_the_link(self):
+        record = dict(EU_LEGISLATION, url=EU_LEGISLATION["url"] + "#/document/12")
+        self.assertEqual(
+            EU_LEGISLATION["url"] + "#/document/12",
+            oscola.anchor_url(view(record), "art 35(3)(a)"),
+        )
+
 
 class RealRunTest(unittest.TestCase):
     """The run whose footnotes were «GDPR Article 35 …, CELEX 32016R0679, Art. 35(3)(a)» (D-150).
@@ -658,7 +693,10 @@ class RealRunTest(unittest.TestCase):
         self.assertTrue(rendered.startswith("Regulation (EU) 2016/679 (GDPR) — "))
         self.assertIn("CELEX 32016R0679", rendered)
         self.assertIn("<https://eur-lex.europa.eu/eli/reg/2016/679/oj>", rendered)
-        self.assertIn("checked 2026-09-10, currency unchecked", rendered)
+        # D-197 (fix round 1): no record of that run carries a liveness check, so the annex states
+        # the currency and nothing about a retrieval it cannot vouch for.
+        self.assertIn("currency unchecked", rendered)
+        self.assertNotIn("checked 2026-09-10", rendered)
         self.assertNotIn("Territorial scope", rendered)
         self.assertNotIn("#art", rendered)
 
@@ -714,6 +752,11 @@ RU_CITATION: dict = {
     "memo.citation.paras": "пп.",
     "memo.citation.reg": "рег.",
     "memo.citation.regs": "рег.",
+    "memo.citation.s": "ст.",
+    "memo.citation.ss": "ст.",
+    "memo.citation.annex": "приложение",
+    "memo.currency_names.unchecked": "не проверялась",
+    "memo.link_names.dead": "не открывается",
     "memo.citation.ibid": "там же",
     "memo.citation.cited_at": "цитируется в ",
     "memo.citation.also_cited_at": "также цитируется в ",
@@ -788,11 +831,32 @@ class LocalizedCitationTest(unittest.TestCase):
         self.assertEqual("18 June 2021", oscola.long_date("2021-06-18"))
         self.assertIn("18 июня 2021", oscola.compact(view(SOFT_LAW), language="ru"))
 
-    def test_the_annex_provenance_is_localized_and_the_status_is_not(self):
+    def test_the_annex_provenance_and_its_status_are_both_localized(self):
+        # D-197: the recorded currency token reaches the reader through `memo.currency_names`.
         rendered = oscola.sources_entry(row(EU_LEGISLATION), language="ru")
         self.assertIn("проверено 2026-09-10", rendered)
-        self.assertIn("актуальность unchecked", rendered)
+        self.assertIn("актуальность не проверялась", rendered)
         self.assertNotIn("checked 2026-09-10", rendered)
+        self.assertNotIn("unchecked", rendered)
+
+    def test_every_label_of_the_pinpoint_is_translated_not_only_the_head(self):
+        # D-195: `art 998 para 1` is two labels, and both belong to the memo language.
+        self.assertEqual("ст. 998 п. 1", oscola.display_pinpoint("art 998 para 1", "ru"))
+        self.assertEqual("ст. 170 п. 2", oscola.display_pinpoint("s 170 para 2", "ru"))
+        self.assertEqual("art 998 para 1", oscola.display_pinpoint("art 998 para 1", "en"))
+        self.assertEqual("s 170 para 2", oscola.display_pinpoint("s 170 para 2", "en"))
+
+    def test_a_label_inside_guillemets_is_left_as_the_heading_wrote_it(self):
+        self.assertEqual(
+            "ст. 5 «art 3 of the offer»",
+            oscola.display_pinpoint("s 5 «art 3 of the offer»", "ru"),
+        )
+
+    def test_a_word_is_not_taken_for_a_roman_numeral_on_display_either(self):
+        self.assertTrue(
+            oscola.display_pinpoint("art Insurance para 1.7", "ru").startswith("art Insurance")
+        )
+        self.assertEqual("ст. IV(2)", oscola.display_pinpoint("art IV(2)", "ru"))
 
     def test_the_identity_of_a_citation_stays_english(self):
         rendered = oscola.compact(view(CJEU), "para 2", language="ru")
@@ -840,6 +904,47 @@ class CyrillicPinpointTest(unittest.TestCase):
             "Определение СКЭС ВС РФ от 12.03.2024 № 305-ЭС23-12345 по делу № А40-1, п. 2",
             oscola.compact(view(decision), "п. 2"),
         )
+
+    def test_a_contract_pinpoint_keeps_its_own_labels_and_heading(self):
+        # D-195: `разд`, `гл` and `прил` are pinpoint labels of a contract or an offer, and a
+        # heading in guillemets may stand where a number would.
+        for pinpoint in (
+            "п. 3 разд. «Возмещение»",
+            "п. 5.1 разд. «FBO»",
+            "разд. «Возмещение»",
+            "гл. 4",
+            "прил. 2",
+            "раздел 7",
+        ):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual(pinpoint, oscola.normalise_pinpoint(pinpoint))
+                for language in ("ru", "en", "de"):
+                    self.assertEqual(pinpoint, oscola.display_pinpoint(pinpoint, language))
+
+
+class ProvenanceLivenessTest(unittest.TestCase):
+    """D-197: `checked <date>` is printed only when the link check actually succeeded."""
+
+    def record(self, status: str | None) -> dict:
+        record = dict(EU_LEGISLATION)
+        record.pop("liveness", None)
+        if status is not None:
+            record["liveness"] = {"status": status, "code": None, "checked_at": None}
+        return record
+
+    def test_a_successful_check_keeps_the_date(self):
+        for status in oscola.LIVENESS_SUCCEEDED:
+            with self.subTest(status=status):
+                self.assertIn("checked 2026-09-10", oscola.provenance_field([view(self.record(status))]))
+
+    def test_no_date_without_a_successful_check(self):
+        # D-197 (fix round 1): membership in `LIVENESS_SUCCEEDED` is what prints the date. A record
+        # with no `liveness` at all was not checked either, and printed «checked <date>» regardless.
+        for status in (None, "dead", "changed", "unchecked"):
+            with self.subTest(status=status):
+                rendered = oscola.provenance_field([view(self.record(status))])
+                self.assertNotIn("2026-09-10", rendered)
+                self.assertEqual("currency unchecked", rendered)
 
 
 if __name__ == "__main__":

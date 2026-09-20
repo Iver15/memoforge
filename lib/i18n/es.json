@@ -66,10 +66,14 @@
       "currency_note": "vigencia {status}",
       "no_saved_text_note": "sin texto fuente guardado — la cita no pudo comprobarse contra la fuente",
       "link_note": "enlace {status}",
+      "retrieved_from_note": "texto obtenido de {server}",
+      "legal_database": "una base de datos jurídica",
       "status_label": "Estado",
       "status_lead": "Estado final: {final_status}. El pipeline no ha aprobado este memorando; los puntos siguientes están sin resolver y deben comprobarse antes del uso por el cliente.",
       "status_banners_label": "Avisos del pipeline",
       "status_issues_label": "Cuestiones bloqueantes sin resolver",
+      "section_word": "sección",
+      "whole_memo": "todo el memorando",
       "source_pack_heading": "Paquete de fuentes (congelado)",
       "frozen_at": "Congelado el: {value}",
       "entries_heading": "Entradas",
@@ -121,6 +125,51 @@
       "also_cited_at": "también citado en ",
       "checked": "verificado ",
       "currency": "vigencia "
+    },
+    "status_names": {
+      "approved": "aprobado en la versión {version}",
+      "client_ready": "listo para el cliente (versión {version})",
+      "accepted_early": "aceptado anticipadamente (versión {version})",
+      "manual_review_required": "se requiere revisión manual (versión {version})",
+      "forced_exit_with_remaining_issues": "entregado con observaciones sin resolver (versión {version})",
+      "delivered": "entregado",
+      "failed": "detenido sin un memorando terminado",
+      "cancelled_by_user": "cancelado a petición suya",
+      "fallback_summary_delivered": "se entregó un resumen de la investigación en lugar del memorando"
+    },
+    "status_reasons": {
+      "unresolved_blockers": "quedan observaciones bloqueantes sin resolver",
+      "incomplete_review": "una ronda de revisión no se completó",
+      "all_reviewers_failed": "ningún revisor devolvió un veredicto utilizable",
+      "regression_forced_exit": "una revisión empeoró el borrador, por lo que se detuvo el ciclo",
+      "length_overflow": "el memorando supera su límite de palabras",
+      "step_loop": "un paso del proceso se repitió sin avanzar",
+      "writer_failed": "el redactor no pudo producir un borrador revisado",
+      "no_checked_draft": "ninguna versión del borrador superó las comprobaciones automáticas",
+      "export_reused_untouched": "se entregó sin cambios una exportación anterior"
+    },
+    "severity": {
+      "blocker": "observación bloqueante",
+      "major": "observación mayor",
+      "minor": "observación menor",
+      "info": "información"
+    },
+    "currency_names": {
+      "current": "vigente",
+      "outdated_but_usable": "desactualizado pero aplicable",
+      "do_not_use": "no utilizar",
+      "manual_check": "requiere revisión manual",
+      "unchecked": "sin verificar",
+      "amended": "modificado",
+      "repealed": "derogado",
+      "superseded": "sustituido"
+    },
+    "link_names": {
+      "ok": "válido",
+      "redirect": "redirección",
+      "dead": "caído",
+      "changed": "modificado",
+      "unchecked": "sin verificar"
     },
     "months": [
       "enero",
@@ -174,7 +223,7 @@
     },
     "summary": {
       "title": "resumen de la ejecución de memoforge — {task_id}",
-      "status": "- Estado: **{final_status}**",
+      "status": "- Estado: **{status_name}** (`{final_status}`)",
       "terminal_phase": "- Fase terminal: `{phase}`",
       "mode": "- Modo: `{mode}`",
       "question": "- Pregunta: {question}",

@@ -364,6 +364,152 @@ class InlineCitationTest(unittest.TestCase):
         self.assertIn(oscola.FORM_IBID, [row.get("form") for row in scanned["mentions"]])
 
 
+CASUS_ENDPOINT = "https://mcp.casus.legal/case/34232"
+"""D-192: the address a Casus tool answers with — recorded, never printed and never linked."""
+
+LINK_LESS_RECORD = {
+    "layer": "case_law",
+    "title": "Определение ВС РФ от 12.03.2024 № 305-ЭС23-12345",
+    "citation_form": "Определение СКЭС ВС РФ от 12.03.2024 № 305-ЭС23-12345 по делу № А40-1/2023",
+    "url": "",
+    "retrieved_from": CASUS_ENDPOINT,
+    "retrieved_at": "2026-09-10T09:55:07Z",
+    "meta": {"court": "Верховный Суд РФ", "year": 2024, "short_name": "ВС РФ № 305-ЭС23-12345"},
+}
+
+
+def annex_row(record: dict, *, pinpoints: str = "") -> dict:
+    """One `## Sources` row the way `fallback.source_rows` builds it (D-150)."""
+    view = oscola.view_of("vs-rf", None, record)
+    return {"n": 1, "view": view, "members": [view], "pinpoints_text": pinpoints}
+
+
+def link_less_index(record: dict | None = None) -> fallback.SourceIndex:
+    """One source the client may not be linked to: no url, an endpoint behind it."""
+    return fallback.SourceIndex(sources={"vs-rf": dict(record or LINK_LESS_RECORD)})
+
+
+class LinkLessSourceTest(unittest.TestCase):
+    """D-192: a source with no public url is cited in full and linked to nothing."""
+
+    DRAFT = "Так решил суд [[src:vs-rf]].\n\n<!-- sources: generated -->\n"
+
+    def test_the_annex_names_the_database_instead_of_a_url(self):
+        rendered = oscola.sources_entry(annex_row(LINK_LESS_RECORD))
+        self.assertIn("Определение СКЭС ВС РФ от 12.03.2024", rendered)
+        self.assertIn("text retrieved from CasusLegal (RU)", rendered)
+        self.assertNotIn("<", rendered)
+        self.assertNotIn("mcp.casus.legal", rendered)
+
+    def test_an_endpoint_of_no_bundled_server_is_a_legal_database(self):
+        record = dict(LINK_LESS_RECORD, retrieved_from="https://endpoint.example/one/mcp")
+        rendered = oscola.sources_entry(annex_row(record))
+        self.assertIn("text retrieved from a legal database", rendered)
+        self.assertNotIn("endpoint.example", rendered)
+
+    def test_a_citation_only_source_without_an_endpoint_says_nothing_extra(self):
+        record = dict(LINK_LESS_RECORD)
+        record.pop("retrieved_from")
+        rendered = oscola.sources_entry(annex_row(record))
+        self.assertNotIn("retrieved from", rendered)
+
+    def test_the_inline_citation_is_not_a_link(self):
+        markdown = fallback.render(self.DRAFT, link_less_index(), citation_style=INLINE)["markdown"]
+        body = markdown.split(SOURCES_HEADING)[0]
+        self.assertIn("(Определение СКЭС ВС РФ", body)
+        self.assertNotIn("](", body)
+        self.assertNotIn("mcp.casus.legal", markdown)
+
+    def test_an_old_record_carrying_an_endpoint_url_is_still_never_printed_or_linked(self):
+        """Defence in depth: the rule runs at registration, the renderer never trusts the record."""
+        record = dict(LINK_LESS_RECORD, url=CASUS_ENDPOINT)
+        record.pop("retrieved_from")
+        view = oscola.view_of("vs-rf", None, record)
+        self.assertEqual("", oscola.canonical_url(view))
+        self.assertEqual("", oscola.anchor_url(view))
+        markdown = fallback.render(
+            self.DRAFT, link_less_index(record), citation_style=INLINE
+        )["markdown"]
+        self.assertNotIn("mcp.casus.legal", markdown)
+        self.assertNotIn("](", markdown.split(SOURCES_HEADING)[0])
+
+
+class RendererCleansEveryUrlTest(unittest.TestCase):
+    """Fix round 3: the renderer applies the whole public-url rule, not only the host check."""
+
+    DRAFT = "Так решил суд [[src:vs-rf]].\n\n<!-- sources: generated -->\n"
+
+    def markdown(self, record: dict) -> str:
+        book = fallback.SourceIndex(sources={"vs-rf": dict(record)})
+        return fallback.render(self.DRAFT, book, citation_style=INLINE)["markdown"]
+
+    def test_a_token_in_an_old_records_url_is_never_printed_or_linked(self):
+        """A5a: `public_url_of` cleans, it does not only classify."""
+        record = dict(LINK_LESS_RECORD, url="https://sudact.ru/regular/doc/abc/?token=TESTTOKEN")
+        record.pop("retrieved_from")
+        view = oscola.view_of("vs-rf", None, record)
+        self.assertEqual("https://sudact.ru/regular/doc/abc/", oscola.canonical_url(view))
+        self.assertEqual("https://sudact.ru/regular/doc/abc/", oscola.anchor_url(view))
+        markdown = self.markdown(record)
+        self.assertNotIn("TESTTOKEN", markdown)
+        self.assertIn("(https://sudact.ru/regular/doc/abc/)", markdown)
+
+    def test_userinfo_and_an_auth_fragment_are_cleaned_off_an_old_record(self):
+        record = dict(LINK_LESS_RECORD, url="https://user:TESTTOKEN@sudact.ru/x#access_token=TESTTOKEN")
+        record.pop("retrieved_from")
+        markdown = self.markdown(record)
+        self.assertNotIn("TESTTOKEN", markdown)
+        self.assertIn("<https://sudact.ru/x>", markdown)
+
+    def test_every_disguised_shape_of_an_endpoint_host_is_still_refused(self):
+        """A1: the trailing DNS dot and the IDNA dots reach the renderer too."""
+        for host in ("mcp.casus.legal.", "mcp.casus。legal", "MCP.Casus.Legal"):
+            with self.subTest(host=host):
+                record = dict(LINK_LESS_RECORD, url=f"https://{host}/case/1")
+                record.pop("retrieved_from")
+                view = oscola.view_of("vs-rf", None, record)
+                self.assertEqual("", oscola.canonical_url(view))
+                self.assertEqual("", oscola.anchor_url(view))
+                markdown = self.markdown(record)
+                self.assertNotIn("casus", markdown.lower())
+                self.assertNotIn("](", markdown.split(SOURCES_HEADING)[0])
+
+    def test_an_address_the_cleaning_cannot_read_is_printed_by_nothing(self):
+        """R1: the renderer fails closed too — an unreadable url is no url at all."""
+        for url in (
+            "https://user:TESTTOKEN@sudact.ru:bad/x?t=TESTTOKEN",
+            "https://user:TESTTOKEN@mcp..casus.legal/case/1?t=TESTTOKEN",
+        ):
+            with self.subTest(url=url.split("@", 1)[0] + "@…"):
+                record = dict(LINK_LESS_RECORD, url=url)
+                record.pop("retrieved_from")
+                view = oscola.view_of("vs-rf", None, record)
+                self.assertEqual("", oscola.canonical_url(view))
+                self.assertEqual("", oscola.anchor_url(view))
+                markdown = self.markdown(record)
+                self.assertNotIn("TESTTOKEN", markdown)
+                self.assertNotIn("sudact", markdown)
+                self.assertNotIn("casus", markdown.lower())
+                self.assertNotIn("](", markdown.split(SOURCES_HEADING)[0])
+
+    def test_a_scrubbed_citation_form_carries_no_address_into_the_annex(self):
+        """A4: the registry scrubs those fields, and the annex prints what the registry holds.
+
+        `oscola.RETRIEVED_RE` has always cut a `retrieved …` tail out of a citation form, so the
+        marker the scrub leaves behind is dropped from the citation rather than printed — which is
+        the safe direction. What matters here is that no address and no token reach the deliverable.
+        """
+        record = dict(
+            LINK_LESS_RECORD,
+            title="Определение ВС РФ [retrieved via CasusLegal (RU)]",
+            citation_form="Определение ВС РФ, текст: [retrieved via CasusLegal (RU)]",
+        )
+        markdown = self.markdown(record)
+        self.assertNotIn("mcp.casus.legal", markdown)
+        self.assertNotIn("TESTTOKEN", markdown)
+        self.assertIn("Определение ВС РФ", markdown)
+
+
 class SectionBoundaryTest(unittest.TestCase):
     """D-152: `ibid` never crosses a heading, and a quotation keeps its own attribution."""
 
@@ -456,7 +602,10 @@ class RealRunAnnexTest(unittest.TestCase):
         self.assertTrue(line.startswith("[1] Regulation (EU) 2016/679 (GDPR) — CELEX 32016R0679 — "))
         self.assertIn("cited at art 3(2)(a), art 6, art 6(4), art 22, art 35(3)(a)", line)
         self.assertIn("<https://eur-lex.europa.eu/eli/reg/2016/679/oj>", line)
-        self.assertIn("checked 2026-09-10, currency unchecked", line)
+        # D-197 (fix round 1): that run never ran a liveness check — no record in the fixture carries
+        # one — so the annex may not claim a retrieval date it cannot stand behind.
+        self.assertIn("currency unchecked", line)
+        self.assertNotIn("checked 2026-09-10", line)
         self.assertNotIn("Territorial scope", line)
         self.assertNotIn("#art", line)
 
@@ -497,13 +646,14 @@ class AppendixTest(unittest.TestCase):
                 },
             }
         )
-        rendered = fallback.render("Body.", unverified)
+        rendered = fallback.render("Body [[src:us-case]] and [[src:clean]].", unverified)
         self.assertIn("Unverified sources", rendered["markdown"])
         self.assertIn("Doe v Roe, 1 F.3d 1", rendered["markdown"])
         self.assertIn("US citation unresolved", rendered["markdown"])
-        self.assertIn("currency manual_check", rendered["markdown"])
+        self.assertIn("currency manual check", rendered["markdown"])
         self.assertIn("link dead", rendered["markdown"])
-        self.assertNotIn("GDPR art 6", rendered["markdown"])
+        appendix = rendered["markdown"].partition(fallback.appendix_heading())[2]
+        self.assertNotIn("GDPR art 6", appendix)
 
     def test_no_appendix_when_there_is_nothing_to_disclose(self):
         rendered = fallback.render("Body [[src:gdpr-art6]].", index())
@@ -629,12 +779,18 @@ class StatusSectionTest(unittest.TestCase):
         return markdown.partition(STATUS_HEADING)[2].partition("\n## ")[0]
 
     def test_the_banners_and_the_blockers_reach_the_deliverable(self):
+        # D-197: the reader sees the status as a sentence and the section as a word.
         markdown = fallback.render("Body.\n", index(), state=FORCED_EXIT_STATE)["markdown"]
         status = self.status(markdown)
-        self.assertIn("forced_exit_on_v1_with_remaining_issues", status)
+        self.assertNotIn("forced_exit_on_v1_with_remaining_issues", status)
+        self.assertIn(fallback.status_name("forced_exit_on_v1_with_remaining_issues"), status)
         self.assertIn("REVIEWER NOTES NOT FULLY RESOLVED", status)
-        self.assertIn("- blocker · s-1 · Art. 17(1) is cited without a rule in section 1.", status)
-        self.assertIn("- blocker · s-2 · Art. 17(1) is cited without a rule in section 2.", status)
+        self.assertIn(
+            "- blocker · section 1 · Art. 17(1) is cited without a rule in section 1.", status
+        )
+        self.assertIn(
+            "- blocker · section 2 · Art. 17(1) is cited without a rule in section 2.", status
+        )
 
     def test_the_status_section_stands_before_the_appendix(self):
         markdown = fallback.render(
@@ -661,7 +817,7 @@ class StatusSectionTest(unittest.TestCase):
     def test_the_blocker_list_is_capped_and_points_at_the_summary(self):
         state = dict(FORCED_EXIT_STATE, remaining_blocking_issues=blockers_fixture(15))
         status = self.status(fallback.render("Body.\n", index(), state=state)["markdown"])
-        rows = [row for row in status.splitlines() if row.startswith("- blocker · ")]
+        rows = [row for row in status.splitlines() if row.startswith("- blocker · section ")]
         self.assertEqual(fallback.STATUS_ISSUE_LIMIT, len(rows))
         self.assertIn("- … and 3 more in summary.md", status)
 
@@ -687,6 +843,7 @@ class StatusSectionTest(unittest.TestCase):
         )
 
     def test_a_blocker_row_is_severity_section_and_issue(self):
+        # Without a language the row keeps the raw ids: `summary.md` is the technical record.
         self.assertEqual(
             "blocker · s-4 · Something is wrong.",
             fallback.blocking_issue_line(
@@ -695,6 +852,131 @@ class StatusSectionTest(unittest.TestCase):
         )
         self.assertEqual("a plain string", fallback.blocking_issue_line("a plain string"))
         self.assertEqual("", fallback.blocking_issue_line({}))
+
+    def test_a_client_blocker_row_names_the_severity_and_the_section_in_words(self):
+        # D-197: `blocker · s-5-1 · …` is machine talk; the deliverable spells both out.
+        issue = {"severity": "blocker", "section_id": "s-5-1", "issue": "Something is wrong."}
+        self.assertEqual(
+            "blocker · section 5.1 · Something is wrong.",
+            fallback.blocking_issue_line(issue, "en"),
+        )
+        self.assertEqual(
+            "blocker · section 9 · Something is wrong.",
+            fallback.blocking_issue_line(dict(issue, section_id="s-9"), "en"),
+        )
+        for whole in ("general", "document"):
+            with self.subTest(section_id=whole):
+                self.assertEqual(
+                    "blocker · whole memo · Something is wrong.",
+                    fallback.blocking_issue_line(dict(issue, section_id=whole), "en"),
+                )
+        self.assertEqual(
+            "blocker · s-title · Something is wrong.",
+            fallback.blocking_issue_line(dict(issue, section_id="s-title"), "en"),
+        )
+
+
+class StatusNameTest(unittest.TestCase):
+    """D-197: `final_status` reaches the reader as a sentence, never as a code."""
+
+    FAMILIES: dict = {
+        "approved_on_v1": ("approved", "1"),
+        "client_ready_on_v2": ("client_ready", "2"),
+        "accepted_early_on_v3": ("accepted_early", "3"),
+        "manual_review_required_on_v4": ("manual_review_required", "4"),
+        "forced_exit_on_v5_with_remaining_issues": ("forced_exit_with_remaining_issues", "5"),
+        "approved_v3": ("approved", "3"),
+        "delivered": ("delivered", ""),
+        "failed": ("failed", ""),
+        "cancelled_by_user": ("cancelled_by_user", ""),
+        "fallback_summary_delivered": ("fallback_summary_delivered", ""),
+    }
+    """Every `final_status` `finalize.py`, `revision.py` and `machine.py` can write."""
+
+    def test_the_family_and_the_version_are_split_off(self):
+        for status, expected in self.FAMILIES.items():
+            with self.subTest(status=status):
+                self.assertEqual(expected, fallback.status_family(status))
+
+    def test_every_family_has_a_name_that_carries_its_version(self):
+        for status, (_, version) in self.FAMILIES.items():
+            with self.subTest(status=status):
+                name = fallback.status_name(status)
+                # `delivered` is already a word; every code that is not becomes one.
+                self.assertNotIn("_", name)
+                if "_" in status:
+                    self.assertNotEqual(status, name)
+                if version:
+                    self.assertIn(version, name)
+
+    def test_an_unknown_family_falls_back_to_the_raw_code(self):
+        self.assertEqual("something_new_on_v9", fallback.status_name("something_new_on_v9"))
+        self.assertEqual("", fallback.status_name(""))
+        self.assertEqual("", fallback.status_name(None))
+
+
+class StatusReasonNameTest(unittest.TestCase):
+    """D-197: `final_status_reasons[]` are codes; the banner prints their sentences."""
+
+    CODES: tuple[str, ...] = (
+        "unresolved_blockers",
+        "incomplete_review",
+        "all_reviewers_failed",
+        "regression_forced_exit",
+        "length_overflow",
+        "step_loop",
+        "writer_failed",
+        "no_checked_draft",
+        "export_reused_untouched",
+    )
+
+    def test_every_recorded_reason_has_a_sentence(self):
+        for code in self.CODES:
+            with self.subTest(code=code):
+                text = fallback.reason_name(code)
+                self.assertNotEqual(code, text)
+                self.assertNotIn("_", text)
+
+    def test_an_unknown_reason_is_printed_as_it_stands(self):
+        self.assertEqual("mystery_code", fallback.reason_name("mystery_code"))
+        self.assertEqual("free text from --reason", fallback.reason_name("free text from --reason"))
+        self.assertEqual("", fallback.reason_name(""))
+
+
+class AppendixScopeTest(unittest.TestCase):
+    """D-197: the appendix discloses the sources the memorandum actually cites."""
+
+    def registry(self) -> fallback.SourceIndex:
+        return fallback.SourceIndex(
+            sources={
+                "cited": {"citation_form": "Cited Act 2020", "currency": {"status": "manual_check"}},
+                "placeholder": {
+                    "citation_form": "Placeholder Act",
+                    "currency": {"status": "manual_check"},
+                },
+            }
+        )
+
+    def test_a_record_no_token_cites_is_not_listed(self):
+        markdown = fallback.render("Body [[src:cited]].\n", self.registry())["markdown"]
+        self.assertIn("Cited Act 2020", markdown)
+        self.assertNotIn("Placeholder Act", markdown)
+
+    def test_the_index_still_lists_everything_when_no_citation_set_is_given(self):
+        rows = self.registry().unverified_rows()
+        self.assertEqual(["cited", "placeholder"], [row["source_id"] for row in rows])
+
+    def test_the_currency_and_link_tokens_are_printed_through_the_pack(self):
+        rows = fallback.SourceIndex(
+            sources={
+                "x": {
+                    "citation_form": "Some Act",
+                    "currency": {"status": "manual_check"},
+                    "liveness": {"status": "dead"},
+                }
+            }
+        ).unverified_rows()
+        self.assertEqual(["currency manual check", "link dead"], rows[0]["notes"])
 
     def test_the_status_row_prints_the_client_sentence(self):
         issue = {
@@ -734,7 +1016,7 @@ class CurrencyUnavailableTest(unittest.TestCase):
         ).unverified_rows()
         self.assertEqual(["also-dead", "flagged"], [row["source_id"] for row in rows])
         self.assertNotIn("currency unchecked", str(rows))
-        self.assertIn("currency manual_check", str(rows))
+        self.assertIn("currency manual check", str(rows))
 
     def test_a_checker_that_ran_keeps_its_per_source_lines(self):
         rows = fallback.SourceIndex(sources=self.registry()).unverified_rows()
@@ -749,14 +1031,15 @@ class CurrencyUnavailableTest(unittest.TestCase):
 
     def test_the_appendix_prints_the_notice_once(self):
         rendered = fallback.render(
-            "Body.",
+            "Body [[src:only-currency]], [[src:also-dead]], [[src:flagged]].",
             fallback.SourceIndex(sources=self.registry(), currency_unavailable=True),
             drafting_warnings=warnings_fixture(),
         )
         markdown = rendered["markdown"]
+        appendix = markdown.partition(fallback.appendix_heading())[2]
         self.assertIn(f"- {fallback.label('currency_unavailable_note')}", markdown)
         self.assertEqual(1, markdown.count(fallback.label('currency_unavailable_note')))
-        self.assertNotIn("currency unchecked", markdown)
+        self.assertNotIn("currency unchecked", appendix)
         self.assertIn("- AI Act, Annex III(4) — link changed", markdown)
         self.assertNotIn("summary.md", markdown)
 
@@ -1251,11 +1534,24 @@ RU_DELIVERABLE: dict = {
     "memo.labels.status_lead": "Итоговый статус: {final_status}. Конвейер не подписал меморандум.",
     "memo.labels.status_banners_label": "Уведомления конвейера",
     "memo.labels.status_issues_label": "Нерешённые блокирующие замечания",
+    "memo.labels.retrieved_from_note": "текст получен из базы {server}",
+    "memo.labels.legal_database": "юридических данных",
     "memo.banner_titles.forced_exit": "ЗАМЕЧАНИЯ РЕЦЕНЗЕНТОВ СНЯТЫ НЕ ПОЛНОСТЬЮ",
     "memo.banner_titles.subtitle": "Перед использованием требуется ручная проверка.",
     "memo.banner_titles.final_status": "Итоговый статус: {final_status}.",
     "memo.banner_titles.fallbacks_heading": "Сработавшие запасные сценарии:",
     "memo.banner_titles.reasons_heading": "Причины, записанные для ручной проверки:",
+    "memo.labels.section_word": "раздел",
+    "memo.labels.whole_memo": "весь меморандум",
+    "memo.status_names.forced_exit_with_remaining_issues": (
+        "выпущен с незакрытыми замечаниями (версия {version})"
+    ),
+    "memo.status_names.manual_review_required": "требуется ручная проверка (версия {version})",
+    "memo.status_reasons.unresolved_blockers": "остались незакрытые блокирующие замечания",
+    "memo.severity.blocker": "блокирующее замечание",
+    "memo.severity.major": "существенное замечание",
+    "memo.currency_names.manual_check": "нужна ручная проверка",
+    "memo.link_names.dead": "не открывается",
     "memo.citation.art": "ст.",
     "memo.citation.cited_at": "цитируется в ",
     "memo.citation.also_cited_at": "также цитируется в ",
@@ -1343,18 +1639,30 @@ class LocalizedMarkdownTest(_PackedTestCase):
 
     def test_the_sources_line_names_the_cited_places_in_the_memo_language(self):
         self.assertIn("цитируется в ст. 6(1)(f)", self.render_md())
-        self.assertIn("проверено 2026-09-10, актуальность manual_check", self.render_md())
+        # D-197: the link check says `dead`, so the annex prints no retrieval date at all.
+        self.assertIn("актуальность нужна ручная проверка", self.render_md())
+        self.assertNotIn("проверено 2026-09-10", self.render_md())
 
-    def test_the_appendix_notes_are_localized_and_the_statuses_are_not(self):
+    def test_the_appendix_notes_and_their_statuses_are_localized(self):
         result = self.render_md()
-        self.assertIn("актуальность manual_check", result)
-        self.assertIn("ссылка dead", result)
+        self.assertIn("актуальность нужна ручная проверка", result)
+        self.assertIn("ссылка не открывается", result)
+        self.assertNotIn("manual_check", result)
+        self.assertNotIn("dead", result)
 
     def test_the_status_lead_and_its_sub_headings_are_localized(self):
         status = self.render_md().partition(fallback.status_heading("ru"))[2]
-        self.assertIn("Итоговый статус: forced_exit_on_v1_with_remaining_issues.", status)
+        self.assertIn(
+            "Итоговый статус: выпущен с незакрытыми замечаниями (версия 1).", status
+        )
+        self.assertNotIn("forced_exit_on_v1_with_remaining_issues", status)
         self.assertIn("Уведомления конвейера", status)
         self.assertIn("Нерешённые блокирующие замечания", status)
+
+    def test_the_blocker_rows_name_the_severity_and_the_section_in_russian(self):
+        status = self.render_md().partition(fallback.status_heading("ru"))[2]
+        self.assertIn("- блокирующее замечание · раздел 1 · ", status)
+        self.assertNotIn("· s-1 ·", status)
 
     def test_english_is_what_it_was_before_the_language_existed(self):
         without = fallback.render(
@@ -1366,6 +1674,21 @@ class LocalizedMarkdownTest(_PackedTestCase):
         )["markdown"]
         self.assertEqual(without, self.render_md(language="en"))
         self.assertIn("cited at art 6(1)(f)", without)
+
+
+class LocalizedLinkLessSourceTest(_PackedTestCase):
+    """D-192: the `retrieved from` note of the annex is written in the memo language."""
+
+    def test_the_russian_annex_names_the_database_in_russian(self):
+        rendered = oscola.sources_entry(annex_row(LINK_LESS_RECORD), "ru")
+        self.assertIn("текст получен из базы CasusLegal (RU)", rendered)
+        self.assertNotIn("text retrieved from", rendered)
+        self.assertNotIn("<", rendered)
+
+    def test_an_unknown_endpoint_falls_back_to_the_russian_generic_word(self):
+        record = dict(LINK_LESS_RECORD, retrieved_from="https://endpoint.example/one/mcp")
+        rendered = oscola.sources_entry(annex_row(record), "ru")
+        self.assertIn("текст получен из базы юридических данных", rendered)
 
 
 class BannerLanguageSignatureTest(_PackedTestCase):

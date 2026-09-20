@@ -724,7 +724,8 @@ class CommandTest(unittest.TestCase):
 
         markdown = (work_dir / "memo-gdpr.md").read_text(encoding="utf-8")
         self.assertIn(fallback.status_heading(), markdown)
-        self.assertIn("- blocker · s-1 · Art. 17(1) carries no rule.", markdown)
+        # D-197: the deliverable spells the severity and the section anchor out for the reader.
+        self.assertIn("- blocker · section 1 · Art. 17(1) carries no rule.", markdown)
 
     def test_validate_without_a_docx_is_skipped(self):
         work_dir = self.make_task()

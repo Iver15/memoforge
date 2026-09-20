@@ -328,11 +328,36 @@ class BijectionTest(LintTestCase):
 
     def test_l06_ignores_a_verdict_carrying_conclusion_item_of_the_brief(self):
         # D-189: the brief branch is the subsection count only; a verdict there changes nothing.
-        text = fixture("brief-clean").replace(
-            "- Ship a one-click withdrawal control, owned by Legal, before the flow ships.",
-            "- Ship a one-click withdrawal control, owned by Legal, before the flow ships. Risk: high.",
-        )
+        # D-189a: the string this used to replace was not in `brief-clean.md`, so the fixture came
+        # back untouched and the test asserted nothing. It now edits the brief's real item.
+        original = fixture("brief-clean")
+        item = "- Keep the opt-in unticked at launch, owned by Product, before the flow ships."
+        text = original.replace(item, f"{item} Risk: high.")
+        self.assertNotEqual(original, text)
         self.assertNotIn("L-06", self.rules(self.lint(text, template="executive-brief")))
+
+    def test_l06_flags_the_verdict_wherever_it_stands_in_the_conclusion_item(self):
+        # D-189a: `exec_bullet_risk` is end-anchored, so a verdict that opens the item or sits
+        # before a section reference escaped L-06 entirely.
+        item = "- Keep the opt-in unticked at launch, owned by Product, before the flow ships."
+        for replacement in (
+            "- Risk: medium. Product must keep the opt-in unticked before the flow ships.",
+            "- Keep the opt-in unticked, owned by Product. Risk: medium. See section 3.1.",
+            f"{item} Risk: medium.",
+        ):
+            with self.subTest(item=replacement):
+                text = fixture("classical-clean").replace(item, replacement)
+                findings = self.only(self.lint(text), "L-06")
+                self.assertEqual(1, len(findings), replacement)
+                self.assertIn("repeats the risk verdict", findings[0]["hint"])
+
+    def test_l06_ignores_a_conclusion_item_that_merely_names_the_risk(self):
+        # D-189a: the label without one of the four levels is ordinary prose, not a verdict.
+        text = fixture("classical-clean").replace(
+            "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.",
+            "- Risk of losing the goods stays with Product, owned by Product, before launch.",
+        )
+        self.assertNotIn("L-06", self.rules(self.lint(text)))
 
 
 class RiskLineTest(LintTestCase):
@@ -834,6 +859,50 @@ class LocalizedGrammarTest(LintTestCase):
         findings = self.rule("L-06", text, language="ru")
         self.assertEqual(1, len(findings))
         self.assertIn("repeats the risk verdict", findings[0]["hint"])
+
+    def test_a_russian_verdict_before_a_section_reference_is_an_l06(self):
+        # D-189a: `Риск: средний (раздел 4.1).` escaped the end-anchored recognizer entirely.
+        text = (
+            "# T\n\n"
+            "## 1. Резюме\n\n"
+            "- Основание доступно для потока. Риск: средний.\n\n"
+            "## 2. Факты\n\n"
+            "Факты потока.\n\n"
+            "## 3. Основание\n\n"
+            "Основание доступно [[src:gdpr-art-6 Art. 6(1)(a)]].\n\n"
+            "Риск: средний. Основание действует. Продукт оставляет отметку пустой.\n\n"
+            "## 4. Выводы\n\n"
+            "- Сохранить отметку пустой, владелец Продукт. Риск: средний (раздел 3).\n\n"
+            "<!-- sources: generated -->\n"
+        )
+        findings = self.rule("L-06", text, language="ru")
+        self.assertEqual(1, len(findings))
+        self.assertIn("repeats the risk verdict", findings[0]["hint"])
+
+    def test_a_russian_conclusion_item_naming_the_risk_without_a_level_is_not_an_l06(self):
+        text = (
+            "# T\n\n"
+            "## 1. Резюме\n\n"
+            "- Основание доступно для потока. Риск: средний.\n\n"
+            "## 2. Факты\n\n"
+            "Факты потока.\n\n"
+            "## 3. Основание\n\n"
+            "Основание доступно [[src:gdpr-art-6 Art. 6(1)(a)]].\n\n"
+            "Риск: средний. Основание действует. Продукт оставляет отметку пустой.\n\n"
+            "## 4. Выводы\n\n"
+            "- Риск утраты товара лежит на продавце, владелец Продукт, до запуска.\n\n"
+            "<!-- sources: generated -->\n"
+        )
+        self.assertEqual([], self.rule("L-06", text, language="ru"))
+
+    def test_the_l13_summary_bullet_recognizer_stays_end_anchored(self):
+        # D-189a: only the L-06 conclusion check uses the loose recognizer; L-13 is unchanged.
+        english = lint.grammar("en")
+        self.assertTrue(english.exec_bullet_risk.pattern.endswith(r"\.\s*$"))
+        self.assertIsNone(english.exec_bullet_risk.search("Risk: medium. Product must act."))
+        self.assertIsNotNone(english.risk_verdict.search("Risk: medium. Product must act."))
+        self.assertIsNotNone(english.risk_verdict.search("Owned by Legal. Risk: low (section 4.1)."))
+        self.assertIsNone(english.risk_verdict.search("Risk of losing the goods stays with Product."))
 
 
 # --- commands ---------------------------------------------------------------

@@ -51,8 +51,17 @@ facts: `Facts`
 assumptions: `Assumptions`
 limitations: `Limitations`
 The risk line follows Risk: medium.
-exactly, with one of high, medium, low, undetermined as the verdict. Pinpoints in `[[src:<id> <pinpoint>]]` stay in
-the English machine form (`art 6`, `para 3`) whatever the memo language. Quotations stay in the
+exactly, with one of high, medium, low, undetermined as the verdict. A pinpoint in `[[src:<id> <pinpoint>]]` of a
+source numbered in Latin script (EU, UK, US and the like) stays in the English machine form
+(`art 6`, `para 3`) whatever the memo language. A source written in another script is pinpointed
+exactly as it numbers itself, in its own language — `п. 1 ст. 887`, not `art 887 para 1` — and a
+contract or an offer by its own clause numbers and section headings, the heading left as the
+source wrote it: `п. 3 разд. «Возмещение»`, not `sec Reimbursement para 3`.
+The `Question:` line of the header block is the user's own question word for word, except a
+leading or trailing instruction to you about the form of the work — the language, the format, the
+jurisdiction to apply ("напиши меморандум на русском по праву РФ", "write a memo in English under
+UK law"): that instruction is dropped, because the header already states the language and the
+jurisdictions. Nothing else is cut, rephrased or shortened. Quotations stay in the
 language of the source, with a gloss in English where the reader needs one.
 Use the settled legal terminology of English and call each concept by one term
 throughout — the term a section heading above uses is the term the body uses;

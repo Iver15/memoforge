@@ -830,7 +830,12 @@ def _render_status(doc, status: dict) -> None:
     language = status.get("language") or i18n.DEFAULT
     _plain_paragraph(doc, fallback.label("status_label", language), bold=True)
     _plain_paragraph(
-        doc, fallback.label("status_lead", language, final_status=status["final_status"])
+        doc,
+        fallback.label(
+            "status_lead",
+            language,
+            final_status=fallback.status_name(status["final_status"], language),
+        ),
     )
     if status["banners"]:
         _plain_paragraph(doc, fallback.label("status_banners_label", language), bold=True)
@@ -924,7 +929,12 @@ def _render_banner(
     left = WD_ALIGN_PARAGRAPH.LEFT
     subtitle = i18n.t(code, "memo.banner_titles.subtitle")
     if final_status:
-        subtitle += " " + i18n.t(code, "memo.banner_titles.final_status", final_status=final_status)
+        # D-197: the reader of the banner gets the status as a sentence, not as a code.
+        subtitle += " " + i18n.t(
+            code,
+            "memo.banner_titles.final_status",
+            final_status=fallback.status_name(final_status, code),
+        )
     _plain_paragraph(cell, subtitle, align=left)
 
     if banners:
@@ -938,7 +948,7 @@ def _render_banner(
             cell, i18n.t(code, "memo.banner_titles.reasons_heading"), bold=True, align=left
         )
         for reason in reasons:
-            _plain_paragraph(cell, f"- {reason}", align=left)
+            _plain_paragraph(cell, f"- {fallback.reason_name(reason, code)}", align=left)
     doc.add_paragraph()
 
 
@@ -1036,7 +1046,7 @@ def render(
         _render_appendix(
             doc,
             list(drafting_warnings or []),
-            index.unverified_rows(language),
+            index.unverified_rows(language, fallback.cited_source_ids(scanned["mentions"])),
             scanned["unresolved"],
             currency_unavailable=index.currency_unavailable,
             language=language,

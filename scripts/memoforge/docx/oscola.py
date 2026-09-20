@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import i18n, pylauncher
+from .. import i18n, pylauncher, routing, sources
 
 # --- citation style (D-150) ------------------------------------------------
 
@@ -180,6 +180,35 @@ def citation_word(key: str, language: str = i18n.DEFAULT) -> str:
     return i18n.t(i18n.normalize(language) or i18n.DEFAULT, f"memo.citation.{key}")
 
 
+_CODE_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
+"""A recorded machine token. Anything else is free text and is never looked up in a pack."""
+
+
+def token_name(node: str, code: object, language: str = i18n.DEFAULT) -> str:
+    """One recorded token through `memo.<node>.<code>`; an unknown code prints as it stands (D-197).
+
+    The renderer never raises because of a code it has not seen: a status the pipeline grows
+    tomorrow reaches the reader raw, which is ugly, while an exception would lose the memorandum.
+    """
+    raw = str(code or "").strip()
+    if not raw or not _CODE_RE.match(raw):
+        return raw
+    try:
+        return i18n.t(i18n.normalize(language) or i18n.DEFAULT, f"memo.{node}.{raw}")
+    except KeyError:
+        return raw
+
+
+def currency_name(code: object, language: str = i18n.DEFAULT) -> str:
+    """A recorded `currency.status` as the reader sees it (`memo.currency_names`, D-197)."""
+    return token_name("currency_names", code, language)
+
+
+def link_name(code: object, language: str = i18n.DEFAULT) -> str:
+    """A recorded `liveness.status` as the reader sees it (`memo.link_names`, D-197)."""
+    return token_name("link_names", code, language)
+
+
 def view_of(source_id: str, entry: dict | None = None, record: dict | None = None) -> dict:
     """One citation view over the frozen snapshot entry and the registry record (§5.3, M6).
 
@@ -202,6 +231,7 @@ def view_of(source_id: str, entry: dict | None = None, record: dict | None = Non
     if not meta:
         meta = record.get("meta") if isinstance(record.get("meta"), dict) else {}
     currency = record.get("currency") if isinstance(record.get("currency"), dict) else {}
+    liveness = record.get("liveness") if isinstance(record.get("liveness"), dict) else {}
     return {
         "source_id": source_id,
         "layer": pick("layer", None),
@@ -209,8 +239,11 @@ def view_of(source_id: str, entry: dict | None = None, record: dict | None = Non
         "citation_form": str(pick("citation_form", "")),
         "identifiers": identifiers if isinstance(identifiers, dict) else {},
         "url": str(pick("url", "")),
+        "retrieved_from": str(pick("retrieved_from", "")),
         "retrieved_at": pick("retrieved_at", None),
         "currency_status": str(entry.get("currency_status") or currency.get("status") or ""),
+        # D-197: the annex prints `checked <date>` only when the link check actually succeeded.
+        "liveness_status": str(liveness.get("status") or ""),
         "meta": meta,
     }
 
@@ -357,7 +390,16 @@ def long_date(value: object, language: str = i18n.DEFAULT) -> str:
 
 # --- pinpoints -------------------------------------------------------------
 
-CYRILLIC_PINPOINT_RE = re.compile(r"^(?:ст|п(?:п)?|ч|абз)\.?\s", re.IGNORECASE)
+CYRILLIC_LABEL = r"(?:раздел|разд|прил|абз|пп|ст|гл|ч|п)"
+"""D-195: the pinpoint labels a Russian source uses, longest alternative first.
+
+The same list as `citations.CYRILLIC_LABEL`, which C-06 audits against — the renderer keeps its own
+copy so the markdown fallback stays free of the citation-audit module, and a test pins the two
+together. `ст`, `п`, `пп`, `ч`, `абз` number a statute; `разд`/`раздел`, `гл` and `прил` number a
+contract or an offer.
+"""
+
+CYRILLIC_PINPOINT_RE = re.compile(rf"^{CYRILLIC_LABEL}\.?\s", re.IGNORECASE)
 """D-186: a Russian pinpoint is printed as the source numbers it, in every memo language."""
 
 _PINPOINT_LABELS: tuple[tuple[str, str], ...] = (
@@ -378,8 +420,16 @@ _PINPOINT_LABELS: tuple[tuple[str, str], ...] = (
 )
 """Leading label of a pinpoint -> its OSCOLA abbreviation; longest alternative first."""
 
+_NUMERAL = r"(?:[0-9(]|[IVXLivxl]+(?![A-Za-z]))"
+"""D-195: what makes a label a label — a digit, an opening bracket, or a **whole** Roman numeral.
+
+`(?=[0-9IVXL(])` took the first letter of `Insurance`, `Liability` and `Violation` for a numeral,
+so a clause of an offer (`art Insurance para 1.7`) was relabelled as an article. A Roman numeral
+that is really one is not followed by another letter.
+"""
+
 _PINPOINT_RE = re.compile(
-    r"^(?P<label>" + "|".join(pattern for pattern, _ in _PINPOINT_LABELS) + r")\.?\s*(?=[0-9IVXL(])",
+    r"^(?P<label>" + "|".join(pattern for pattern, _ in _PINPOINT_LABELS) + rf")\.?\s*(?={_NUMERAL})",
     re.IGNORECASE,
 )
 _SECTION_SIGN_RE = re.compile(r"^(§{1,2})\s*")
@@ -406,25 +456,44 @@ def normalise_pinpoint(value: object) -> str:
 
 
 _DISPLAY_LABELS: tuple[str, ...] = tuple(dict.fromkeys(name for _, name in _PINPOINT_LABELS))
-_DISPLAY_LABEL_RE = re.compile(r"^(?P<label>" + "|".join(_DISPLAY_LABELS) + r")(?=\s|$)")
-"""The normalised label at the head of a canonical pinpoint, plural before singular."""
+_DISPLAY_LABEL_RE = re.compile(
+    r"\b(?P<label>" + "|".join(_DISPLAY_LABELS) + rf")(?=$|\s+{_NUMERAL})"
+)
+"""D-195: a canonical label anywhere in the pinpoint, plural before singular.
+
+A label token is a whole word of `_DISPLAY_LABELS` followed by whitespace and a real numeral (or
+the end of the string), so `art 998 para 1` carries two labels and `art Insurance para 1.7` carries
+one — the `para`, not the `art`.
+"""
+
+_QUOTED_SPAN_RE = re.compile(r"«[^«»]*»|“[^”]*”|„[^“”]*[“”]|\"[^\"]*\"")
+"""D-195: a heading a source gives its own section is quoted, and quoted text is never translated."""
 
 
 def display_pinpoint(pinpoint: str, language: str = i18n.DEFAULT) -> str:
-    """The canonical pinpoint with its label in the memo language (D-175a).
+    """The canonical pinpoint with every label in the memo language (D-175a, D-195).
 
     The only place a pinpoint label is translated, and it runs on the string that is about to be
     printed — after the anchor of the link and the `ibid` decision were taken on the canonical
     form. A pinpoint the normaliser did not label (`§ 26`, `point 2 of the operative part`) is
-    printed as the draft wrote it.
+    printed as the draft wrote it, a Cyrillic one as the source numbered it (D-186), and a heading
+    inside guillemets or quotes exactly as the source wrote it.
     """
     text = str(pinpoint or "")
     if CYRILLIC_PINPOINT_RE.match(text):
         return text  # D-186: printed as written in every language; `Art. 152(2)` is out of v1
-    match = _DISPLAY_LABEL_RE.match(text)
-    if match is None:
-        return text
-    return citation_word(match.group("label"), language) + text[match.end():]
+
+    def translate(match: "re.Match[str]") -> str:
+        return citation_word(match.group("label"), language)
+
+    out: list[str] = []
+    cursor = 0
+    for quoted in _QUOTED_SPAN_RE.finditer(text):
+        out.append(_DISPLAY_LABEL_RE.sub(translate, text[cursor:quoted.start()]))
+        out.append(quoted.group(0))
+        cursor = quoted.end()
+    out.append(_DISPLAY_LABEL_RE.sub(translate, text[cursor:]))
+    return "".join(out)
 
 
 # --- names -----------------------------------------------------------------
@@ -927,13 +996,30 @@ def mention_text(view: dict, mention: dict, style: str, language: str = i18n.DEF
 ARTICLE_NUMBER_RE = re.compile(r"^(?:art|arts)\s+([0-9]+)")
 
 
+def public_url_of(view: dict) -> str:
+    """The view's URL, cleaned, or `""` when it is an MCP endpoint address (D-192, defence in depth).
+
+    The public-url rule runs at registration, so a record written after it never carries a bad url.
+    A work dir from before it does, and a memorandum built from that registry must still not print
+    or link a paid endpoint — or a token. A5a: this applies the whole `sources.public_url` rule,
+    not only the host check, so an old `…?token=…`, a userinfo prefix and an auth fragment are gone
+    before the annex or the hyperlink sees the address. Every url the renderer uses comes through
+    this one function.
+    """
+    url = str(view.get("url") or "").strip()
+    if not url:
+        return ""
+    clean, _ = sources.public_url(url)
+    return clean
+
+
 def anchor_url(view: dict, pinpoint: str = "") -> str:
     """The registered URL, with `#art_<N>` when a consolidated CELEX makes the anchor real (D-150).
 
     Without a consolidated version the link goes to the top of the act: eur-lex numbers the anchors
     of a consolidated text only, and a guessed fragment is a broken link.
     """
-    url = str(view.get("url") or "").strip()
+    url = public_url_of(view)
     if not url:
         return ""
     identifiers = view.get("identifiers") or {}
@@ -955,7 +1041,26 @@ AMENDED_STATUSES: tuple[str, ...] = ("amended", "repealed", "superseded")
 
 def canonical_url(view: dict) -> str:
     """The URL of the instrument, not of one of its articles: the fragment goes (D-150)."""
-    return str(view.get("url") or "").strip().split("#", 1)[0]
+    return public_url_of(view).split("#", 1)[0]
+
+
+def retrieved_from_note(views: list, language: str = i18n.DEFAULT) -> str:
+    """`text retrieved from CasusLegal (RU)` — what stands where a URL cannot (D-192).
+
+    A source registered from an MCP endpoint has no address a client can open, so the annex names
+    the database instead. The endpoint itself is never printed: only the label the user already
+    knows from the plan gate, or the pack's generic word when the host is of no bundled server.
+    """
+    endpoint = ""
+    for view in views:
+        endpoint = endpoint or str(view.get("retrieved_from") or "").strip()
+    if not endpoint:
+        return ""
+    label = i18n.normalize(language) or i18n.DEFAULT
+    server = routing.server_label(sources.source_host(endpoint))
+    if not server:
+        server = i18n.t(label, "memo.labels.legal_database")
+    return i18n.t(label, "memo.labels.retrieved_from_note", server=server)
 
 
 def identifiers_field(views: list) -> str:
@@ -972,32 +1077,47 @@ def identifiers_field(views: list) -> str:
     return ", ".join(parts)
 
 
+LIVENESS_SUCCEEDED: tuple[str, ...] = ("ok", "redirect")
+"""D-197: `liveness.status` values that mean the link check reached the document."""
+
+
 def provenance_field(views: list, language: str = i18n.DEFAULT) -> str:
     """`checked 2026-09-10, currency unchecked; art 6 amended` (D-150).
 
     One currency verdict per instrument — the run checks the work, not each article — plus the
     articles whose own status says the text moved under the memorandum. D-175a: the article is
-    named by its display form, the status it carries is the recorded token and stays as it is.
+    named by its display form.
+
+    D-197: the recorded currency token is printed through `memo.currency_names`, and the retrieval
+    date is printed only when the link check succeeded — the liveness status has to be one of
+    `LIVENESS_SUCCEEDED`. A recorded `dead`, `changed` or `unchecked` status, and equally the
+    absence of any liveness record, make «checked <date>» a claim the run cannot stand behind: the
+    real run printed «проверено 2026-09-20» next to an act pulled from an MCP database that nothing
+    had ever fetched.
     """
     retrieved = ""
     status = ""
+    liveness = ""
     for view in views:
         retrieved = retrieved or date_only(view.get("retrieved_at"))
         status = status or str(view.get("currency_status") or "").strip()
+        liveness = liveness or str(view.get("liveness_status") or "").strip()
+    if liveness.lower() not in LIVENESS_SUCCEEDED:
+        retrieved = ""
     notes: list[str] = []
     for view in views:
         value = str(view.get("currency_status") or "").strip().lower()
         if value not in AMENDED_STATUSES:
             continue
         where = display_pinpoint(record_pinpoint(view), language) or short_name(view)
-        note = f"{where} {value}".strip()
+        note = f"{where} {currency_name(value, language)}".strip()
         if note not in notes:
             notes.append(note)
     head = ", ".join(
         part
         for part in (
             f"{citation_word('checked', language)}{retrieved}" if retrieved else "",
-            f"{citation_word('currency', language)}{status}" if status else "",
+            f"{citation_word('currency', language)}{currency_name(status, language)}" if status else "",
         )
         if part
     )
@@ -1023,6 +1143,9 @@ def sources_entry(row: dict, language: str = i18n.DEFAULT) -> str:
     url = canonical_url(views[0])
     if url:
         parts.append(f"<{url}>")
+    else:
+        # D-192: no address a client can open — the annex names the database it came from instead.
+        parts.append(retrieved_from_note(views, language))
     parts.append(provenance_field(views, language))
     return SOURCES_SEPARATOR.join(part for part in parts if part)
 

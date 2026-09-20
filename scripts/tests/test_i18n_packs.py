@@ -264,6 +264,60 @@ class PackParityTest(unittest.TestCase):
                     stem = label[:-1].lower().replace(" ", "")
                     self.assertIn(stem, abbreviations, f"{code}: `{key}` -> `{label}`")
 
+    # --- plan 67 task 2: no raw code reaches the reader (D-197) ---------------
+
+    STATUS_FAMILIES: tuple[str, ...] = (
+        "approved",
+        "client_ready",
+        "accepted_early",
+        "manual_review_required",
+        "forced_exit_with_remaining_issues",
+        "delivered",
+        "failed",
+        "cancelled_by_user",
+        "fallback_summary_delivered",
+    )
+    """Every `final_status` family `finalize.py`, `revision.py` and `machine.py` can write."""
+
+    def test_every_status_family_has_a_name_in_every_pack(self):
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                for family in self.STATUS_FAMILIES:
+                    value = str(i18n.t(code, f"memo.status_names.{family}", version="1"))
+                    self.assertTrue(value.strip(), family)
+
+    def test_no_client_facing_name_keeps_a_snake_case_code(self):
+        nodes = (
+            "memo.status_names",
+            "memo.status_reasons",
+            "memo.severity",
+            "memo.currency_names",
+            "memo.link_names",
+        )
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                for node in nodes:
+                    for key, value in dict(i18n.node(code, node)).items():
+                        self.assertNotIn("_", str(value).replace("{version}", ""), f"{node}.{key}")
+
+    def test_the_russian_wording_the_owner_fixed(self):
+        expected = {
+            "memo.status_names.approved": "утверждён на версии {version}",
+            "memo.status_names.manual_review_required": "требуется ручная проверка (версия {version})",
+            "memo.status_names.forced_exit_with_remaining_issues": (
+                "выпущен с незакрытыми замечаниями (версия {version})"
+            ),
+            "memo.severity.blocker": "блокирующее замечание",
+            "memo.severity.major": "существенное замечание",
+            "memo.currency_names.current": "действует",
+            "memo.currency_names.unchecked": "не проверялась",
+            "memo.currency_names.manual_check": "нужна ручная проверка",
+            "memo.currency_names.outdated_but_usable": "устарел, но применим",
+        }
+        for dotted, value in expected.items():
+            with self.subTest(key=dotted):
+                self.assertEqual(value, i18n.node("ru", dotted))
+
     def test_ru_section_label_is_statya(self):
         """Post-run fix: a UK Act section is «статья» in Russian legal usage."""
         self.assertEqual("ст.", i18n.node("ru", "memo.citation.s"))

@@ -74,10 +74,14 @@
       "currency_note": "актуальность {status}",
       "no_saved_text_note": "нет сохранённого текста источника — цитату нельзя было сверить с источником",
       "link_note": "ссылка {status}",
+      "retrieved_from_note": "текст получен из базы {server}",
+      "legal_database": "юридических данных",
       "status_label": "Статус",
       "status_lead": "Итоговый статус: {final_status}. Конвейер не утвердил этот меморандум; пункты ниже не закрыты и должны быть проверены перед использованием клиентом.",
       "status_banners_label": "Уведомления конвейера",
       "status_issues_label": "Незакрытые блокирующие замечания",
+      "section_word": "раздел",
+      "whole_memo": "весь меморандум",
       "source_pack_heading": "Пакет источников (замороженный)",
       "frozen_at": "Заморожен: {value}",
       "entries_heading": "Записи",
@@ -129,6 +133,51 @@
       "also_cited_at": "также цитируется в ",
       "checked": "проверено ",
       "currency": "актуальность "
+    },
+    "status_names": {
+      "approved": "утверждён на версии {version}",
+      "client_ready": "готов для клиента (версия {version})",
+      "accepted_early": "принят досрочно (версия {version})",
+      "manual_review_required": "требуется ручная проверка (версия {version})",
+      "forced_exit_with_remaining_issues": "выпущен с незакрытыми замечаниями (версия {version})",
+      "delivered": "передан",
+      "failed": "остановлен без готового меморандума",
+      "cancelled_by_user": "отменён по вашему запросу",
+      "fallback_summary_delivered": "вместо меморандума передана сводка исследования"
+    },
+    "status_reasons": {
+      "unresolved_blockers": "остались незакрытые блокирующие замечания",
+      "incomplete_review": "раунд ревью не завершился",
+      "all_reviewers_failed": "ни один рецензент не дал пригодного вердикта",
+      "regression_forced_exit": "правка ухудшила текст, поэтому цикл ревью остановлен",
+      "length_overflow": "меморандум превышает лимит по объёму",
+      "step_loop": "шаг конвейера повторялся без продвижения",
+      "writer_failed": "автор не смог подготовить исправленный текст",
+      "no_checked_draft": "ни одна версия текста не прошла автоматические проверки",
+      "export_reused_untouched": "доставлен ранее экспортированный файл без изменений"
+    },
+    "severity": {
+      "blocker": "блокирующее замечание",
+      "major": "существенное замечание",
+      "minor": "незначительное замечание",
+      "info": "информационное замечание"
+    },
+    "currency_names": {
+      "current": "действует",
+      "outdated_but_usable": "устарел, но применим",
+      "do_not_use": "не использовать",
+      "manual_check": "нужна ручная проверка",
+      "unchecked": "не проверялась",
+      "amended": "изменён",
+      "repealed": "отменён",
+      "superseded": "заменён"
+    },
+    "link_names": {
+      "ok": "работает",
+      "redirect": "переадресация",
+      "dead": "не открывается",
+      "changed": "изменилась",
+      "unchecked": "не проверялась"
     },
     "months": [
       "января",
@@ -182,7 +231,7 @@
     },
     "summary": {
       "title": "резюме прохода memoforge — {task_id}",
-      "status": "- Статус: **{final_status}**",
+      "status": "- Статус: **{status_name}** (`{final_status}`)",
       "terminal_phase": "- Терминальная фаза: `{phase}`",
       "mode": "- Режим: `{mode}`",
       "question": "- Вопрос: {question}",

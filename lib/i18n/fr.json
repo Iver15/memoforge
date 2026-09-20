@@ -66,10 +66,14 @@
       "currency_note": "actualité {status}",
       "no_saved_text_note": "aucun texte source enregistré — la citation n'a pas pu être vérifiée sur la source",
       "link_note": "lien {status}",
+      "retrieved_from_note": "texte obtenu via {server}",
+      "legal_database": "une base de données juridique",
       "status_label": "Statut",
       "status_lead": "Statut final : {final_status}. Le pipeline n'a pas validé cette note ; les points ci-dessous restent ouverts et doivent être vérifiés avant tout usage client.",
       "status_banners_label": "Avis du pipeline",
       "status_issues_label": "Points bloquants non résolus",
+      "section_word": "section",
+      "whole_memo": "l'ensemble de la note",
       "source_pack_heading": "Dossier de sources (figé)",
       "frozen_at": "Figé le : {value}",
       "entries_heading": "Entrées",
@@ -121,6 +125,51 @@
       "also_cited_at": "également cité dans ",
       "checked": "vérifié ",
       "currency": "actualité "
+    },
+    "status_names": {
+      "approved": "approuvé à la version {version}",
+      "client_ready": "prêt pour le client (version {version})",
+      "accepted_early": "accepté par anticipation (version {version})",
+      "manual_review_required": "vérification manuelle requise (version {version})",
+      "forced_exit_with_remaining_issues": "remis avec des observations non levées (version {version})",
+      "delivered": "remis",
+      "failed": "arrêté sans mémorandum achevé",
+      "cancelled_by_user": "annulé à votre demande",
+      "fallback_summary_delivered": "une synthèse des recherches a été remise à la place du mémorandum"
+    },
+    "status_reasons": {
+      "unresolved_blockers": "des observations bloquantes restent non levées",
+      "incomplete_review": "un tour de relecture ne s'est pas achevé",
+      "all_reviewers_failed": "aucun relecteur n'a rendu un avis exploitable",
+      "regression_forced_exit": "une révision a dégradé le projet, la boucle de relecture a donc été arrêtée",
+      "length_overflow": "le mémorandum dépasse sa limite de mots",
+      "step_loop": "une étape du pipeline s'est répétée sans progresser",
+      "writer_failed": "le rédacteur n'a pas pu produire de projet révisé",
+      "no_checked_draft": "aucune version du projet n'a passé les contrôles automatiques",
+      "export_reused_untouched": "un export antérieur a été remis sans modification"
+    },
+    "severity": {
+      "blocker": "observation bloquante",
+      "major": "observation majeure",
+      "minor": "observation mineure",
+      "info": "information"
+    },
+    "currency_names": {
+      "current": "en vigueur",
+      "outdated_but_usable": "obsolète mais applicable",
+      "do_not_use": "ne pas utiliser",
+      "manual_check": "vérification manuelle requise",
+      "unchecked": "non vérifiée",
+      "amended": "modifié",
+      "repealed": "abrogé",
+      "superseded": "remplacé"
+    },
+    "link_names": {
+      "ok": "valide",
+      "redirect": "redirection",
+      "dead": "hors service",
+      "changed": "modifié",
+      "unchecked": "non vérifié"
     },
     "months": [
       "janvier",
@@ -174,7 +223,7 @@
     },
     "summary": {
       "title": "résumé du passage memoforge — {task_id}",
-      "status": "- Statut : **{final_status}**",
+      "status": "- Statut : **{status_name}** (`{final_status}`)",
       "terminal_phase": "- Phase terminale : `{phase}`",
       "mode": "- Mode : `{mode}`",
       "question": "- Question : {question}",

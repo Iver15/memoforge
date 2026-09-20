@@ -128,25 +128,56 @@ def condense_appendix(body: str, work_dir: Path, state: dict) -> str:
 
     D-175: the export was written in the memo language of the run, so the headings this pass reads
     back are that language's — an English partition would find nothing and double the appendix.
+
+    FF3: with the draft gone (M9 salvage, a reused export) the appendix is **not** rebuilt. The
+    export carries the one this run's draft earned — `docx render` filtered it by the citations of
+    the very bytes it exported — and rebuilding it from the registry alone put uncited placeholder
+    records back in front of the client. The block is delivered exactly as it stands; only the
+    `## Status` section, which depends on the terminal status and not on the draft, is refreshed.
     """
     language = md_fallback.memo_language(state)
-    head, marker, _ = body.partition(md_fallback.appendix_heading(language))
+    head, marker, tail = body.partition(md_fallback.appendix_heading(language))
     appendix = ""
     if marker:
         index = md_fallback.SourceIndex.load(work_dir, state=state)
-        appendix = md_fallback.render_appendix(
-            state.get("drafting_warnings") or [],
-            index.unverified_rows(language),
-            md_fallback.unresolved_ids(head),
-            currency_unavailable=index.currency_unavailable,
-            language=language,
-        )
+        cited = _cited_source_ids(work_dir, state, index)
+        if cited is None:
+            appendix = (marker + tail).rstrip()
+        else:
+            appendix = md_fallback.render_appendix(
+                state.get("drafting_warnings") or [],
+                index.unverified_rows(language, cited),
+                md_fallback.unresolved_ids(head),
+                currency_unavailable=index.currency_unavailable,
+                language=language,
+            )
     status = md_fallback.render_status(md_fallback.status_inputs(state))
     memo = _without_status(head, language=language)
     if not marker and not status and memo == head:
         return body  # no appendix, no status to write and none to drop: nothing to rewrite
     parts = [memo.rstrip()] + [part.rstrip() for part in (status, appendix) if part]
     return "\n\n".join(parts) + "\n"
+
+
+def _cited_source_ids(work_dir: Path, state: dict, index) -> set | None:
+    """The source ids the selected draft cites, or None when there is no draft to read (D-197).
+
+    `condense_appendix` rewrites an already rendered body, whose `[[src:]]` tokens are gone, so the
+    citations come from the draft that body was rendered from.
+
+    FF2/FF3: None means «citation membership cannot be established», and the caller then does not
+    guess. Recording the set on the render step bound it to no particular bytes — a v1 set would
+    filter a v2 export — and inferring «not cited» from a tier hid a cited background authority
+    while still listing an uncited supporting record. Both were removed.
+    """
+    try:
+        path = select_draft(state, work_dir).get("path")
+        if not path:
+            return None
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, ValueError, KeyError):
+        return None
+    return md_fallback.cited_source_ids(md_fallback.scan_mentions(text, index)["mentions"])
 
 
 def _without_status(head: str, *, language: str = "en") -> str:
@@ -429,7 +460,13 @@ def build_summary(
     lines = [
         f"# {md_fallback_summary('title', language, task_id=task_id)}",
         "",
-        md_fallback_summary("status", language, final_status=final_status),
+        # D-197: the sentence for the reader, the code for the record.
+        md_fallback_summary(
+            "status",
+            language,
+            final_status=final_status,
+            status_name=md_fallback.status_name(final_status, language),
+        ),
         md_fallback_summary("terminal_phase", language, phase=phase),
         md_fallback_summary("mode", language, mode=state.get("mode") or md_fallback_summary("not_selected", language)),
     ]

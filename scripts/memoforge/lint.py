@@ -70,6 +70,15 @@ class Grammar:
     risk_line: re.Pattern
     risk_like: re.Pattern
     exec_bullet_risk: re.Pattern
+    risk_verdict: re.Pattern
+    """D-189a: the same verdict literal, non-anchored — the L-06 conclusion check only.
+
+    `exec_bullet_risk` is end-anchored because L-13 asks where the verdict stands in a summary
+    bullet. L-06 asks something else: whether a conclusion item repeats the verdict at all, and
+    `- Risk: medium. Product must act.` or `- … Риск: средний (раздел 4.1).` repeat it without
+    ending on it. The level is closed by a non-word character rather than by a period, so the
+    parenthetical section reference of the second form does not hide it.
+    """
     risk_prefix: re.Pattern
     """C-04: the loose Risk-paragraph prefix of `citations.py` over the same label."""
     risk_literal: str
@@ -115,6 +124,7 @@ def _build_grammar(code: str) -> Grammar:
         risk_line=re.compile(rf"^{label}: ({verdicts})\."),
         risk_like=re.compile(rf"^\s*(?:[-*+]\s*)?(?:\*\*)?{label}\s*:", re.IGNORECASE),
         exec_bullet_risk=re.compile(rf"{label}: ({verdicts})\.\s*$"),
+        risk_verdict=re.compile(rf"{label}: ({verdicts})(?![-\w])"),
         risk_prefix=re.compile(rf"^\s*(?:[-*]\s*)?(?:\*\*)?{label}:", re.IGNORECASE),
         risk_literal=f"{i18n.t(code, 'memo.risk.label')}: <{'|'.join(levels)}>.",
         disclaimer=re.compile(i18n.t(code, "memo.disclaimer_pattern"), re.IGNORECASE),
@@ -690,10 +700,11 @@ def check_l06(document: dict, template: str) -> list[dict]:
         )
     # D-189: a classical conclusion item names the action, its trigger and its owner — it never
     # repeats the risk verdict, which belongs to the subsection's Risk line and the summary bullet.
+    # D-189a: the verdict counts wherever it stands in the item, not only at its end.
     grammar = document["grammar"]
     for item in conclusions:
         text = Q_TOKEN.sub("", SRC_TOKEN.sub("", item["text"])).strip()
-        if grammar.exec_bullet_risk.search(text) is not None:
+        if grammar.risk_verdict.search(text) is not None:
             out.append(
                 finding(
                     "L-06",

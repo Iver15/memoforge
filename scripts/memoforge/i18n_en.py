@@ -79,6 +79,11 @@ EN: dict = {
                 "no saved source text — the citation could not be checked against the source"
             ),
             "link_note": "link {status}",
+            # D-192: the Sources annex of a source with no public url — the database it came from
+            # instead of an address. `{server}` is a bundled server's label, or `legal_database`
+            # when the endpoint belongs to none.
+            "retrieved_from_note": "text retrieved from {server}",
+            "legal_database": "a legal database",
             "status_label": "Status",
             "status_lead": (
                 "Final status: {final_status}. The pipeline did not sign this memorandum off; "
@@ -86,6 +91,10 @@ EN: dict = {
             ),
             "status_banners_label": "Pipeline notices",
             "status_issues_label": "Unresolved blocking issues",
+            # D-197: a blocker row is `<severity> · <where> · <text>`; `s-5-1` is a machine anchor
+            # and reaches the reader as «section 5.1», `general`/`document` as the whole memo.
+            "section_word": "section",
+            "whole_memo": "whole memo",
             # The published `sources/source-pack.md`: the frozen pack, else the registry listing.
             "source_pack_heading": "Source pack (frozen)",
             "frozen_at": "Frozen at: {value}",
@@ -140,6 +149,60 @@ EN: dict = {
             "also_cited_at": "also cited at ",
             "checked": "checked ",
             "currency": "currency ",
+        },
+        # D-197: no raw code reaches the reader. `final_status` is keyed by its FAMILY — the code
+        # without its `_on_v<N>` / `_v<N>` version, which travels as `{version}` — and a family the
+        # pack does not know falls back to the raw code rather than raising in the renderer.
+        "status_names": {
+            "approved": "approved on version {version}",
+            "client_ready": "client-ready on version {version}",
+            "accepted_early": "accepted early on version {version}",
+            "manual_review_required": "manual review required on version {version}",
+            "forced_exit_with_remaining_issues": (
+                "released with reviewer notes unresolved on version {version}"
+            ),
+            "delivered": "delivered",
+            "failed": "stopped without a finished memorandum",
+            "cancelled_by_user": "cancelled at your request",
+            "fallback_summary_delivered": "a research summary delivered instead of a memorandum",
+        },
+        # D-197: the codes `final_status_reasons[]` accumulates, as the banner states them.
+        "status_reasons": {
+            "unresolved_blockers": "blocking reviewer notes remain unresolved",
+            "incomplete_review": "a review round did not complete",
+            "all_reviewers_failed": "no reviewer returned a usable verdict",
+            "regression_forced_exit": "a revision made the draft worse, so the review loop stopped",
+            "length_overflow": "the memorandum exceeds its word cap",
+            "step_loop": "a pipeline step repeated without making progress",
+            "writer_failed": "the writer could not produce a revised draft",
+            "no_checked_draft": "no draft version passed the automated checks",
+            "export_reused_untouched": "an earlier export was delivered unchanged",
+        },
+        # D-197: the severity of a blocker row. English keeps today's words, which are already human.
+        "severity": {
+            "blocker": "blocker",
+            "major": "major",
+            "minor": "minor",
+            "info": "info",
+        },
+        # D-197: the recorded `currency.status` / `liveness.status` tokens as the reader sees them.
+        # English keeps every token that is already a word and spells out only the snake_case ones.
+        "currency_names": {
+            "current": "current",
+            "outdated_but_usable": "outdated but usable",
+            "do_not_use": "do not use",
+            "manual_check": "manual check",
+            "unchecked": "unchecked",
+            "amended": "amended",
+            "repealed": "repealed",
+            "superseded": "superseded",
+        },
+        "link_names": {
+            "ok": "ok",
+            "redirect": "redirect",
+            "dead": "dead",
+            "changed": "changed",
+            "unchecked": "unchecked",
         },
         # D-175: month names of a soft-law date inside a citation (`18 June 2021`), January first.
         "months": [
@@ -243,7 +306,9 @@ EN: dict = {
         # module, so one entry serves every path that prints it.
         "summary": {
             "title": "memoforge run summary — {task_id}",
-            "status": "- Status: **{final_status}**",
+            # D-197: the first line is read by a human, so it names the status; the raw code stays
+            # next to it in backticks, because `summary.md` is also the technical record of the run.
+            "status": "- Status: **{status_name}** (`{final_status}`)",
             "terminal_phase": "- Terminal phase: `{phase}`",
             "mode": "- Mode: {mode}",
             "question": "- Question: {question}",

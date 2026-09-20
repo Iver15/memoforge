@@ -483,6 +483,32 @@ class C06Test(CitationsTestCase):
         self.assertIsNone(citations.CYRILLIC_PINPOINT.match("152"))
         self.assertTrue(citations.pinpoint_ok("152"))
 
+    def test_contract_and_offer_pinpoint_forms(self):
+        # D-195: a contract or an offer is pinpointed by its own clause numbers and section
+        # headings — `разд`, `раздел`, `гл` and `прил` next to the statute labels, and a heading
+        # in guillemets may stand where a number would.
+        for pinpoint in (
+            "разд. 4",
+            "раздел 4",
+            "гл. 2 п. 3",
+            "прил. 1",
+            "п. 3 разд. «Возмещение»",
+            "п. 5.1 разд. «FBO»",
+            "разд. «Возмещение»",
+        ):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertTrue(citations.pinpoint_ok(pinpoint))
+        # Only a heading after `разд.` may stand without a digit; nothing else may.
+        for pinpoint in ("гл. «Возмещение»", "п. «Возмещение»", "разд.", "гл.", "прил."):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertFalse(citations.pinpoint_ok(pinpoint))
+
+    def test_the_audit_and_the_renderer_know_the_same_cyrillic_labels(self):
+        # D-195: two copies, one list — a label C-06 accepts is one the renderer prints as written.
+        from memoforge.docx import oscola
+
+        self.assertEqual(citations.CYRILLIC_LABEL, oscola.CYRILLIC_LABEL)
+
 
 class C07Test(CitationsTestCase):
     def test_uncited_rule_source_is_a_major_informational_finding(self):

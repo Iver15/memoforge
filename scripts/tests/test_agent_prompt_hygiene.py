@@ -179,6 +179,38 @@ class QuestionCoverageTest(unittest.TestCase):
         self.assertIn("`Question:`", rules)
 
 
+class PinpointScriptTest(unittest.TestCase):
+    """D-196: a source that numbers itself in another script is pinpointed the way it does."""
+
+    def test_the_writer_prompt_limits_the_machine_form_to_latin_script_sources(self):
+        text = read(PROMPTS / "memo-writer.md")
+        self.assertIn("Latin script", text)
+        self.assertIn("п. 1 ст. 887", text)
+        self.assertIn("п. 3 разд. «Возмещение»", text)
+
+    def test_the_writer_body_carries_the_same_rule(self):
+        rules = read(AGENTS / "memo-writer.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("Latin script", rules)
+        self.assertIn("п. 1 ст. 887", rules)
+
+
+class QuestionInstructionTest(unittest.TestCase):
+    """D-198: the `Question:` line carries the question, not the instruction to the pipeline."""
+
+    def test_both_templates_drop_an_instruction_about_the_form_of_the_work(self):
+        for name in ("executive-brief", "classical-memo"):
+            with self.subTest(template=name):
+                header = read(TEMPLATES / f"{name}.md").split("**Header block**", 1)[1]
+                header = header.split("\n", 1)[0]
+                self.assertIn("instruction", header)
+                self.assertIn("the header already states", header)
+
+    def test_the_writer_prompt_states_the_same_exception(self):
+        text = read(PROMPTS / "memo-writer.md")
+        self.assertIn("`Question:`", text)
+        self.assertIn("the header already states", text)
+
+
 class PlaceholderTest(unittest.TestCase):
     """D-78 / §4.2: the dispatch prompt substitutes the paths; the agent body names them in prose."""
 

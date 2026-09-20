@@ -30,6 +30,8 @@ import _i18n  # noqa: E402
 from memoforge import i18n  # noqa: E402
 from memoforge.docx import fallback, oscola, renderer, validate  # noqa: E402
 from test_docx_fallback import (  # noqa: E402
+    CASUS_ENDPOINT,
+    LINK_LESS_RECORD,
     RU_DELIVERABLE,
     issue_step,
     warnings_fixture,
@@ -378,6 +380,20 @@ class BannerTest(GoldenCase):
         )
         self.assertGolden("banner", path)
 
+    def test_the_banner_prints_the_status_and_the_reason_in_words(self):
+        # D-197: the yellow banner is the first thing the reader sees; no code belongs in it.
+        path = self.render(
+            self.DRAFT,
+            final_status="manual_review_required_on_v2",
+            final_status_reasons=["no_checked_draft"],
+        )
+        with zipfile.ZipFile(path) as archive:
+            text = normalise(archive.read(DOCUMENT_PART))
+        self.assertNotIn("manual_review_required_on_v2", text)
+        self.assertNotIn("no_checked_draft", text)
+        self.assertIn(escape(fallback.status_name("manual_review_required_on_v2")), text)
+        self.assertIn(escape(fallback.reason_name("no_checked_draft")), text)
+
     def test_no_banner_on_an_approved_run(self):
         path = self.render(self.DRAFT, final_status="approved_v3")
         with zipfile.ZipFile(path) as archive:
@@ -425,6 +441,7 @@ class SourcesSectionTest(GoldenCase):
         # D-191: warnings live in the facts section; the appendix opens for unverified sources
         # and unresolved markers only.
         index = sample_index()
+        index.snapshot_ids.append("stale")
         index.sources["stale"] = {
             "citation_form": "Some Circular 2011",
             "verification": {"us": "unresolved", "us_by": "agent", "eu_syntax_ok": True},
@@ -432,7 +449,7 @@ class SourcesSectionTest(GoldenCase):
             "liveness": {"status": "dead", "code": 404},
         }
         path = self.render(
-            "Body [[src:ghost]].\n",
+            "Body [[src:ghost]] and [[src:stale]].\n",
             index=index,
             drafting_warnings=[{"code": "research_partial", "message": "case_law incomplete"}],
         )
@@ -448,6 +465,7 @@ class SourcesSectionTest(GoldenCase):
         """D-191: `deliverable.docx` and `deliverable.md` carry the same appendix (no warnings)."""
         index = sample_index()
         index.currency_unavailable = True
+        index.snapshot_ids.extend(["stale", "quiet"])
         index.sources["stale"] = {
             "citation_form": "Some Circular 2011",
             "currency": {"status": "unchecked"},
@@ -457,14 +475,21 @@ class SourcesSectionTest(GoldenCase):
             "citation_form": "Only currency was unchecked",
             "currency": {"status": "unchecked"},
         }
-        path = self.render("Body.\n", index=index, drafting_warnings=warnings_fixture())
+        path = self.render(
+            "Body [[src:stale]] and [[src:quiet]].\n",
+            index=index,
+            drafting_warnings=warnings_fixture(),
+        )
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
+        # D-197: the `## Sources` annex records the currency of every cited work; the appendix
+        # discloses only what needs a human, so the assertions below are about the appendix.
+        appendix = text.partition(escape(fallback.label("appendix_heading")))[2]
 
         self.assertEqual(1, text.count(escape(fallback.label('currency_unavailable_note'))))
-        self.assertNotIn("currency unchecked", text)
-        self.assertIn(escape("Some Circular 2011 — link changed"), text)
-        self.assertNotIn("Only currency was unchecked", text)
+        self.assertNotIn("currency unchecked", appendix)
+        self.assertIn(escape("Some Circular 2011 — link changed"), appendix)
+        self.assertNotIn("Only currency was unchecked", appendix)
         self.assertNotIn("research/doctrine.json", text)
         self.assertNotIn("unresolved_research_gap", text)
         self.assertNotIn("Assumption ", text)
@@ -502,8 +527,11 @@ class StatusSectionTest(GoldenCase):
     def test_the_banners_and_the_blockers_are_printed_under_the_heading(self):
         rows = self.status_paragraphs(self.render_forced_exit())
         self.assertIn("REVIEWER NOTES NOT FULLY RESOLVED.", rows)
-        self.assertIn(escape("blocker · s-2 · Art. 17(1) carries no rule."), rows)
-        self.assertTrue(any("forced_exit_on_v1_with_remaining_issues" in row for row in rows))
+        # D-197: the section anchor and the status code are spelled out for the reader.
+        self.assertIn(escape("blocker · section 2 · Art. 17(1) carries no rule."), rows)
+        self.assertFalse(any("forced_exit_on_v1_with_remaining_issues" in row for row in rows))
+        name = fallback.status_name("forced_exit_on_v1_with_remaining_issues")
+        self.assertTrue(any(name in row for row in rows), rows)
         self.assertIn(STATUS_BANNERS_LABEL, rows)
         self.assertIn(STATUS_ISSUES_LABEL, rows)
 
@@ -687,8 +715,49 @@ class CitationStyleTest(GoldenCase):
         footnotes = self.document(self.render(self.DRAFT, citation_style=oscola.STYLE_FOOTNOTES))
         for text in (inline, footnotes):
             self.assertIn("CELEX 32016R0679", text)
-            self.assertIn("checked 2026-09-01", text)
+            # D-197 (fix round 1): no source of this fixture was link-checked, so the annex states
+            # the currency and no retrieval date — in both styles alike, which is the point here.
+            self.assertIn("currency ok", text)
+            self.assertNotIn("checked 2026-09-01", text)
         self.assertNotIn("CELEX", inline.split("<w:t>Sources</w:t>")[0])
+
+
+class LinkLessSourceTest(GoldenCase):
+    """D-192: a source with no public url gets no `w:hyperlink` and no URL in the annex."""
+
+    DRAFT = "Так решил суд [[src:vs-rf]].\n\n<!-- sources: generated -->\n"
+
+    def document(self, record: dict) -> str:
+        path = self.render(
+            self.DRAFT,
+            index=fallback.SourceIndex(sources={"vs-rf": dict(record)}),
+            citation_style=oscola.STYLE_INLINE,
+        )
+        with zipfile.ZipFile(path) as archive:
+            return normalise(archive.read(DOCUMENT_PART))
+
+    def test_the_inline_citation_carries_no_hyperlink_and_the_annex_names_the_database(self):
+        text = self.document(LINK_LESS_RECORD)
+        self.assertNotIn("<w:hyperlink", text)
+        self.assertIn("text retrieved from CasusLegal (RU)", text)
+        self.assertNotIn("mcp.casus.legal", text)
+        self.assertTrue(
+            validate.validate_path(
+                self.render(
+                    self.DRAFT,
+                    index=fallback.SourceIndex(sources={"vs-rf": dict(LINK_LESS_RECORD)}),
+                    citation_style=oscola.STYLE_INLINE,
+                ),
+                footnotes_map=renderer.footnotes_map(self.result),
+            )["valid"]
+        )
+
+    def test_an_old_record_carrying_an_endpoint_url_is_never_linked(self):
+        record = dict(LINK_LESS_RECORD, url=CASUS_ENDPOINT)
+        record.pop("retrieved_from")
+        text = self.document(record)
+        self.assertNotIn("<w:hyperlink", text)
+        self.assertNotIn("mcp.casus.legal", text)
 
 
 class SectionBoundaryTest(GoldenCase):

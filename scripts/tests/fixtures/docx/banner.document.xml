@@ -50,7 +50,7 @@
                 <w:i w:val="0"/>
                 <w:sz w:val="24"/>
               </w:rPr>
-              <w:t>Manual check recommended before relying on this memorandum. Final status: manual_review_required_on_v2.</w:t>
+              <w:t>Manual check recommended before relying on this memorandum. Final status: manual review required on version 2.</w:t>
             </w:r>
           </w:p>
           <w:p>
@@ -114,7 +114,7 @@
                 <w:i w:val="0"/>
                 <w:sz w:val="24"/>
               </w:rPr>
-              <w:t>- no_checked_draft</w:t>
+              <w:t>- no draft version passed the automated checks</w:t>
             </w:r>
           </w:p>
         </w:tc>
@@ -198,7 +198,7 @@
           <w:i w:val="0"/>
           <w:sz w:val="24"/>
         </w:rPr>
-        <w:t>Final status: manual_review_required_on_v2. The pipeline did not sign this memorandum off; the points below are unresolved and must be checked before client use.</w:t>
+        <w:t>Final status: manual review required on version 2. The pipeline did not sign this memorandum off; the points below are unresolved and must be checked before client use.</w:t>
       </w:r>
     </w:p>
     <w:p>

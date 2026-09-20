@@ -72,10 +72,14 @@
       "currency_note": "Aktualität {status}",
       "no_saved_text_note": "kein gespeicherter Quelltext — das Zitat konnte nicht am Quelltext geprüft werden",
       "link_note": "Link {status}",
+      "retrieved_from_note": "Text aus {server} abgerufen",
+      "legal_database": "einer Rechtsdatenbank",
       "status_label": "Status",
       "status_lead": "Endstatus: {final_status}. Die Pipeline hat dieses Memorandum nicht freigegeben; die untenstehenden Punkte sind offen und müssen vor Mandatsgebrauch geprüft werden.",
       "status_banners_label": "Pipeline-Hinweise",
       "status_issues_label": "Offene blockierende Punkte",
+      "section_word": "Abschnitt",
+      "whole_memo": "gesamtes Memo",
       "source_pack_heading": "Quellenpaket (eingefroren)",
       "frozen_at": "Eingefroren am: {value}",
       "entries_heading": "Einträge",
@@ -127,6 +131,51 @@
       "also_cited_at": "auch zitiert in ",
       "checked": "geprüft ",
       "currency": "Aktualität "
+    },
+    "status_names": {
+      "approved": "auf Version {version} freigegeben",
+      "client_ready": "mandantenfertig (Version {version})",
+      "accepted_early": "vorzeitig angenommen (Version {version})",
+      "manual_review_required": "manuelle Prüfung erforderlich (Version {version})",
+      "forced_exit_with_remaining_issues": "mit offenen Prüfanmerkungen ausgeliefert (Version {version})",
+      "delivered": "ausgeliefert",
+      "failed": "ohne fertiges Memorandum abgebrochen",
+      "cancelled_by_user": "auf Ihren Wunsch abgebrochen",
+      "fallback_summary_delivered": "statt des Memorandums wurde eine Zusammenfassung der Recherche geliefert"
+    },
+    "status_reasons": {
+      "unresolved_blockers": "blockierende Prüfanmerkungen sind offen geblieben",
+      "incomplete_review": "eine Prüfrunde wurde nicht abgeschlossen",
+      "all_reviewers_failed": "kein Prüfer hat ein verwertbares Ergebnis geliefert",
+      "regression_forced_exit": "eine Überarbeitung hat den Entwurf verschlechtert, daher wurde die Schleife beendet",
+      "length_overflow": "das Memorandum überschreitet seine Wortgrenze",
+      "step_loop": "ein Schritt der Pipeline wiederholte sich ohne Fortschritt",
+      "writer_failed": "der Verfasser konnte keinen überarbeiteten Entwurf liefern",
+      "no_checked_draft": "keine Entwurfsfassung hat die automatischen Prüfungen bestanden",
+      "export_reused_untouched": "ein früherer Export wurde unverändert ausgeliefert"
+    },
+    "severity": {
+      "blocker": "blockierende Anmerkung",
+      "major": "wesentliche Anmerkung",
+      "minor": "geringfügige Anmerkung",
+      "info": "Hinweis"
+    },
+    "currency_names": {
+      "current": "aktuell",
+      "outdated_but_usable": "veraltet, aber anwendbar",
+      "do_not_use": "nicht verwenden",
+      "manual_check": "manuelle Prüfung nötig",
+      "unchecked": "nicht geprüft",
+      "amended": "geändert",
+      "repealed": "aufgehoben",
+      "superseded": "ersetzt"
+    },
+    "link_names": {
+      "ok": "erreichbar",
+      "redirect": "Weiterleitung",
+      "dead": "nicht erreichbar",
+      "changed": "geändert",
+      "unchecked": "nicht geprüft"
     },
     "months": [
       "Januar",
@@ -180,7 +229,7 @@
     },
     "summary": {
       "title": "memoforge-Durchlaufzusammenfassung — {task_id}",
-      "status": "- Status: **{final_status}**",
+      "status": "- Status: **{status_name}** (`{final_status}`)",
       "terminal_phase": "- Endphase: `{phase}`",
       "mode": "- Modus: `{mode}`",
       "question": "- Frage: {question}",
