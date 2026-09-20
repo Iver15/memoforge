@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from . import limits, pylauncher
@@ -47,6 +48,53 @@ MCP_SERVER_LABELS: dict[str, str] = {
     "fas": "FAS advertising practice (RU)",
 }
 """How a server is named to the user — in the `Sources` question of the plan gate (§2.4)."""
+
+MANIFEST_PATH = ".mcp.json"
+"""`<plugin_root>/.mcp.json` — the one place that says which URL each bundled server answers on."""
+
+
+def manifest_host(url: object) -> str:
+    """Lower-case host of a manifest URL; `""` when there is none (D-192)."""
+    text = str(url or "").strip()
+    scheme, separator, rest = text.partition("://")
+    if not separator:
+        return ""
+    return rest.split("/")[0].split("?")[0].rsplit("@", 1)[-1].split(":")[0].lower()
+
+
+def manifest_hosts() -> dict[str, str]:
+    """`{host: server key}` of `.mcp.json`; empty when the manifest cannot be read (D-192).
+
+    Read on demand rather than cached: the file is tiny, and the only callers are the annex note
+    and the classification test, neither of which runs in a loop.
+    """
+    path = pylauncher.plugin_root() / MANIFEST_PATH
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    servers = manifest.get("mcpServers") if isinstance(manifest, dict) else None
+    hosts: dict[str, str] = {}
+    for name, server in (servers or {}).items():
+        host = manifest_host(server.get("url") if isinstance(server, dict) else "")
+        if host:
+            hosts[host] = str(name)
+    return hosts
+
+
+def server_label(host: object) -> str:
+    """The label of the bundled server answering on `host`, or `""` for any other host (D-192).
+
+    `.mcp.json` maps the host to the server key, `MCP_SERVERS` that key back to a routing alias and
+    `MCP_SERVER_LABELS` the alias to the words the user already reads at the plan gate.
+    """
+    name = manifest_hosts().get(str(host or "").strip().lower())
+    if not name:
+        return ""
+    for alias, server in MCP_SERVERS.items():
+        if server == name:
+            return MCP_SERVER_LABELS.get(alias, "")
+    return ""
 
 SPECIALIST_SERVERS: tuple[str, ...] = ("fas",)
 """D-184a: a specialist server answers one subject area only and never counts as coverage of a row.
@@ -610,7 +658,11 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
                 "as the source numbers it — ст. 152, "
                 "п. 2 ст. 152, ч. 1 ст. 14.3, абз. 2 п. 1 ст. 10 (Cyrillic labels ст, п, пп, ч, "
                 "абз, each with its number) — never art 152(2); the statute's registered citation "
-                "form is the Russian one (Гражданский кодекс РФ (часть первая), ст. 152)."
+                "form is the Russian one (Гражданский кодекс РФ (часть первая), ст. 152). "
+                "D-196: a contract or an offer the client supplied is pinpointed the same way, by "
+                "its own clause numbers and section headings (разд, раздел, гл, прил) with the "
+                "heading left as the document wrote it — п. 3 разд. «Возмещение», п. 5.1 разд. "
+                "«FBO» — never sec Reimbursement para 3."
             ),
         },
         "CH": {
@@ -665,7 +717,10 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
                 "get_case_details, get_filter_options first to learn the filter values; cite a "
                 "decision by the office, date and case number. LDH's RU/Sudact covers "
                 "general-jurisdiction and arbitration courts 2021–2026; sudact.ru pages for a "
-                "decision by case number; kad.arbitr.ru is captcha-gated — not a source. Register "
+                "decision by case number; kad.arbitr.ru is captcha-gated — not a source. The "
+                "address a Casus or FAS tool returns is an endpoint address, not a page — do not "
+                "pass it as `--url`; pass the public page when you found one (sudact.ru, vsrf.ru), "
+                "else no URL at all: the citation form identifies the decision. Register "
                 "the decision's citation form in Russian (Определение СКЭС ВС РФ от 12.03.2024 "
                 "№ 305-ЭС23-12345 по делу № А40-…; Постановление Пленума ВС РФ от … № …) and "
                 "pinpoint by п. N (пункт мотивировочной части) where the text is numbered, else "

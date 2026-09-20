@@ -39,7 +39,8 @@ After each MCP call, count it — on a host without the `PostToolUse` hook this 
 Every `critical` and `supporting` source, before it appears in a finding:
 `{MF} sources register --workdir {WORK_DIR} --layer case_law --title "<t>" --citation "<c>" --url "<u>" --tool "<tool>" --tier <critical|supporting> --raw-file "<a real file you wrote with the full tool text — not a process substitution such as /dev/fd/N; HTML is converted to text for you>"`
 Add `--meta '{"court": …, "year": …, "issuing_body": …, "date": …, "short_name": …}'` with the keys the tool's answer gives you — the OSCOLA footnotes are built from them — and drop the ones it does not.
-Use the `source_id` the command returns; never invent one. `background` sources need no raw file.
+Use the `source_id` the command returns; never invent one. `background` sources need no raw file. When two sources could share a short title, pass an explicit `--id <slug>` so the ids stay apart.
+Never register an MCP server's own address as the source URL: what a legal-database tool answers with is an endpoint, not a page the client can open — pass the public page when you found one, else no `--url` at all.
 
 For an EU act the CELEX id is the key: `legalviz_search_eu_law` or `legalviz_resolve` to get it, `legalviz_get_law_part` with `part="structure"` for the table of contents, then one more call for the article you need — register that slice with `--tool legalviz_get_law_part` (or the tool that actually returned the text: `legalviz_get_case_law`, `ldh_search`, `WebFetch <domain>`).
 

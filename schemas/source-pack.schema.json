@@ -97,6 +97,10 @@
           "description": "Copied verbatim from the registry; empty for a citation-only source.",
           "type": "string"
         },
+        "retrieved_from": {
+          "description": "D-192: the MCP endpoint address behind a source with no public url. Optional; the renderer reads it only to name the database in the Sources annex.",
+          "type": "string"
+        },
         "retrieved_at": { "$ref": "#/$defs/timestamp" },
         "tier": { "enum": ["critical", "supporting", "background"] },
         "currency_status": {

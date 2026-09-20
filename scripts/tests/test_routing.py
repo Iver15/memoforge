@@ -408,6 +408,12 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertIn("п. 2 ст. 152", note)
         self.assertIn("Гражданский кодекс РФ (часть первая), ст. 152", note)
 
+    def test_the_russian_statute_note_covers_a_contract_or_an_offer_the_client_supplied(self):
+        # D-196: its own clause numbers and section headings, headings never translated.
+        note = routing.route("statutes", "RU")["note"]
+        self.assertIn("п. 3 разд. «Возмещение»", note)
+        self.assertIn("разд", note)
+
     def test_russian_case_law_names_the_casus_and_fas_tools_first(self):
         row = routing.route("case_law", "RU")
         self.assertEqual(
@@ -428,6 +434,13 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertEqual(["sudact.ru"], row["domains"])
         note = row["note"]
         self.assertIn("RU/Sudact", note)
+
+    def test_the_case_law_note_forbids_registering_the_endpoint_address(self):
+        """D-192: what a Casus or FAS tool answers with is an endpoint, not a page of the act."""
+        note = routing.route("case_law", "RU")["note"]
+        self.assertIn("endpoint address, not a page", note)
+        self.assertIn("do not pass it as `--url`", note)
+        self.assertIn("vsrf.ru", note)
 
     def test_every_russian_note_sends_a_moved_tool_name_to_the_host_tool_list(self):
         """D-187a: the probe records namespaces and status, never tool names — so it is not the
@@ -737,6 +750,31 @@ class McpServerAliasTest(unittest.TestCase):
                     with self.subTest(layer=layer, jurisdiction=code, tool=tool):
                         alias = tool.split("_", 1)[0]
                         self.assertIn(alias, routing.MCP_SERVERS)
+
+
+class ServerLabelForHostTest(unittest.TestCase):
+    """D-192: the host of an endpoint address is named to the reader by its server's label."""
+
+    def test_every_manifest_host_maps_to_the_label_of_its_server(self):
+        manifest = json.loads(
+            (PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8-sig")
+        )["mcpServers"]
+        aliases = {server: alias for alias, server in routing.MCP_SERVERS.items()}
+        self.assertEqual(sorted(manifest), sorted(routing.manifest_hosts().values()))
+        for name, server in manifest.items():
+            host = routing.manifest_host(server["url"])
+            with self.subTest(server=name):
+                self.assertEqual(name, routing.manifest_hosts()[host])
+                self.assertEqual(routing.MCP_SERVER_LABELS[aliases[name]], routing.server_label(host))
+
+    def test_the_russian_servers_are_named_the_way_the_plan_gate_names_them(self):
+        self.assertEqual("CasusLegal (RU)", routing.server_label("mcp.casus.legal"))
+        self.assertEqual("FAS advertising practice (RU)", routing.server_label("search.delay-rag.ru"))
+
+    def test_the_host_is_matched_without_case_and_a_stranger_has_no_label(self):
+        self.assertEqual("CasusLegal (RU)", routing.server_label("MCP.Casus.Legal"))
+        self.assertEqual("", routing.server_label("sudact.ru"))
+        self.assertEqual("", routing.server_label(""))
 
 
 class LayerRulesTest(unittest.TestCase):

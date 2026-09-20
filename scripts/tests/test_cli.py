@@ -123,6 +123,26 @@ class CliCallEventTest(unittest.TestCase):
         self.assertEqual("fetch", rows[0]["data"]["cmd"])
         self.assertEqual("host_not_allowed: example.org", rows[0]["data"]["rejection"])
 
+    def test_a_refused_fetch_journals_no_credential(self):
+        """A6/D-192: `rejection` is exported in `_run/events.jsonl`, so it carries no address."""
+        code, out = run_cli(
+            "sources",
+            "fetch",
+            "--workdir",
+            str(self.work_dir),
+            "--url",
+            "https://user:TESTTOKEN@mcp.casus.legal/case/1?t=TESTTOKEN",
+        )
+        self.assertEqual(cli.EXIT_ERROR, code)
+        self.assertEqual(
+            ["userinfo_not_allowed: https://mcp.casus.legal/case/1"], json.loads(out.strip())["errors"]
+        )
+        rejection = calls(self.work_dir)[0]["data"]["rejection"]
+        self.assertEqual("userinfo_not_allowed: https://mcp.casus.legal/case/1", rejection)
+        self.assertNotIn("TESTTOKEN", rejection)
+        self.assertNotIn("?", rejection)
+        self.assertNotIn("@", rejection)
+
     def test_a_failing_command_is_logged_with_its_exit_code(self):
         code, _ = run_cli(
             "report", "--workdir", str(self.work_dir), "--step", "s-999", "--attempt", "1"

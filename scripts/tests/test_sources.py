@@ -1532,7 +1532,8 @@ class LivenessContractTest(SourcesTestCase):
         original = sources._open
         sources._open = refuse
         self.addCleanup(setattr, sources, "_open", original)
-        self.register(url="https://uk-legal-mcp.fly.dev/mcp", raw_file=self.raw_file(), tool="curl")
+        # D-192: the url is a public page — an MCP host never reaches `url`, so it is never probed.
+        self.register(url="https://www.legislation.gov.uk/ukpga/2018/12", raw_file=self.raw_file(), tool="curl")
         row = self._liveness()["checked"][0]
         self.assertEqual("dead", row["status"])
         self.assertEqual("tls_certificate", row["error"])
@@ -1540,10 +1541,19 @@ class LivenessContractTest(SourcesTestCase):
     # --- 5. the url parser and the redirect chain (D-151) -------------------
 
     def test_a_url_with_credentials_is_never_probed(self):
-        """D-151: the loose split read `127.0.0.1` out of `http://evil.example@127.0.0.1/`."""
+        """D-151: the loose split read `127.0.0.1` out of `http://evil.example@127.0.0.1/`.
+
+        A2 strips userinfo at registration, so the only way a record can still carry it is to have
+        been written before that rule — which is what the registry is patched to here, and which is
+        exactly the state this guard exists for.
+        """
         with LocalServer(LIVE_TEXT.encode("utf-8")) as base:
             authority = base.split("//", 1)[1]
-            self.register(url=f"http://evil.example@{authority}/ok", raw_file=self.raw_file(), tool="curl")
+            self.register(url=f"http://{authority}/ok", raw_file=self.raw_file(), tool="curl")
+            registry = sources.read_registry(self.work_dir)
+            registry["sources"]["gdpr-article-6"]["url"] = f"http://evil.example@{authority}/ok"
+            sources.write_registry(self.work_dir, registry)
+            _Handler.seen = []
             row = self._liveness()["checked"][0]
             self.assertEqual([], _Handler.seen, "nothing left the process")
         self.assertEqual("unchecked", row["status"])
@@ -1759,8 +1769,10 @@ class FetchTest(SourcesTestCase):
         self.assertFalse(sources.host_on_allowlist(""))
 
     def test_a_url_that_is_not_http_is_refused(self):
+        # R1: the refusal names the scheme, which is the whole reason for it; the address itself has
+        # no readable host, so `redacted_url` answers with the marker rather than echoing the input.
         self.assertEqual(
-            ["unsupported_scheme: file:///etc/passwd"],
+            ["unsupported_scheme: [address removed]"],
             self.fetch("file:///etc/passwd")["errors"],
         )
 
@@ -2057,7 +2069,8 @@ class FetchTest(SourcesTestCase):
     def test_credentials_in_the_url_are_refused_outright(self):
         self.allow("govinfo.gov")
         result = self.fetch("https://evil.example@govinfo.gov/link/uscode/15/45")
-        self.assertEqual(["userinfo_not_allowed: https://evil.example@govinfo.gov/link/uscode/15/45"], result["errors"])
+        # A6: the refusal is journalled, so it names the address redacted — never the userinfo.
+        self.assertEqual(["userinfo_not_allowed: https://govinfo.gov/link/uscode/15/45"], result["errors"])
 
     def test_the_parser_is_the_one_the_permission_gate_uses(self):
         self.assertEqual("outside.example", sources.request_host("https://outside.example#@govinfo.gov"))
@@ -2452,6 +2465,757 @@ class MarkupStorageTest(SourcesTestCase):
         self.assertEqual(state_io.sha256_bytes(saved), result["sha256"])
         self.assertEqual("ok", probe["status"])
         self.assertEqual(result["sha256"], probe["sha256"])
+
+
+CASUS_URL = "https://mcp.casus.legal/case/34232?t=TESTTOKEN"
+"""D-192: the address a Casus tool answers with — an endpoint plus a session token, never a page.
+
+`t=TESTTOKEN` is the literal every test in this file uses: no real token is ever written down.
+"""
+
+
+class PublicUrlTest(unittest.TestCase):
+    """D-192: what a client may be given, and what the registry keeps to itself instead."""
+
+    def test_a_non_public_host_leaves_no_url_and_records_the_endpoint(self):
+        self.assertEqual(
+            ("", "https://mcp.casus.legal/case/34232"), sources.public_url(CASUS_URL)
+        )
+
+    def test_every_non_public_host_is_handled_the_same_way(self):
+        for host in sources.NON_PUBLIC_SOURCE_HOSTS:
+            with self.subTest(host=host):
+                clean, retrieved_from = sources.public_url(f"https://{host}/x/y?t=TESTTOKEN")
+                self.assertEqual("", clean)
+                self.assertEqual(f"https://{host}/x/y", retrieved_from)
+
+    def test_an_auth_parameter_is_dropped_and_the_others_keep_their_order(self):
+        self.assertEqual(
+            ("https://www.consultant.ru/document/x/?page=2", ""),
+            sources.public_url("https://www.consultant.ru/document/x/?token=TESTTOKEN&page=2"),
+        )
+
+    def test_the_parameter_name_is_matched_without_case(self):
+        self.assertEqual(
+            ("https://www.consultant.ru/document/x/?page=2", ""),
+            sources.public_url("https://www.consultant.ru/document/x/?T=TESTTOKEN&page=2"),
+        )
+
+    def test_every_auth_parameter_name_is_removed(self):
+        for name in sources.AUTH_QUERY_PARAMS:
+            with self.subTest(parameter=name):
+                clean, _ = sources.public_url(f"https://example.org/a?{name.upper()}=TESTTOKEN&p=1")
+                self.assertEqual("https://example.org/a?p=1", clean)
+
+    def test_a_url_without_an_auth_parameter_is_returned_unchanged(self):
+        url = "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62021CJ0252"
+        self.assertEqual((url, ""), sources.public_url(url))
+
+    def test_the_userinfo_trick_of_d_151_cannot_smuggle_a_host(self):
+        """D-151: the hand-rolled parser read the fragment as the host; `urlsplit` does not."""
+        clean, retrieved_from = sources.public_url("https://mcp.casus.legal/one/mcp#@sudact.ru")
+        self.assertEqual("", clean)
+        self.assertEqual("https://mcp.casus.legal/one/mcp", retrieved_from)
+        self.assertEqual(
+            ("https://sudact.ru/regular/doc/1/#@mcp.casus.legal", ""),
+            sources.public_url("https://sudact.ru/regular/doc/1/#@mcp.casus.legal"),
+        )
+
+    def test_credentials_in_front_of_a_non_public_host_do_not_publish_it(self):
+        clean, retrieved_from = sources.public_url("https://user:pw@mcp.casus.legal/case/1")
+        self.assertEqual("", clean)
+        self.assertEqual("https://mcp.casus.legal/case/1", retrieved_from)
+
+    def test_a_host_that_serves_both_an_endpoint_and_public_pages_stays(self):
+        for host in sources.PUBLIC_MCP_HOSTS:
+            with self.subTest(host=host):
+                self.assertEqual(
+                    (f"https://{host}/doc/1", ""), sources.public_url(f"https://{host}/doc/1")
+                )
+
+    def test_an_empty_or_unparsable_url_keeps_todays_behaviour(self):
+        self.assertEqual(("", ""), sources.public_url(""))
+        self.assertEqual(("", ""), sources.public_url(None))
+        self.assertEqual(("sudact.ru/doc/1", ""), sources.public_url("sudact.ru/doc/1"))
+
+
+class CanonicalHostTest(unittest.TestCase):
+    """A1: one canonical host before classification — a trailing dot or an IDNA dot is not a disguise."""
+
+    NON_PUBLIC_SHAPES: tuple[str, ...] = (
+        "https://mcp.casus.legal./case/1",
+        "https://mcp.casus。legal/case/1",
+        "https://mcp.casus．legal/case/1",
+        "https://mcp｡casus.legal/case/1",
+        "https://MCP.Casus.Legal/case/1",
+    )
+    """Shapes of one endpoint host that `urlsplit(...).hostname` alone does not collapse."""
+
+    def test_the_canonical_host_collapses_case_the_trailing_dot_and_the_idna_dots(self):
+        for shape in self.NON_PUBLIC_SHAPES:
+            with self.subTest(url=shape):
+                self.assertEqual("mcp.casus.legal", sources.source_host(shape))
+
+    def test_every_shape_of_a_non_public_host_is_classified_as_one(self):
+        for shape in self.NON_PUBLIC_SHAPES:
+            with self.subTest(url=shape):
+                clean, retrieved_from = sources.public_url(shape + "?t=TESTTOKEN")
+                self.assertEqual("", clean)
+                self.assertEqual("https://mcp.casus.legal/case/1", retrieved_from)
+
+    def test_a_host_that_cannot_be_canonicalised_is_never_published(self):
+        for shape in ("https://mcp..casus.legal/case/1", "https://" + "a" * 70 + ".example/x"):
+            with self.subTest(url=shape):
+                self.assertEqual(("", ""), sources.public_url(shape + "?t=TESTTOKEN"))
+
+    def test_a_public_host_survives_canonicalisation_byte_for_byte(self):
+        url = "https://www.consultant.ru/document/cons_doc_LAW_5142/"
+        self.assertEqual((url, ""), sources.public_url(url))
+
+    def test_the_scrub_collapses_the_same_shapes_inside_a_raw_text(self):
+        for shape in self.NON_PUBLIC_SHAPES:
+            with self.subTest(url=shape):
+                scrubbed = sources.scrub_urls(f"See {shape}?t=TESTTOKEN for the text.")
+                self.assertEqual("See [retrieved via CasusLegal (RU)] for the text.", scrubbed)
+
+
+class CredentialsOutsideTheQueryTest(unittest.TestCase):
+    """A2: userinfo and an auth-bearing fragment are credentials too."""
+
+    def test_userinfo_never_survives_on_a_public_host(self):
+        self.assertEqual(
+            ("https://www.consultant.ru/x", ""),
+            sources.public_url("https://user:TESTTOKEN@www.consultant.ru/x"),
+        )
+
+    def test_a_fragment_carrying_an_auth_parameter_is_dropped(self):
+        for fragment in ("access_token=TESTTOKEN", "a=1&t=TESTTOKEN", "jwt=TESTTOKEN"):
+            with self.subTest(fragment=fragment):
+                self.assertEqual(
+                    ("https://www.consultant.ru/x", ""),
+                    sources.public_url(f"https://www.consultant.ru/x#{fragment}"),
+                )
+
+    def test_a_router_fragment_carrying_an_auth_parameter_is_dropped_whole(self):
+        # FF1: the fragment of a hash-router address is a path plus a query of its own, so parsing
+        # it as one query string read the first name as `?t` / `/document?t` — in no list — and the
+        # token reached the stored text and the inline hyperlink.
+        for fragment in (
+            "?t=TESTTOKEN",
+            "/document?t=TESTTOKEN",
+            "/document/12?a=1&access_token=TESTTOKEN",
+            "/viewer?sid=TESTTOKEN&page=3",
+        ):
+            with self.subTest(fragment=fragment):
+                cleaned, _ = sources.public_url(f"https://www.consultant.ru/x#{fragment}")
+                self.assertEqual("https://www.consultant.ru/x", cleaned)
+                self.assertNotIn("TESTTOKEN", cleaned)
+
+    def test_an_ordinary_anchor_is_preserved(self):
+        for anchor in ("#p123", "#dst100", "#art_6", "#@mcp.casus.legal"):
+            with self.subTest(anchor=anchor):
+                url = f"https://www.consultant.ru/document/x/{anchor}"
+                self.assertEqual((url, ""), sources.public_url(url))
+
+    def test_a_router_anchor_without_a_credential_is_preserved(self):
+        # FF1: the whole fragment is dropped only for a credential; a route stays a location.
+        for anchor in ("#/document/12", "#/document/12?page=3", "#art_6", "#dst100"):
+            with self.subTest(anchor=anchor):
+                url = f"https://www.consultant.ru/document/x{anchor}"
+                self.assertEqual((url, ""), sources.public_url(url))
+
+    def test_the_scrub_applies_the_same_rule_inside_a_raw_text(self):
+        scrubbed = sources.scrub_urls(
+            "A: https://user:TESTTOKEN@www.consultant.ru/x "
+            "B: https://www.consultant.ru/y#access_token=TESTTOKEN "
+            "C: https://www.consultant.ru/z#dst100"
+        )
+        self.assertNotIn("TESTTOKEN", scrubbed)
+        self.assertIn("A: https://www.consultant.ru/x", scrubbed)
+        self.assertIn("B: https://www.consultant.ru/y", scrubbed)
+        self.assertIn("C: https://www.consultant.ru/z#dst100", scrubbed)
+
+    def test_the_scrub_drops_a_router_fragment_of_a_stored_raw_text(self):
+        # FF1: the stored text travels to the client as `sources/<id>.txt`, so the same rule.
+        scrubbed = sources.scrub_urls(
+            "A: https://www.consultant.ru/y#?t=TESTTOKEN "
+            "B: https://www.consultant.ru/z#/document?t=TESTTOKEN "
+            "C: https://www.consultant.ru/w#/document/12"
+        )
+        self.assertNotIn("TESTTOKEN", scrubbed)
+        self.assertIn("A: https://www.consultant.ru/y", scrubbed)
+        self.assertIn("B: https://www.consultant.ru/z", scrubbed)
+        self.assertIn("C: https://www.consultant.ru/w#/document/12", scrubbed)
+
+    def test_prepare_raw_drops_a_router_fragment_before_the_hash(self):
+        cleaned = sources.prepare_raw(
+            "Текст акта. Источник: https://www.consultant.ru/doc#/document?t=TESTTOKEN\n".encode("utf-8")
+        ).decode("utf-8")
+        self.assertNotIn("TESTTOKEN", cleaned)
+        self.assertIn("https://www.consultant.ru/doc", cleaned)
+
+
+class ManifestClassificationTest(unittest.TestCase):
+    """D-192: a newly bundled server must be classified before it can be registered from."""
+
+    def test_every_bundled_server_host_is_public_or_not(self):
+        manifest = json.loads(
+            (Path(sources.__file__).resolve().parents[2] / ".mcp.json").read_text(encoding="utf-8-sig")
+        )
+        known = set(sources.NON_PUBLIC_SOURCE_HOSTS) | set(sources.PUBLIC_MCP_HOSTS)
+        for name, server in sorted((manifest.get("mcpServers") or {}).items()):
+            with self.subTest(server=name):
+                host = sources.source_host(server.get("url"))
+                self.assertTrue(host, f"{name} has no parsable host")
+                self.assertIn(host, known, f"{name} ({host}) is classified in neither tuple")
+
+    def test_the_two_tuples_are_disjoint(self):
+        self.assertEqual(
+            set(), set(sources.NON_PUBLIC_SOURCE_HOSTS) & set(sources.PUBLIC_MCP_HOSTS)
+        )
+
+
+class RegisterPublicUrlTest(SourcesTestCase):
+    """D-192: registration keeps the endpoint address out of `url` and warns about it."""
+
+    def test_a_casus_url_is_not_stored_as_the_source_url(self):
+        result = self.register(url=CASUS_URL, citation="Определение ВС РФ от 12.03.2024 № 305-ЭС23-1")
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertEqual("", record["url"])
+        self.assertEqual("https://mcp.casus.legal/case/34232", record["retrieved_from"])
+        self.assertIn("url_not_public", result["warnings"])
+        self.assertIn("sudact.ru", result["hint"])
+        self.assertNotIn("errors", result)
+
+    def test_the_registry_still_validates_against_the_schema(self):
+        self.register(url=CASUS_URL, citation="Определение ВС РФ от 12.03.2024 № 305-ЭС23-1")
+        from memoforge import schema
+
+        self.assertEqual([], schema.validate(sources.read_registry(self.work_dir), "sources"))
+
+    def test_a_public_url_registers_without_a_warning(self):
+        result = self.register()
+        self.assertNotIn("warnings", result)
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        self.assertNotIn("retrieved_from", record)
+
+    def test_the_dedup_key_is_computed_on_the_cleaned_url(self):
+        first = self.register(url="https://sudact.ru/doc/1/?t=TESTTOKEN")
+        second = self.register(url="https://sudact.ru/doc/1/", title="The same page")
+        self.assertEqual(first["source_id"], second["source_id"])
+        record = sources.read_registry(self.work_dir)["sources"][first["source_id"]]
+        self.assertEqual("https://sudact.ru/doc/1/", record["url"])
+
+    def test_the_update_path_records_the_endpoint_and_leaves_the_url_empty(self):
+        """A citation-only record re-registered with the endpoint url keeps an empty `url`."""
+        citation = "Определение ВС РФ от 12.03.2024 № 305-ЭС23-1"
+        first = self.register(url="", citation=citation)
+        again = self.register(url=CASUS_URL, citation=citation, title="The same decision")
+        self.assertEqual(first["source_id"], again["source_id"])
+        record = sources.read_registry(self.work_dir)["sources"][first["source_id"]]
+        self.assertEqual("", record["url"])
+        self.assertEqual("https://mcp.casus.legal/case/34232", record["retrieved_from"])
+        self.assertIn("url_not_public", again["warnings"])
+        self.assertEqual(1, len(sources.read_registry(self.work_dir)["sources"]))
+
+    def test_an_explicit_id_reregistration_records_the_endpoint_and_warns(self):
+        """D-192: the same bytes under an occupied `--id` is an update, not a dead end.
+
+        The early return of D34-04/D-143 guards *different* bytes. Identical bytes have to reach the
+        url rule, the metadata update and the warning like any other repeat registration — otherwise
+        `--id X --url <casus endpoint>` silently records nothing.
+        """
+        citation = "Определение ВС РФ от 12.03.2024 № 305-ЭС23-1"
+        first = self.register(url="", citation=citation, source_id="vs-rf-305", raw_file=self.raw_file())
+        again = self.register(
+            url=CASUS_URL,
+            citation=citation,
+            source_id="vs-rf-305",
+            raw_file=self.raw_file(name="copy.md"),
+        )
+        self.assertEqual("vs-rf-305", again["source_id"])
+        self.assertFalse(again["created"])
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(first["raw_sha256"], again["raw_sha256"])
+        self.assertEqual(["url_not_public"], again["warnings"])
+        self.assertIn("sudact.ru", again["hint"])
+        record = sources.read_registry(self.work_dir)["sources"]["vs-rf-305"]
+        self.assertEqual("", record["url"])
+        self.assertEqual("https://mcp.casus.legal/case/34232", record["retrieved_from"])
+        self.assertEqual(1, len(sources.read_registry(self.work_dir)["sources"]))
+
+    def test_an_explicit_id_reregistration_stores_a_public_url_cleaned(self):
+        self.register(url="", source_id="vs-rf-305", raw_file=self.raw_file())
+        again = self.register(
+            url="https://sudact.ru/regular/doc/abc/?t=TESTTOKEN&page=2",
+            source_id="vs-rf-305",
+            raw_file=self.raw_file(name="copy.md"),
+            meta={"court": "ВС РФ"},
+        )
+        self.assertNotIn("warnings", again)
+        record = sources.read_registry(self.work_dir)["sources"]["vs-rf-305"]
+        self.assertEqual("https://sudact.ru/regular/doc/abc/?page=2", record["url"])
+        self.assertEqual("ВС РФ", record["meta"]["court"])
+        self.assertNotIn("retrieved_from", record)
+
+    def test_a_cross_layer_reregistration_under_an_occupied_id_is_refused(self):
+        """A record's layer never changes: identical bytes under another layer are refused.
+
+        Fix round 2 — the round-1 fall-through accepted identical bytes whatever layer the call
+        named, and then the update branch kept the old layer while `store_raw` wrote the file under
+        the new one and the answer reported the new one. Three places, three different answers.
+        """
+        self.register(
+            layer="statutes",
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+            raw_file=self.raw_file(),
+        )
+        before = dict(sources.read_registry(self.work_dir)["sources"]["vs-rf-305"])
+        again = self.raw_file(name="copy.md")
+        result = self.register(
+            layer="case_law", url=CASUS_URL, source_id="vs-rf-305", raw_file=again
+        )
+        self.assertEqual(
+            ["source_id_layer_mismatch: vs-rf-305 is registered under 'statutes'"], result["errors"]
+        )
+        self.assertEqual("statutes", result["held_layer"])
+        self.assertIn("statutes", result["hint"])
+        self.assertNotIn("warnings", result)
+        self.assertEqual(before, sources.read_registry(self.work_dir)["sources"]["vs-rf-305"])
+        self.assertFalse(
+            (self.work_dir / "research" / "raw" / "case_law").exists(),
+            "a refused registration writes no raw file under the layer it named",
+        )
+        self.assertTrue(again.exists(), "a refused registration does not consume the raw file")
+
+    def test_the_slug_derived_path_cannot_cross_a_layer_at_all(self):
+        """`dedup_key` carries the layer, so a record of another layer never matches (§3.1 rule 5)."""
+        first = self.register(layer="statutes", url="https://sudact.ru/regular/doc/abc/")
+        second = self.register(layer="case_law", url="https://sudact.ru/regular/doc/abc/")
+        self.assertNotEqual(first["source_id"], second["source_id"])
+        registry = sources.read_registry(self.work_dir)["sources"]
+        self.assertEqual("statutes", registry[first["source_id"]]["layer"])
+        self.assertEqual("case_law", registry[second["source_id"]]["layer"])
+
+    def test_different_bytes_under_an_occupied_id_still_collide(self):
+        self.register(url="", source_id="vs-rf-305", raw_file=self.raw_file())
+        other = self.raw_file(name="other.md", text="# Другое решение\n\nТекст.\n")
+        result = self.register(
+            url=CASUS_URL, title="Другое решение", source_id="vs-rf-305", raw_file=other
+        )
+        self.assertEqual(
+            ["source_id_collision: vs-rf-305 already holds 'GDPR Article 6'"], result["errors"]
+        )
+        self.assertNotIn("warnings", result)
+        record = sources.read_registry(self.work_dir)["sources"]["vs-rf-305"]
+        self.assertEqual("GDPR Article 6", record["title"])
+        self.assertNotIn("retrieved_from", record)
+        self.assertTrue(other.exists(), "a refused registration does not consume the raw file")
+
+    def test_every_string_field_of_the_record_is_scrubbed(self):
+        """A4: a token-bearing address in `title`, the citation, `meta` or `identifiers` reaches
+        the docx, the markdown, `source-pack.md` and the dashboard — so it is scrubbed at ingest."""
+        result = self.register(
+            title=f"Определение по делу ({CASUS_URL})",
+            citation=f"Определение ВС РФ, текст: {CASUS_URL}",
+            url="https://sudact.ru/regular/doc/abc/",
+            identifiers={"eli": "https://mcp.casus.legal/eli/1?t=TESTTOKEN"},
+            meta={
+                "short_name": "ВС РФ (https://mcp.casus.legal/case/1?t=TESTTOKEN)",
+                "year": 2024,
+                "sources": ["https://sudact.ru/x?token=TESTTOKEN"],
+            },
+        )
+        record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+        dumped = json.dumps(record, ensure_ascii=False)
+        self.assertNotIn("mcp.casus.legal", dumped)
+        self.assertNotIn("TESTTOKEN", dumped)
+        self.assertIn("[retrieved via CasusLegal (RU)]", record["title"])
+        self.assertIn("[retrieved via CasusLegal (RU)]", record["citation_form"])
+        self.assertEqual(2024, record["meta"]["year"], "a non-string value is untouched")
+        self.assertEqual(["https://sudact.ru/x"], record["meta"]["sources"])
+
+    def test_a_held_endpoint_url_does_not_survive_a_re_registration(self):
+        """A5b: the held url is re-cleaned even when the incoming call carries none."""
+        self.register(url="https://sudact.ru/regular/doc/abc/", source_id="vs-rf-305",
+                      raw_file=self.raw_file())
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["vs-rf-305"]["url"] = CASUS_URL  # a record written before D-192
+        sources.write_registry(self.work_dir, registry)
+        again = self.register(url="", source_id="vs-rf-305", raw_file=self.raw_file(name="copy.md"))
+        self.assertEqual("vs-rf-305", again["source_id"])
+        record = sources.read_registry(self.work_dir)["sources"]["vs-rf-305"]
+        self.assertEqual("", record["url"])
+        self.assertEqual("https://mcp.casus.legal/case/34232", record["retrieved_from"])
+
+    def test_a_held_token_url_is_re_cleaned_without_losing_the_page(self):
+        self.register(url="https://sudact.ru/regular/doc/abc/", source_id="vs-rf-305",
+                      raw_file=self.raw_file())
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"]["vs-rf-305"]["url"] = "https://sudact.ru/regular/doc/abc/?t=TESTTOKEN"
+        sources.write_registry(self.work_dir, registry)
+        self.register(url="", source_id="vs-rf-305", raw_file=self.raw_file(name="copy.md"))
+        record = sources.read_registry(self.work_dir)["sources"]["vs-rf-305"]
+        self.assertEqual("https://sudact.ru/regular/doc/abc/", record["url"])
+        self.assertNotIn("retrieved_from", record)
+
+    def test_the_frozen_pack_carries_the_endpoint_but_the_client_view_never_prints_it(self):
+        from memoforge import render
+
+        result = self.register(url=CASUS_URL, citation="Определение ВС РФ от 12.03.2024 № 305-ЭС23-1")
+        self.write_findings([{"source_id": result["source_id"]}])
+        self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        entry = pack["entries"][0]
+        self.assertEqual("", entry["url"])
+        self.assertEqual("https://mcp.casus.legal/case/34232", entry["retrieved_from"])
+        markdown = render.render_source_pack(pack)
+        self.assertNotIn("mcp.casus.legal", markdown)
+        self.assertNotIn("retrieved_from", markdown)
+
+
+class RawScrubTest(SourcesTestCase):
+    """D-193: the stored text of a source never carries an endpoint address or a token."""
+
+    RAW_WITH_ENDPOINT = (
+        "# Определение ВС РФ\n"
+        "\n"
+        f"URL: {CASUS_URL}\n"
+        "Публикация: https://sudact.ru/regular/doc/abc/?token=TESTTOKEN&page=2\n"
+        "\n"
+        "Текст решения.\n"
+    )
+
+    def test_the_endpoint_is_replaced_by_the_name_of_the_database(self):
+        result = self.register(
+            raw_file=self.raw_file(name="casus.md", text=self.RAW_WITH_ENDPOINT),
+            url="https://sudact.ru/regular/doc/abc/",
+        )
+        stored = (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+        self.assertNotIn("mcp.casus.legal", stored)
+        self.assertNotIn("TESTTOKEN", stored)
+        self.assertIn("[retrieved via CasusLegal (RU)]", stored)
+
+    def test_a_public_url_keeps_its_address_and_loses_its_token(self):
+        result = self.register(
+            raw_file=self.raw_file(name="casus.md", text=self.RAW_WITH_ENDPOINT),
+            url="https://sudact.ru/regular/doc/abc/",
+        )
+        stored = (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+        self.assertIn("https://sudact.ru/regular/doc/abc/?page=2", stored)
+
+    def test_the_scrubbed_text_is_what_the_sha_is_computed_over(self):
+        result = self.register(
+            raw_file=self.raw_file(name="casus.md", text=self.RAW_WITH_ENDPOINT),
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+        )
+        stored = self.work_dir / result["raw_path"]
+        self.assertEqual(state_io.sha256_file(stored), result["raw_sha256"])
+        self.assertEqual(len(stored.read_text(encoding="utf-8")), result["raw_chars"])
+
+    def test_registering_the_same_file_again_is_idempotent(self):
+        first = self.register(
+            raw_file=self.raw_file(name="casus.md", text=self.RAW_WITH_ENDPOINT),
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+        )
+        again = self.register(
+            raw_file=self.raw_file(name="casus-copy.md", text=self.RAW_WITH_ENDPOINT),
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+        )
+        self.assertNotIn("errors", again)
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(first["raw_sha256"], again["raw_sha256"])
+
+    def test_a_text_without_a_url_is_stored_byte_for_byte(self):
+        result = self.register(raw_file=self.raw_file())
+        self.assertEqual(
+            RAW_TEXT, (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+        )
+
+
+class JsonEscapedRawScrubTest(SourcesTestCase):
+    """A3: an agent saves a tool's JSON answer as the raw text, and JSON escapes every slash."""
+
+    RAW_JSON = (
+        '{\n'
+        '  "source": "https:\\/\\/mcp.casus.legal\\/case\\/1?t=TESTTOKEN",\n'
+        '  "page": "https:\\/\\/sudact.ru\\/regular\\/doc\\/abc\\/?token=TESTTOKEN&page=2",\n'
+        '  "text": "Текст решения."\n'
+        '}\n'
+    )
+
+    def stored(self, name: str = "casus.json") -> str:
+        result = self.register(
+            raw_file=self.raw_file(name=name, text=self.RAW_JSON),
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+        )
+        self.last = result
+        return (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+
+    def test_the_escaped_endpoint_is_replaced_and_the_text_stays_json(self):
+        stored = self.stored()
+        self.assertNotIn("mcp.casus.legal", stored)
+        self.assertNotIn("TESTTOKEN", stored)
+        self.assertIn("[retrieved via CasusLegal (RU)]", stored)
+        self.assertEqual("[retrieved via CasusLegal (RU)]", json.loads(stored)["source"])
+
+    def test_an_escaped_public_url_keeps_its_escaping_and_loses_the_token(self):
+        stored = self.stored()
+        self.assertIn("https:\\/\\/sudact.ru\\/regular\\/doc\\/abc\\/?page=2", stored)
+        self.assertEqual("https://sudact.ru/regular/doc/abc/?page=2", json.loads(stored)["page"])
+
+    def test_the_second_registration_of_the_same_json_is_idempotent(self):
+        first_sha = self.stored()
+        first = self.last
+        again = self.register(
+            raw_file=self.raw_file(name="copy.json", text=self.RAW_JSON),
+            url="https://sudact.ru/regular/doc/abc/",
+            source_id="vs-rf-305",
+        )
+        self.assertNotIn("errors", again)
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(first["raw_sha256"], again["raw_sha256"])
+        self.assertEqual(first_sha, (self.work_dir / again["raw_path"]).read_text(encoding="utf-8"))
+
+
+class FailClosedTest(SourcesTestCase):
+    """R1: when the cleaning cannot read an address, it suppresses it — never returns the input."""
+
+    BAD_PORT = "https://user:TESTTOKEN@sudact.ru:bad/x?t=TESTTOKEN"
+    """A public host behind a non-numeric port: `urlsplit(...).port` raises on the way through."""
+
+    BAD_MCP_HOST = "https://user:TESTTOKEN@mcp..casus.legal/case/1?t=TESTTOKEN"
+    """An endpoint host with an empty label: the idna codec refuses it, so it classifies as nothing."""
+
+    def test_an_unreadable_port_suppresses_the_whole_address(self):
+        self.assertEqual(("", ""), sources.public_url(self.BAD_PORT))
+        self.assertEqual("", sources.clean_public_url(self.BAD_PORT))
+
+    def test_an_unreadable_host_suppresses_the_whole_address(self):
+        self.assertEqual(("", ""), sources.public_url(self.BAD_MCP_HOST))
+        self.assertEqual("", sources.clean_public_url(self.BAD_MCP_HOST))
+
+    def test_registration_stores_nothing_and_warns(self):
+        for index, url in enumerate((self.BAD_PORT, self.BAD_MCP_HOST)):
+            with self.subTest(url=url.split("@", 1)[0] + "@…"):
+                result = self.register(url=url, citation=f"C {index} 2024", source_id=f"bad-{index}")
+                record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+                self.assertEqual("", record["url"])
+                self.assertNotIn("retrieved_from", record)
+                self.assertEqual(["url_not_public"], result["warnings"])
+                self.assertNotIn("TESTTOKEN", json.dumps(record, ensure_ascii=False))
+
+    def test_the_scrubber_replaces_an_unreadable_address_with_a_marker(self):
+        for url in (self.BAD_PORT, self.BAD_MCP_HOST):
+            with self.subTest(url=url.split("@", 1)[0] + "@…"):
+                scrubbed = sources.scrub_urls(f"Источник: {url} — конец.")
+                self.assertEqual("Источник: [address removed] — конец.", scrubbed)
+
+    def test_an_unreadable_address_in_meta_is_replaced_too(self):
+        self.assertEqual(
+            {"eli": "[address removed]"}, sources.scrub_values({"eli": self.BAD_MCP_HOST})
+        )
+
+    def test_redacted_url_never_echoes_an_address_it_cannot_read(self):
+        self.assertEqual(sources.ADDRESS_REMOVED, sources.redacted_url(self.BAD_PORT))
+        self.assertEqual(sources.ADDRESS_REMOVED, sources.redacted_url("https:///path?t=TESTTOKEN"))
+
+    def test_the_stored_raw_text_and_the_client_export_carry_neither(self):
+        from memoforge import finalize
+
+        raw = f"# Решение\n\nИсточник: {self.BAD_MCP_HOST}\n\nТекст.\n"
+        result = self.register(raw_file=self.raw_file(name="bad.md", text=raw), url="")
+        stored = (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+        exported = dict(finalize.published_source_texts(self.work_dir))[result["source_id"]]
+        for text in (stored, exported):
+            self.assertNotIn("TESTTOKEN", text)
+            self.assertNotIn("casus", text)
+            self.assertIn("[address removed]", text)
+
+    def test_a_url_without_a_host_still_loses_its_credentials(self):
+        self.assertEqual(("sudact.ru/doc/1", ""), sources.public_url("sudact.ru/doc/1"))
+        self.assertEqual(("sudact.ru/doc/1", ""), sources.public_url("sudact.ru/doc/1?t=TESTTOKEN"))
+
+
+class JsonUnicodeEscapeScrubTest(SourcesTestCase):
+    """R2: a `\\uXXXX` escape used to end the url token before the credential behind it."""
+
+    RAW_JSON = (
+        '{\n'
+        '  "endpoint": "https:\\/\\/mcp.casus.legal\\/case\\/1?page=2\\u0026t=TESTTOKEN",\n'
+        '  "amp": "https:\\/\\/sudact.ru\\/x?page=2\\u0026t=TESTTOKEN",\n'
+        '  "eq": "https:\\/\\/sudact.ru\\/y?page=2&t\\u003dTESTTOKEN",\n'
+        '  "qm": "https:\\/\\/sudact.ru\\/z\\u003ft=TESTTOKEN",\n'
+        '  "text": "Текст решения."\n'
+        '}\n'
+    )
+
+    def stored(self, name: str = "escaped.json") -> tuple[dict, str]:
+        result = self.register(
+            raw_file=self.raw_file(name=name, text=self.RAW_JSON),
+            url="",
+            source_id="vs-rf-305",
+        )
+        return result, (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
+
+    def test_no_escape_shape_lets_a_token_survive(self):
+        _, stored = self.stored()
+        self.assertNotIn("TESTTOKEN", stored)
+        self.assertNotIn("mcp.casus.legal", stored)
+
+    def test_the_stored_text_is_still_valid_json(self):
+        _, stored = self.stored()
+        parsed = json.loads(stored)
+        self.assertEqual("[retrieved via CasusLegal (RU)]", parsed["endpoint"])
+        self.assertEqual("https://sudact.ru/x?page=2", parsed["amp"])
+        self.assertEqual("https://sudact.ru/y?page=2", parsed["eq"])
+        self.assertEqual("https://sudact.ru/z", parsed["qm"])
+        self.assertEqual("Текст решения.", parsed["text"])
+
+    def test_a_second_registration_of_the_same_file_keeps_the_same_sha(self):
+        first, first_text = self.stored()
+        again = self.register(
+            raw_file=self.raw_file(name="copy.json", text=self.RAW_JSON),
+            url="",
+            source_id="vs-rf-305",
+        )
+        self.assertNotIn("errors", again)
+        self.assertTrue(again["idempotent"])
+        self.assertEqual(first["raw_sha256"], again["raw_sha256"])
+        self.assertEqual(first_text, (self.work_dir / again["raw_path"]).read_text(encoding="utf-8"))
+
+    def test_the_client_export_carries_no_token(self):
+        from memoforge import finalize
+
+        result, _ = self.stored()
+        exported = dict(finalize.published_source_texts(self.work_dir))[result["source_id"]]
+        self.assertNotIn("TESTTOKEN", exported)
+        self.assertNotIn("mcp.casus.legal", exported)
+        self.assertEqual("[retrieved via CasusLegal (RU)]", json.loads(exported)["endpoint"])
+
+
+class RedactedUrlTest(SourcesTestCase):
+    """A6: an error or a telemetry line never repeats the address it was handed."""
+
+    LEAKY = "https://user:TESTTOKEN@mcp.casus.legal/case/1?t=TESTTOKEN#access_token=TESTTOKEN"
+
+    def test_redacted_url_keeps_the_scheme_the_host_and_the_path_only(self):
+        self.assertEqual("https://mcp.casus.legal/case/1", sources.redacted_url(self.LEAKY))
+        self.assertEqual("", sources.redacted_url(""))
+
+    def test_a_refused_fetch_names_no_credential(self):
+        result = sources.run_fetch(
+            argparse.Namespace(
+                workdir=str(self.work_dir),
+                url=self.LEAKY,
+                method="GET",
+                json_body=None,
+                accept=None,
+                lang=None,
+                out=None,
+                layer=None,
+                timeout=5.0,
+            )
+        )
+        joined = json.dumps(result, ensure_ascii=False)
+        self.assertEqual(["userinfo_not_allowed: https://mcp.casus.legal/case/1"], result["errors"])
+        self.assertNotIn("TESTTOKEN", joined)
+        self.assertNotIn("?", joined)
+        self.assertNotIn("@", joined)
+
+
+class LivenessNormalisationTest(SourcesTestCase):
+    """A7: storage hashes the scrubbed text, so liveness must compare the same normalisation."""
+
+    BODY = ("Публикация: https://sudact.ru/regular/doc/abc/?t=TESTTOKEN\n" + LIVE_TEXT).encode("utf-8")
+
+    def _liveness(self) -> dict:
+        return sources.run_liveness(
+            argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+        )
+
+    def _register(self, base: str) -> None:
+        path = self.root / "body.md"
+        path.write_bytes(self.BODY)
+        self.register(url=f"{base}/ok", raw_file=path, tool="curl", source_id="vs-rf-305")
+
+    def test_an_unchanged_page_with_a_token_in_it_is_not_reported_changed(self):
+        with LocalServer(self.BODY) as base:
+            self._register(base)
+            row = self._liveness()["checked"][0]
+        self.assertEqual("ok", row["status"])
+        self.assertEqual("confirmed", row["provenance"])
+
+    def test_a_genuinely_changed_page_is_still_reported_changed(self):
+        with LocalServer(self.BODY) as base:
+            self._register(base)
+            registry = sources.read_registry(self.work_dir)
+            registry["sources"]["vs-rf-305"]["url"] = f"{base}/changed"
+            sources.write_registry(self.work_dir, registry)
+            row = self._liveness()["checked"][0]
+        self.assertEqual("changed", row["status"])
+        self.assertEqual("agent_saved", row["provenance"])
+
+    def test_a_record_whose_sha_predates_the_scrub_still_matches(self):
+        with LocalServer(self.BODY) as base:
+            self._register(base)
+            registry = sources.read_registry(self.work_dir)
+            registry["sources"]["vs-rf-305"]["raw_sha256"] = state_io.sha256_bytes(self.BODY)
+            sources.write_registry(self.work_dir, registry)
+            row = self._liveness()["checked"][0]
+        self.assertEqual("ok", row["status"])
+        self.assertEqual("confirmed", row["provenance"])
+
+
+class SlugifyTest(unittest.TestCase):
+    """D-194: a Cyrillic title keeps its words instead of folding away to its digits."""
+
+    def test_the_cyrillic_examples_of_the_decision(self):
+        self.assertEqual("gk-rf-st-428", sources.slugify("ГК РФ, ст. 428"))
+        self.assertEqual("oferta-ozon", sources.slugify("Оферта Ozon"))
+
+    def test_the_numero_sign_becomes_a_word(self):
+        self.assertEqual(
+            "opredelenie-vs-rf-no-305-es23-12345",
+            sources.slugify("Определение ВС РФ № 305-ЭС23-12345"),
+        )
+
+    def test_the_whole_transliteration_table_is_applied(self):
+        self.assertEqual(
+            "abvgdeezhziiklmnoprstufkhtschshshchyeiuia",
+            sources.slugify("абвгдеёжзийклмнопрстуфхцчшщъыьэюя"),
+        )
+        self.assertEqual(sources.slugify("ЖУРНАЛ"), sources.slugify("журнал"))
+
+    def test_latin_titles_of_existing_fixtures_are_unchanged(self):
+        self.assertEqual("gdpr-article-6", sources.slugify("GDPR Article 6"))
+        self.assertEqual(
+            "regulation-eu-2016-679-gdpr-article-6",
+            sources.slugify("Regulation (EU) 2016/679 (GDPR), Article 6"),
+        )
+        self.assertEqual("smith-v-acme-analytics-llc", sources.slugify("Smith v Acme Analytics LLC"))
+
+    def test_a_cyrillic_citation_no_longer_collides_with_a_bare_number(self):
+        self.assertNotEqual(sources.slugify("ГК РФ, ст. 428"), sources.slugify("428"))
+
+
+class EmptyUrlLivenessTest(SourcesTestCase):
+    """D-192: a record whose url the registry refused to keep is never probed."""
+
+    def test_a_record_without_a_url_is_reported_unchecked_and_not_requested(self):
+        self.register(url=CASUS_URL, citation="Определение ВС РФ от 12.03.2024 № 305-ЭС23-1")
+        with mock.patch.object(sources, "probe_url", side_effect=AssertionError("probed")):
+            result = sources.run_liveness(
+                argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+            )
+        self.assertEqual(1, len(result["checked"]))
+        self.assertEqual("unchecked", result["checked"][0]["status"])
+        self.assertEqual("no_url", result["checked"][0]["error"])
 
 
 if __name__ == "__main__":

@@ -152,6 +152,10 @@
           "description": "Empty only for a citation-only source registered without a retrievable url (`sources register` keys on the citation_form then).",
           "type": "string"
         },
+        "retrieved_from": {
+          "description": "D-192: the MCP endpoint address a non-public url was replaced by (`<scheme>://<host><path>`, no query). Optional; never printed to the client and never exported — the annex only names the database it belongs to.",
+          "type": "string"
+        },
         "retrieved_at": { "$ref": "#/$defs/timestamp" },
         "retrieval_tool": { "type": "string", "minLength": 1 },
         "provenance": {

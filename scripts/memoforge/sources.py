@@ -18,7 +18,7 @@ import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 
-from . import events, i18n, limits, schema, state_io, stepctx
+from . import events, i18n, limits, routing, schema, state_io, stepctx
 
 REGISTRY_PATH = "research/sources.json"
 PACK_PATH = "research/source-pack.json"
@@ -131,6 +131,84 @@ the 2 KB floor and over the 5 % ratio, so neither of the other two rules sees it
 itself: «Due to aggressive automated scraping … programmatic access … is limited». No statute or
 judgment carries these sentences.
 """
+
+# --- what a client may be given (D-192, D-193) -----------------------------
+
+NON_PUBLIC_SOURCE_HOSTS: tuple[str, ...] = (
+    "mcp.casus.legal",
+    "search.delay-rag.ru",
+    "mcp.courtlistener.com",
+    "api.legalviz.eu",
+    "uk-legal-mcp.fly.dev",
+    "mcp.opencaselaw.ch",
+    "federal-regulations.caseyjhand.com",
+    "lex.lab.i.ai.gov.uk",
+)
+"""D-192: hosts that serve an MCP endpoint and nothing a client can open.
+
+The first Russian run delivered a memorandum whose sources pointed at `mcp.casus.legal` with a
+session token in the query — a paid endpoint, not a page of the act. A url on one of these hosts is
+never stored as a source `url`, never printed in the annex and never linked from the body.
+`test_sources.ManifestClassificationTest` fails when a newly bundled server of `.mcp.json` is
+listed in neither this tuple nor `PUBLIC_MCP_HOSTS`, so classification cannot be forgotten.
+"""
+
+PUBLIC_MCP_HOSTS: tuple[str, ...] = ("justicelibre.org", "legaldatahunter.com")
+"""D-192: bundled servers whose host also serves public pages — their urls stay as they are."""
+
+AUTH_QUERY_PARAMS: tuple[str, ...] = (
+    "t",
+    "token",
+    "access_token",
+    "auth",
+    "key",
+    "api_key",
+    "apikey",
+    "sig",
+    "signature",
+    "session",
+    "sid",
+    "jwt",
+)
+"""D-192: query parameter names (matched without case) that carry a credential, never a location."""
+
+RETRIEVED_VIA_TEMPLATE = "[retrieved via {server}]"
+"""D-193: what an endpoint address becomes inside a stored raw text."""
+
+GENERIC_DATABASE = "a legal database"
+"""D-193: the stand-in for a host of no bundled server; the annex has a pack key for the same idea."""
+
+URL_NOT_PUBLIC = "url_not_public"
+URL_NOT_PUBLIC_HINT = (
+    "register the public page of the act (sudact.ru, vsrf.ru, the court's site) or leave the URL "
+    "empty; the citation form identifies the act"
+)
+"""D-192: the warning `sources register` answers with, and the one line that says what to do."""
+
+IDNA_DOTS = ".。．｡"
+"""A1: the four characters IDNA reads as a label separator — a host may be written with any of them."""
+
+JSON_ESCAPED_SLASH = "\\/"
+"""A3: how a slash appears when an agent saves a tool's JSON answer as the raw text."""
+
+JSON_UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+"""R2: `\\u0026`, `\\u003d`, `\\u003f` — how Go, .NET and PHP serialisers write `&`, `=` and `?`."""
+
+ADDRESS_REMOVED = "[address removed]"
+"""R1: what stands where an address the cleaning could not read used to be.
+
+Nothing in it needs JSON escaping, so it can replace a url inside a JSON raw text as it is.
+"""
+
+URL_IN_TEXT_RE = re.compile(r"https?:\\?/\\?/(?:\\/|\\u[0-9a-fA-F]{4}|[^\s<>\"'`\\])+", re.IGNORECASE)
+"""D-193: a url inside a raw text, plain or JSON-escaped (A3, R2).
+
+Only `\\/` and `\\uXXXX` carry the match past a backslash, so a url that runs into an escape
+sequence of some other kind ends there. Trailing punctuation is trimmed by `scrub_urls`.
+"""
+
+URL_TRAILING_PUNCTUATION = ".,;:!?)]}»"
+"""Characters a sentence puts after a url, which are never part of it."""
 
 PINPOINT_KINDS: dict[str, str] = {
     "article": "art",
@@ -269,9 +347,34 @@ def canonical_id(merged: dict, source_id: str) -> str:
 # --- helpers --------------------------------------------------------------
 
 
+CYRILLIC_TRANSLITERATION: dict[str, str] = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "i", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "iu",
+    "я": "ia", "№": "no",
+}
+"""D-194: the fixed table `slugify` applies before the ASCII fold.
+
+Without it `unicodedata.normalize(...).encode("ascii", "ignore")` deletes every Cyrillic letter, so
+`ГК РФ, ст. 428` and a blog post titled `428` both slugged to `428` and the second registration
+became `428-2` — an id that names nothing. The table is transliteration, not a standard: it only has
+to be stable and readable.
+"""
+
+
+def transliterate(text: str) -> str:
+    """Cyrillic (and `№`) to Latin by `CYRILLIC_TRANSLITERATION`, lower-cased (D-194)."""
+    out = []
+    for char in text:
+        replacement = CYRILLIC_TRANSLITERATION.get(char.lower())
+        out.append(char if replacement is None else replacement)
+    return "".join(out)
+
+
 def slugify(text: object, fallback: str = "source") -> str:
     """Stable kebab-case source slug matching the `source_id` pattern of the schema."""
-    value = unicodedata.normalize("NFKD", str(text or ""))
+    value = unicodedata.normalize("NFKD", transliterate(str(text or "")))
     value = value.encode("ascii", "ignore").decode("ascii").lower()
     value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
     value = re.sub(r"-{2,}", "-", value)
@@ -307,6 +410,240 @@ def normalize_url(url: object) -> str:
     if sep:
         value = scheme.lower() + sep + rest
     return value
+
+
+def canonical_host(host: object) -> str:
+    """One canonical form of a host before it is classified; `""` when there is none (A1, D-192).
+
+    `urlsplit(...).hostname` lower-cases, and nothing else: `mcp.casus.legal.` (the trailing DNS
+    dot) and `mcp.casus。legal` (U+3002, an IDNA-equivalent dot) both resolve to the endpoint host
+    and both used to read as a stranger. The idna codec splits on all four dot characters and folds
+    every label, so it is the one normalisation both registration and the renderer apply. A host it
+    refuses — an empty or over-long label, an IP literal in brackets — canonicalises to `""`, and
+    every caller reads that as «not an address a client may be given».
+    """
+    text = str(host or "").strip().lower().rstrip(IDNA_DOTS)
+    if not text:
+        return ""
+    try:
+        return text.encode("idna").decode("ascii").lower().rstrip(".")
+    except (UnicodeError, ValueError):
+        return ""
+
+
+def source_host(url: object) -> str:
+    """Canonical host of a registered url; `""` when it has none or it cannot be canonicalised.
+
+    `urlsplit(...).hostname` is the parser of D-151, so `https://outside.example#@mcp.casus.legal`
+    reads as `outside.example` and its mirror image reads as the endpoint it really is. Unlike
+    `request_host` this answers for a url the fetch client refuses as well: `request_host` returns
+    `""` for userinfo, and a url that may not be *fetched* is still a url that may not be
+    *published* — `https://user:pw@mcp.casus.legal/case/1` must not survive registration.
+    """
+    try:
+        return canonical_host(urllib.parse.urlsplit(str(url or "").strip()).hostname)
+    except ValueError:
+        return ""
+
+
+def _strip_auth_query(query: str) -> str:
+    """The query without its `AUTH_QUERY_PARAMS`; unchanged when it carries none (D-192)."""
+    if not query:
+        return query
+    pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    kept = [(name, value) for name, value in pairs if name.lower() not in AUTH_QUERY_PARAMS]
+    # Nothing to remove: the query is returned byte for byte, never re-encoded.
+    return query if len(kept) == len(pairs) else urllib.parse.urlencode(kept)
+
+
+def _is_auth_fragment(fragment: str) -> bool:
+    """True when a fragment carries an `AUTH_QUERY_PARAMS` name as `name=value` (A2).
+
+    Portals put a real anchor there (`#dst100`, `#art_6`, `#p123`, `#/document/12`) and OAuth-style
+    flows put the credential there; only the second shape is dropped, and then the whole fragment
+    goes — a credential never travels with the route that carried it.
+
+    FF1: a hash-router address carries a query of its own inside the fragment — `#?t=…`,
+    `#/document?t=…`. Read as one query string the first name comes out as `?t` or `/document?t`,
+    which is in no list, so the token survived `public_url`, the raw-text scrub and the inline
+    hyperlink. The part after the first `?` is therefore examined as a parameter string in its own
+    right, next to the whole fragment.
+    """
+    if not fragment or "=" not in fragment:
+        return False
+    for candidate in (fragment, fragment.partition("?")[2]):
+        if not candidate:
+            continue
+        pairs = urllib.parse.parse_qsl(candidate, keep_blank_values=True)
+        if any(name.lower() in AUTH_QUERY_PARAMS for name, _ in pairs):
+            return True
+    return False
+
+
+def _json_unescape(url: str) -> str:
+    """The url a JSON-escaped token stands for: `\\/` and every `\\uXXXX` decoded (A3, R2)."""
+    plain = url.replace(JSON_ESCAPED_SLASH, "/")
+    return JSON_UNICODE_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), plain)
+
+
+def _json_escape(url: str) -> str:
+    """The url written back into a JSON string, slashes escaped as the source text had them (R2).
+
+    `json.dumps` decides what must be escaped — a quote, a backslash, a control character — so a
+    `\\uXXXX` that decoded into one of those cannot break the document it is written back into.
+    """
+    return json.dumps(url)[1:-1].replace("/", JSON_ESCAPED_SLASH)
+
+
+def clean_public_url(url: str) -> str:
+    """A public url without its credentials: userinfo, auth query parameters, auth fragment (A2).
+
+    The host is rewritten to its canonical form at the same time (A1). A url that carries none of
+    those is returned byte for byte — nothing is re-encoded for its own sake.
+
+    R1: the cleaning fails **closed**. `urlsplit(...).port` raises on `sudact.ru:bad`, and a host
+    with an empty label canonicalises to nothing; returning the input in either case published the
+    userinfo and the token it carried. An address this parser cannot read is answered with `""`,
+    and every caller reads that as «there is no address here».
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = canonical_host(parts.hostname)
+        port = parts.port
+        query = _strip_auth_query(parts.query)
+        fragment = "" if _is_auth_fragment(parts.fragment) else parts.fragment
+    except ValueError:
+        return ""
+    if not host:
+        # An authority that cannot be read is suppressed; a url with no authority at all (a bare
+        # path, `mailto:`) keeps today's behaviour and only loses its credentials.
+        if parts.netloc:
+            return ""
+        rebuilt = urllib.parse.urlunsplit((parts.scheme, "", parts.path, query, fragment))
+        return url if rebuilt == url else rebuilt
+    netloc = f"{host}:{port}" if port else host
+    rebuilt = urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
+    return url if rebuilt == url else rebuilt
+
+
+def public_url(url: object) -> tuple[str, str]:
+    """`(clean_url, retrieved_from)` — the address a client may be given, and the one it may not.
+
+    D-192. A url on a `NON_PUBLIC_SOURCE_HOSTS` host is not an address at all — it is an MCP
+    endpoint, usually with a session token in the query — so it leaves no `url` and is recorded as
+    `<scheme>://<host><path>` for the annex note alone. A host that cannot be canonicalised, or a
+    url `urlsplit` cannot read, leaves no `url` either and nothing to record (A1, R1). Any other url
+    keeps its location and loses its credentials (A2); one with no authority at all — a bare path,
+    `mailto:` — keeps today's behaviour, minus the credentials it may still carry.
+    """
+    text = str(url or "").strip()
+    if not text:
+        return "", ""
+    try:
+        parts = urllib.parse.urlsplit(text)
+        raw_host = parts.hostname or ""
+    except ValueError:
+        return "", ""
+    if raw_host:
+        host = canonical_host(raw_host)
+        if not host:
+            # A1: an address this code cannot read is an address a client must not be handed either.
+            return "", ""
+        if host in NON_PUBLIC_SOURCE_HOSTS:
+            return "", f"{parts.scheme}://{host}{parts.path}"
+    return clean_public_url(text), ""
+
+
+def scrub_urls(text: str) -> str:
+    """Every endpoint address out of a raw text, every credential out of the rest (D-193).
+
+    The stored text travels to the client as `sources/<id>.txt` and into `source-pack.md`, and its
+    sha256 is the C-02 anchor — so the scrub happens once, at ingest, before the hash.
+
+    A3/R2: an agent that saves a tool's JSON answer as the raw text saves `https:\\/\\/host\\/path`,
+    and a Go/.NET/PHP serialiser writes `&`, `=` and `?` as `\\u0026`, `\\u003d` and `\\u003f`. Both
+    escapes are part of the url token, are decoded before the address is read, and are written back
+    through `json.dumps` so the text stays valid JSON where it was. Neither marker — the
+    `[retrieved via …]` one nor `[address removed]` — contains anything JSON escapes.
+
+    R1: an address the cleaning cannot read is replaced whole by `ADDRESS_REMOVED` rather than left
+    where it is. A stored raw text is exported to the client as `sources/<id>.txt`; an address this
+    code could not parse is exactly the one nobody has checked.
+    """
+
+    def on_url(match: "re.Match[str]") -> str:
+        found = match.group(0)
+        tail = ""
+        while found and found[-1] in URL_TRAILING_PUNCTUATION:
+            tail = found[-1] + tail
+            found = found[:-1]
+        if not found:
+            return match.group(0)
+        escaped = "\\" in found
+        plain = _json_unescape(found) if escaped else found
+        host = source_host(plain)
+        if host and host in NON_PUBLIC_SOURCE_HOSTS:
+            label = routing.server_label(host) or GENERIC_DATABASE
+            return RETRIEVED_VIA_TEMPLATE.format(server=label) + tail
+        cleaned = clean_public_url(plain)
+        if not cleaned:
+            return ADDRESS_REMOVED + tail
+        return (_json_escape(cleaned) if escaped else cleaned) + tail
+
+    return URL_IN_TEXT_RE.sub(on_url, text)
+
+
+def scrub_values(value: object) -> object:
+    """`scrub_urls` over every string inside a `--meta` / `--identifiers` object (A4).
+
+    A token-bearing endpoint address in `identifiers.eli` or `meta.short_name` reaches the docx,
+    `deliverable.md`, `source-pack.md` and the dashboard exactly as one in `url` would.
+    """
+    if isinstance(value, str):
+        return scrub_urls(value)
+    if isinstance(value, dict):
+        return {key: scrub_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub_values(item) for item in value]
+    return value
+
+
+def redacted_url(url: object) -> str:
+    """`scheme://host/path` — all an error message or a telemetry line may repeat of a url (A6).
+
+    `mf sources fetch` refuses a url with credentials in it and used to name the whole address in
+    `errors[0]`, which `cli.rejection_of` writes into `events.jsonl` and `finalize` exports in
+    `_run/`. Userinfo, query and fragment are exactly where a token lives, so none of them is
+    echoed; R1: an address with no readable host is answered with `ADDRESS_REMOVED`, never with a
+    piece of the input — cutting the input at the first separator is one parser too many.
+    """
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(text)
+        host = canonical_host(parts.hostname)
+        parts.port  # noqa: B018 - R1: the same parse the cleaning does, so both fail on the same urls
+    except ValueError:
+        return ADDRESS_REMOVED
+    if not host:
+        return ADDRESS_REMOVED
+    return f"{parts.scheme}://{host}{parts.path}" if parts.scheme else f"{host}{parts.path}"
+
+
+def prepare_raw(payload: bytes) -> bytes:
+    """The bytes a raw file is stored and hashed as: markup converted (D-163), urls scrubbed (D-193).
+
+    One function for both callers — `store_raw` and the explicit-id repeat check of `register_source`
+    — so re-registering the same file is still a no-op instead of a `source_id_collision`.
+    """
+    converted = markup_to_text(payload)
+    payload = converted if converted is not None else payload
+    text = payload.decode("utf-8-sig", errors="replace")
+    scrubbed = scrub_urls(text)
+    # A text with nothing to scrub keeps its bytes exactly, BOM and all: no hash of any existing
+    # raw file moves because this pass now runs.
+    return payload if scrubbed == text else scrubbed.encode("utf-8")
 
 
 def dedup_key(layer: str, url: object, citation_form: object) -> tuple[str, str]:
@@ -379,8 +716,16 @@ def parse_json_argument(raw: object, name: str) -> dict:
     return value
 
 
-def _new_record(layer: str, title: str, citation: str, url: str, tool: str, tier: str) -> dict:
-    return {
+def _new_record(
+    layer: str,
+    title: str,
+    citation: str,
+    url: str,
+    tool: str,
+    tier: str,
+    retrieved_from: str = "",
+) -> dict:
+    record = {
         "layer": layer,
         "title": title,
         "citation_form": citation,
@@ -397,6 +742,10 @@ def _new_record(layer: str, title: str, citation: str, url: str, tool: str, tier
         "currency": None,
         "pack": None,
     }
+    if retrieved_from:
+        # D-192: optional, so a record registered from a public page keeps the shape it always had.
+        record["retrieved_from"] = retrieved_from
+    return record
 
 
 def store_raw(work_dir: str | os.PathLike, layer: str, source_id: str, raw_file: str | os.PathLike) -> dict:
@@ -404,9 +753,7 @@ def store_raw(work_dir: str | os.PathLike, layer: str, source_id: str, raw_file:
     src = Path(raw_file)
     if not src.is_file():
         raise ValueError(f"raw_file_not_found: {src}")
-    payload = src.read_bytes()
-    converted = markup_to_text(payload)
-    payload = converted if converted is not None else payload
+    payload = prepare_raw(src.read_bytes())
     target = Path(work_dir) / RAW_DIR / layer / f"{source_id}.md"
     state_io.write_bytes_atomic(target, payload)
     if src.absolute() != target.absolute():
@@ -462,6 +809,18 @@ def register_source(
     if not str(url).strip() and not str(citation).strip():
         raise ValueError("url_or_citation_required")
 
+    # D-192: from here on `url` means the address a client may be given. An endpoint address never
+    # becomes one — it is kept in `retrieved_from` and answered for with a warning. The citation
+    # still satisfies `url_or_citation_required`, so the registration itself never fails.
+    clean_url, retrieved_from = public_url(url)
+    url_refused = bool(str(url).strip()) and not clean_url
+    # A4: `url` is not the only field an address travels in. The title, the citation form and every
+    # string under `--meta`/`--identifiers` are printed by the docx, `deliverable.md`,
+    # `source-pack.md` and the dashboard, so they go through the same scrub as the raw text.
+    title = scrub_urls(str(title))
+    citation = scrub_urls(str(citation))
+    meta = scrub_values(meta) if meta else meta
+    identifiers = scrub_values(identifiers) if identifiers else identifiers
     work_dir = Path(work_dir)
     with sources_lock(work_dir):
         # The freeze holds `sources.lock` for its whole transaction, so this check cannot race it.
@@ -473,6 +832,7 @@ def register_source(
         registry = read_registry(work_dir)
         sources = registry["sources"]
         explicit_id = slugify(source_id) if source_id else None
+        existing_id = None
         if explicit_id and explicit_id in sources:
             # D34-04: an occupied `source_id` is never re-slugged into `<id>-2` and never overwritten.
             # D-143: the check runs before the dedup key of rule 5 can route the call into the update
@@ -483,9 +843,7 @@ def register_source(
             if raw_file and Path(raw_file).is_file():
                 # D-163: `store_raw` records the converted text, so the repeat check hashes the
                 # same normalised bytes — identical HTML re-registered under its id is a no-op.
-                incoming = Path(raw_file).read_bytes()
-                converted = markup_to_text(incoming)
-                incoming_sha = state_io.sha256_bytes(converted if converted is not None else incoming)
+                incoming_sha = state_io.sha256_bytes(prepare_raw(Path(raw_file).read_bytes()))
             if (held.get("raw_sha256") or None) != incoming_sha:
                 return {
                     "errors": [f"source_id_collision: {explicit_id} already holds {held['title']!r}"],
@@ -494,29 +852,37 @@ def register_source(
                     "held_raw_sha256": held.get("raw_sha256"),
                     "hint": "register the new text under its own id, or fix the existing record",
                 }
-            # Same bytes under the same id: answer with the id that already holds them.
-            return {
-                "source_id": explicit_id,
-                "created": False,
-                "idempotent": True,
-                "layer": held["layer"],
-                "raw_path": held.get("raw_path"),
-                "raw_sha256": held.get("raw_sha256"),
-                "raw_chars": held.get("raw_chars"),
-                "provenance": held.get("provenance"),
-                "tier": held.get("tier"),
-            }
+            if held.get("layer") != layer:
+                # Fix round 2: a record's layer is immutable. The update branch below keeps the old
+                # layer while `store_raw` would file the text under the newly named one and the
+                # answer would report that one — three places, three answers. Refused before
+                # anything is written, like the different-bytes case above.
+                return {
+                    "errors": [f"source_id_layer_mismatch: {explicit_id} is registered under {held['layer']!r}"],
+                    "source_id": explicit_id,
+                    "held_layer": held["layer"],
+                    "held_title": held["title"],
+                    "hint": (
+                        f"a record never changes layer: re-register with --layer {held['layer']}, "
+                        "or register this text under its own id"
+                    ),
+                }
+            # Same bytes, same layer, same id: an update of that record, not a dead end. D-192 fix
+            # round 1 — the early return this replaces skipped the metadata update and the common
+            # answer builder, so `--id X --url <endpoint>` recorded no `retrieved_from` and answered
+            # without `url_not_public`. The guard above still refuses *different* bytes.
+            existing_id = explicit_id
 
-        key = dedup_key(layer, url, citation)
-        existing_id = None
-        for candidate_id, record in sources.items():
-            if dedup_key(record["layer"], record.get("url"), record.get("citation_form")) == key:
-                existing_id = candidate_id
-                break
+        if existing_id is None:
+            key = dedup_key(layer, clean_url, citation)
+            for candidate_id, record in sources.items():
+                if dedup_key(record["layer"], record.get("url"), record.get("citation_form")) == key:
+                    existing_id = candidate_id
+                    break
 
         if existing_id is None:
             new_id = explicit_id or unique_slug(slugify(title), set(sources))
-            record = _new_record(layer, title, citation, str(url), tool, tier)
+            record = _new_record(layer, title, citation, clean_url, tool, tier, retrieved_from)
             sources[new_id] = record
             created = True
             existing_id = new_id
@@ -526,8 +892,17 @@ def register_source(
             record["citation_form"] = citation
             record["tier"] = tier
             record["retrieval_tool"] = tool
-            if str(url).strip():
-                record["url"] = str(url)
+            if clean_url:
+                record["url"] = clean_url
+            else:
+                # A5b: an endpoint or token url written before this rule does not survive an update
+                # just because the incoming call carried no url of its own.
+                held_url, held_from = public_url(record.get("url"))
+                record["url"] = held_url
+                retrieved_from = retrieved_from or held_from
+            if retrieved_from:
+                # An endpoint url never clears the public address a previous registration found.
+                record["retrieved_from"] = retrieved_from
             created = False
 
         if identifiers:
@@ -546,7 +921,7 @@ def register_source(
         write_registry(work_dir, registry)
 
     result = dict(sources[existing_id])
-    return {
+    answer = {
         "source_id": existing_id,
         "created": created,
         "idempotent": not created,
@@ -557,6 +932,12 @@ def register_source(
         "provenance": result.get("provenance"),
         "tier": result.get("tier"),
     }
+    if url_refused:
+        # A1: a host that could not be canonicalised leaves no `retrieved_from` either, and the
+        # caller still has to hear that the url it passed did not become the source's address.
+        answer["warnings"] = [URL_NOT_PUBLIC]
+        answer["hint"] = URL_NOT_PUBLIC_HINT
+    return answer
 
 
 def run_register(args: argparse.Namespace) -> dict:
@@ -716,6 +1097,10 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
             entry["identifiers"] = dict(record["identifiers"])
         if record.get("retrieved_at"):
             entry["retrieved_at"] = record["retrieved_at"]
+        if record.get("retrieved_from"):
+            # D-192: the annex needs the database's name after the freeze; `render_source_pack`
+            # prints seven named columns, so the endpoint never reaches the client's copy.
+            entry["retrieved_from"] = record["retrieved_from"]
         entries.append(entry)
 
     snapshot = []
@@ -1398,6 +1783,9 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
         "status": status,
         "code": code,
         "sha256": state_io.sha256_bytes(payload),
+        # A7: `store_raw` hashes the scrubbed text (D-193), so the probe offers that hash too —
+        # otherwise an unchanged page carrying a url with an auth parameter reports `changed`.
+        "sha256_normalised": state_io.sha256_bytes(prepare_raw(payload)),
         "error": None,
         "redirects": hops,
     }
@@ -1529,14 +1917,17 @@ def run_liveness(args: argparse.Namespace) -> dict:
             if host:
                 last_probe[host] = time.monotonic()
             status = probe["status"]
-            if expected and probe["sha256"] and probe["sha256"] != expected:
+            # A7: the registry holds the sha of the scrubbed text; a record written before D-193
+            # holds the sha of the body as served. Either equality is the same page.
+            digests = {value for value in (probe["sha256"], probe.get("sha256_normalised")) if value}
+            if expected and digests and expected not in digests:
                 status = "changed"
             record["liveness"] = {
                 "status": status,
                 "code": probe["code"],
                 "checked_at": events.utc_now(),
             }
-            if expected and probe["sha256"] == expected:
+            if expected and expected in digests:
                 record["provenance"] = "confirmed"
             checked.append(
                 {
@@ -1778,7 +2169,11 @@ def run_fetch(args: argparse.Namespace) -> dict:
     problem = url_error(url)
     if problem is not None:
         # D-151: one parser, the permission gate's — a url it cannot read is never requested.
-        return {"errors": [f"{problem}: {url}"], "hint": "only http(s) urls without credentials can be fetched"}
+        # A6: the refusal is journalled by `cli.rejection_of`, so it names a redacted address.
+        return {
+            "errors": [f"{problem}: {redacted_url(url)}"],
+            "hint": "only http(s) urls without credentials can be fetched",
+        }
     host = request_host(url)
     hosts = allowlist_hosts()
     if not host_on_allowlist(host, hosts):

@@ -514,6 +514,25 @@ class SourcesSchemaTest(unittest.TestCase):
             set(record["verification"]),
         )
 
+    def test_retrieved_from_is_an_optional_string_of_the_record(self):
+        """D-192: the endpoint address the public url rule kept out of `url`."""
+        payload = self._sources()
+        payload["sources"]["gdpr-art-6"]["retrieved_from"] = "https://mcp.casus.legal/case/34232"
+        self.assertEqual([], errors_for("sources", payload))
+
+        payload = self._sources()
+        payload["sources"]["gdpr-art-6"]["retrieved_from"] = 7
+        self.assertTrue(errors_for("sources", payload))
+
+    def test_the_pack_entry_carries_retrieved_from_too(self):
+        payload = read_json(fixture_dir("source-pack") / "valid-1.json")
+        payload["entries"][0]["retrieved_from"] = "https://mcp.casus.legal/case/34232"
+        self.assertEqual([], errors_for("source-pack", payload))
+
+        payload = read_json(fixture_dir("source-pack") / "valid-1.json")
+        payload["entries"][0]["retrieved_from"] = None
+        self.assertTrue(errors_for("source-pack", payload))
+
     def test_tool_meta_stays_open_but_pack_is_closed(self):
         payload = self._sources()
         payload["sources"]["gdpr-art-6"]["meta"]["repealed_by"] = "CELEX:32024R1689"
