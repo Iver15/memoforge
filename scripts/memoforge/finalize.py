@@ -143,7 +143,7 @@ def condense_appendix(body: str, work_dir: Path, state: dict) -> str:
         draft = _selected_draft_path(work_dir, state)
         # D-204: the C-09 lines are computed for the selected draft itself, like its citations.
         index = md_fallback.SourceIndex.load(
-            work_dir, state=state, pinpoint_findings=exported_pinpoints(work_dir, draft)
+            work_dir, state=state, pinpoint_findings=exported_pinpoints(work_dir, draft, state=state)
         )
         cited = _cited_source_ids(draft, index)
         if cited is None:
@@ -431,7 +431,7 @@ def _markdown_body(
             work_dir,
             selection["path"],
             state=view,
-            pinpoint_findings=exported_pinpoints(work_dir, selection["path"]),
+            pinpoint_findings=exported_pinpoints(work_dir, selection["path"], state=view),
         )
         if reuse_export:
             state_io.write_bytes_atomic(rendered, result["markdown"].encode("utf-8"))

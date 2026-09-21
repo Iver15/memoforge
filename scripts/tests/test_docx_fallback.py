@@ -621,6 +621,53 @@ class ExportedVersionPinpointTest(unittest.TestCase):
             (self.work_dir / "drafts" / "v1.md").write_bytes(self.BAD.encode("utf-8"))
             self.assertEqual([], docx.exported_pinpoints(self.work_dir, self.work_dir / "drafts" / "v1.md"))
 
+    def break_the_russian_pack(self) -> None:
+        """A Russian run whose language pack cannot be read — the case `--salvage` delivers in English."""
+
+        def mutator(current: dict) -> None:
+            current["language"] = "ru"
+
+        state_io.write_state(self.work_dir, mutator)
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
+        patcher = mock.patch.object(i18n, "PACK_DIR", Path(empty.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        i18n._cache.clear()
+        self.addCleanup(i18n._cache.clear)
+        self.assertFalse(i18n.available("ru"))
+
+    def test_a_salvaged_english_delivery_prints_the_c09_line_of_its_draft(self):
+        # Sol's review, fix round 1: `--salvage` switches only its in-memory state to English. The
+        # C-09 computation must read the draft with that effective language, not re-read the Russian
+        # state on disk, whose grammar cannot be built — a supported delivery must not go silent.
+        self.put_version(1, self.BAD, checked=True)
+        self.break_the_russian_pack()
+        issue_step(self.work_dir, "s-export")
+        result = finalize.run_finalize(
+            argparse.Namespace(
+                workdir=str(self.work_dir), step="s-export", attempt=1, reason=None, salvage=True, human=False
+            )
+        )
+        self.assertNotIn("errors", result)
+        self.assertTrue(result["salvage"])
+        body = (self.work_dir / result["deliverable"]).read_text(encoding="utf-8")
+        self.assertIn(fallback.sources_heading(), body, "the deliverable is in English")
+        self.assertIn(fallback.appendix_heading(), body)
+        self.assertIn(self.NOTE, body)
+
+    def test_exported_pinpoints_reads_the_draft_in_the_effective_language(self):
+        self.put_version(1, self.BAD, checked=True)
+        self.break_the_russian_pack()
+        draft = self.work_dir / "drafts" / "v1.md"
+        on_disk = state_io.read_state(self.work_dir)
+        salvaged = dict(on_disk, language="en")
+        findings = docx.exported_pinpoints(self.work_dir, draft, state=salvaged)
+        self.assertEqual([("ru-law", "ст. 9")], [(row["source_id"], row["pinpoint"]) for row in findings])
+        # The Russian state itself cannot be read without its pack — that failure stays a note's
+        # loss, never the delivery's (M9).
+        self.assertEqual([], docx.exported_pinpoints(self.work_dir, draft, state=on_disk))
+
 
 class SourcesSectionTest(unittest.TestCase):
     def test_sources_section_lists_every_footnote(self):

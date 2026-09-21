@@ -254,9 +254,16 @@ def read_frozen_pack(work_dir: str | Path) -> dict | None:
     return pack if isinstance(pack, dict) else None
 
 
-def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[dict]:
-    """Apply C-01..C-09 to one draft against the registry, the quote store and the snapshot."""
-    document = lint.parse_draft(text, lint.grammar(resolve_language(work_dir)))
+def audit(
+    text: str, *, work_dir: str | Path, mode: str | None = None, language: str | None = None
+) -> list[dict]:
+    """Apply C-01..C-09 to one draft against the registry, the quote store and the snapshot.
+
+    `language` is the memo language the draft is read in; None reads it from `state.json`. D-204:
+    a caller rendering with another effective state — `finalize --salvage` renders in English when
+    the pack of the run's language cannot be read — passes the language it actually renders in.
+    """
+    document = lint.parse_draft(text, lint.grammar(language or resolve_language(work_dir)))
     run_mode = resolve_mode(work_dir, mode)
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)
@@ -387,14 +394,18 @@ def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[d
     return findings
 
 
-def pinpoint_findings(text: str, *, work_dir: str | Path) -> list[dict]:
+def pinpoint_findings(
+    text: str, *, work_dir: str | Path, language: str | None = None, mode: str | None = None
+) -> list[dict]:
     """The C-09 findings of one draft, computed afresh from its text (D-204).
 
     What the appendix of an export discloses: the version chosen for export is not always the last
     one audited, and `citations.json` describes only that last one. The renderers never import this
-    module (D-195); whoever chooses the exported version calls this and hands them the result.
+    module (D-195); whoever chooses the exported version calls this and hands them the result, with
+    the language and mode it renders with (None: those of `state.json`).
     """
-    return [row for row in audit(text, work_dir=work_dir) if row["rule"] == PINPOINT_NOT_IN_RAW]
+    findings = audit(text, work_dir=work_dir, mode=mode, language=language)
+    return [row for row in findings if row["rule"] == PINPOINT_NOT_IN_RAW]
 
 
 def _check_source(

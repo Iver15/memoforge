@@ -169,24 +169,31 @@ def select_draft(state: dict, work_dir: Path, draft_sha: str | None = None) -> d
     }
 
 
-def exported_pinpoints(work_dir: Path, draft: Path | None) -> list[dict]:
+def exported_pinpoints(work_dir: Path, draft: Path | None, *, state: dict | None = None) -> list[dict]:
     """The C-09 findings of the draft chosen for export, for both renderers as data (D-204).
 
     The appendix describes the version the client receives, and `select_draft` may pick an earlier
     checked version than the last one audited — whose findings are all `citations.json` holds. So
     the findings are computed here, where the version is chosen, from that version's own bytes; the
     renderers stay free of the citation audit (D-195), which is imported only inside this function
-    so that importing `docx.fallback` never loads it. Export never blocks (M9): a draft that cannot
-    be read or audited costs the appendix its C-09 lines, never the delivery.
+    so that importing `docx.fallback` never loads it.
+
+    `state` is the **effective** state the caller renders with, and the draft is read in its memo
+    language: `finalize --salvage` renders in English when the pack of the run's language cannot be
+    read, and re-reading the Russian `state.json` here would fail on exactly that pack and leave a
+    supported delivery silent (Sol's review, fix round 1). Export never blocks (M9): only a failure
+    nobody could foresee still costs the appendix its C-09 lines, never the delivery.
     """
     if draft is None:
         return []
+    language = fallback.memo_language(state) if state is not None else None
+    mode = str((state or {}).get("mode") or "") or None
     try:
         from .. import citations
 
         text = Path(draft).read_text(encoding="utf-8-sig")
-        return citations.pinpoint_findings(text, work_dir=work_dir)
-    except Exception:  # noqa: BLE001 - any failure here must not stop the export (M9)
+        return citations.pinpoint_findings(text, work_dir=work_dir, language=language, mode=mode)
+    except Exception:  # noqa: BLE001 - an unforeseen failure here must not stop the export (M9)
         return []
 
 
@@ -336,7 +343,7 @@ def run_render(args: argparse.Namespace) -> dict:
     language = fallback.memo_language(state)
     # D-204: the appendix of the export describes the version exported, which may be older than the
     # last one audited — so its C-09 findings are computed here, once, for both renderers.
-    pinpoints = exported_pinpoints(work_dir, draft)
+    pinpoints = exported_pinpoints(work_dir, draft, state=state)
     try:
         rendered = fallback.render_workdir(work_dir, draft, state=state, pinpoint_findings=pinpoints)
     except i18n.PackUnavailable:
