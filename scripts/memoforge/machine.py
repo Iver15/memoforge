@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from . import (
+    citations,
     dispatch,
     events,
     fallbacks,
@@ -3484,6 +3485,32 @@ def _draft_checks(work_dir: Path, state: dict, draft_sha: str | None = None) -> 
     return bool(reports[0] and reports[0].get("clean")), bool(reports[1] and reports[1].get("clean"))
 
 
+def _has_c09(work_dir: Path, state: dict) -> bool:
+    """True when the citations report of the current draft holds a C-09 finding (D-204).
+
+    Read by `plan_drafting` for v1 and nowhere else: a C-09 is a `major`, so `clean`, `_draft_checks`,
+    the version flags and the polish path never see it. It buys the ordinary lint-fix round of v1.
+    """
+    report = report_for_draft(
+        work_dir, state, DETERMINISTIC_REPORTS["draft.audit-citations"], current_draft_sha(state)
+    )
+    return any(
+        isinstance(row, dict) and row.get("rule") == citations.PINPOINT_NOT_IN_RAW
+        for row in ((report or {}).get("findings") or [])
+    )
+
+
+C09_FIX_ROUNDS = 1
+"""D-204: a draft whose only defect is a C-09 gets one lint-fix round, whatever `lint_fix_rounds`
+allows for blockers; a pinpoint that survives it becomes an appendix line, not another round."""
+
+C09_INSTRUCTION = (
+    "; each C-09 names a pinpoint whose number the saved text of its source does not print - "
+    "fix the pinpoint or remove it"
+)
+"""D-204: what the writer of the v1 lint-fix round is told when the round was bought by a C-09."""
+
+
 def _lint_steps(work_dir: Path, state: dict, draft: str, phase: str) -> dict | None:
     """One `draft finish` (anchor + lint + citations) for the current draft; None when it is current.
 
@@ -3522,11 +3549,13 @@ def lint_fix_dispatch(
     version: int,
     counter: str,
     rounds: int,
+    note: str = "",
 ) -> dict | None:
     """One `memo-writer` fix round on the deterministic findings, or None when `lint_fix` is spent.
 
     §2.2 `lint_fix{draft_version}`: the counter is keyed by what is being fixed — `"1"` for the v1
     fix loop of §2.1 row 12, `"polish"` for the single round §2.1 row 14 allows after the polish.
+    `note` extends the writer's instruction (D-204: what to do with a C-09); empty, it is unchanged.
     """
     used = int(((state.get("attempts") or {}).get("lint_fix") or {}).get(counter, 0))
     if used >= max(int(rounds), 0):
@@ -3537,7 +3566,7 @@ def lint_fix_dispatch(
         task="lint-fix",
         version=version,
         canonical=draft,
-        instructions="`lint.json` and `citations.json` - fix exactly the listed positions",
+        instructions="`lint.json` and `citations.json` - fix exactly the listed positions" + note,
         seed=True,
     )
 
@@ -3567,7 +3596,13 @@ def _writer_views(work_dir: Path, state: dict) -> dict | None:
 
 
 def plan_drafting(work_dir: Path, state: dict) -> dict:
-    """§2.1 row 12: writer v1, anchors, lint, citations and the bounded fix loop."""
+    """§2.1 row 12: writer v1, anchors, lint, citations and the bounded fix loop.
+
+    D-204: a C-09 in the citations report of v1 starts the same fix round a blocker would, and is
+    read here and nowhere else. On its own it buys `C09_FIX_ROUNDS` and never raises
+    `lint_not_converged`: a pinpoint that survives the round goes into the appendix, and the run
+    continues to the ordinary export.
+    """
     config = state.get("config") or {}
     draft = f"{DRAFTS_DIR}/v1.md"
     rows = episode(state)
@@ -3595,10 +3630,20 @@ def plan_drafting(work_dir: Path, state: dict) -> dict:
     if step is not None:
         return step
     lint_clean, citations_clean = _draft_checks(work_dir, state)
-    if lint_clean and citations_clean:
+    clean = lint_clean and citations_clean
+    pinpoints = _has_c09(work_dir, state)
+    if clean and not pinpoints:
         return transition(work_dir, state, "revision_loop", mutate=_enter_revision_loop)
-    rounds = int(config.get("lint_fix_rounds") or 1)
-    step = lint_fix_dispatch(work_dir, state, draft=draft, version=1, counter="1", rounds=rounds)
+    rounds = C09_FIX_ROUNDS if clean else int(config.get("lint_fix_rounds") or 1)
+    step = lint_fix_dispatch(
+        work_dir,
+        state,
+        draft=draft,
+        version=1,
+        counter="1",
+        rounds=rounds,
+        note=C09_INSTRUCTION if pinpoints else "",
+    )
     if step is not None:
         return step
     return transition(
@@ -3606,7 +3651,7 @@ def plan_drafting(work_dir: Path, state: dict) -> dict:
         state,
         "revision_loop",
         mutate=_enter_revision_loop,
-        banners=[("lint_not_converged", {})],
+        banners=[] if clean else [("lint_not_converged", {})],
     )
 
 

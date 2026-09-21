@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 
 from .. import fallbacks, i18n, state_io
-from ..sources import canonical_id
+from ..sources import RAW_KINDS, canonical_id
 from . import oscola
 
 SRC_TOKEN = re.compile(r"\[\[src:\s*(?P<id>[^\]\s]+)(?P<pinpoint>[^\]]*)\]\]")
@@ -107,6 +107,22 @@ UNVERIFIED_CURRENCY: tuple[str, ...] = ("manual_check", "do_not_use", "unchecked
 
 UNVERIFIED_LIVENESS: tuple[str, ...] = ("dead", "changed")
 """`liveness.status` values that put a source into the appendix (§5.3)."""
+
+SAVED_TEXT_TIERS: tuple[str, ...] = ("critical", "supporting")
+"""Tiers whose saved text the appendix speaks about (D-156, D-158, D-204) — `citations.RAW_TEXT_TIERS`.
+
+D-204 (controller's ruling): the kind lines follow `no_saved_text_note`, not the extended C-08 —
+C-08 is a grade and stays `critical`; the appendix is disclosure, and a `supporting` source that is
+an agent's copy is as much something the client should be told."""
+
+KIND_NOTES: dict[str, str] = {"excerpt": "excerpt_note", "agent_summary": "agent_summary_note"}
+"""D-204: the `memo.labels` line of a cited source whose pack entry declares a text that is not the
+whole document. `full_text` and `client_file` print nothing; `none` is said by the snapshot
+(`no_saved_text_note` / `pdf_unverified_note`)."""
+
+NO_REASONING_OUTCOME = "excerpt:no_reasoning"
+"""D-203/D-204: `meta.save_outcome` of a short act published without its reasoning — the appendix
+calls it that, never «an excerpt» of a longer text that does not exist."""
 
 # --- the appendix is written for the client (D-113, D-191) ------------------------
 
@@ -447,10 +463,14 @@ class SourceIndex:
         merged: dict | None = None,
         frozen: bool = False,
         currency_unavailable: bool = False,
+        snapshot_originals: dict | None = None,
+        pinpoints_not_in_raw: dict | None = None,
     ) -> None:
         self.snapshot_ids = list(snapshot_ids or [])
         self.snapshot_hashes = dict(snapshot_hashes or {})
         """D-158: `snapshot[].raw_sha256` of the freeze — the text C-08 checked the citation against."""
+        self.snapshot_originals = {sid: sha for sid, sha in (snapshot_originals or {}).items() if sha}
+        """D-201/D-204: `snapshot[].raw_original_sha256` — the PDF originals the freeze pinned."""
         self.entries = dict(entries or {})
         self.sources = dict(sources or {})
         self.quotes = dict(quotes or {})
@@ -459,10 +479,25 @@ class SourceIndex:
         self.frozen = frozen
         self.currency_unavailable = currency_unavailable
         """D-113: the whole run went unchecked, so «currency unchecked» is one line, not one per source."""
+        self.pinpoints_not_in_raw = {
+            str(source_id): list(pins) for source_id, pins in (pinpoints_not_in_raw or {}).items() if pins
+        }
+        """D-204: canonical id -> the pinpoints of the C-09 findings of the draft being rendered."""
 
     @classmethod
-    def load(cls, work_dir: str | Path, *, state: dict | None = None) -> "SourceIndex":
-        """Read `research/{source-pack,sources,quotes}.json`; every file is optional."""
+    def load(
+        cls,
+        work_dir: str | Path,
+        *,
+        state: dict | None = None,
+        pinpoint_findings: list | None = None,
+    ) -> "SourceIndex":
+        """Read `research/{source-pack,sources,quotes}.json`; every file is optional.
+
+        D-204: `pinpoint_findings` are the C-09 findings of the draft being rendered, computed by the
+        caller that chose it (`docx.exported_pinpoints`) — the renderer never runs the audit (D-195) —
+        and filed here under the canonical id of the source each one names.
+        """
         research = Path(work_dir) / "research"
         pack_path = research / "source-pack.json"
         pack = _read_object(pack_path)
@@ -476,6 +511,7 @@ class SourceIndex:
         ]
         snapshot_ids = [row["source_id"] for row in snapshot_rows]
         snapshot_hashes = {row["source_id"]: row.get("raw_sha256") for row in snapshot_rows}
+        snapshot_originals = {row["source_id"]: row.get("raw_original_sha256") for row in snapshot_rows}
         entries = {
             row["source_id"]: row
             for row in (pack.get("entries") or [])
@@ -487,15 +523,18 @@ class SourceIndex:
         # D-03: freeze = `source-pack.json` exists (or `state.sources_frozen`), never the size of the
         # snapshot — an empty snapshot is a freeze that admitted nothing, not the absence of a freeze.
         frozen = pack_path.is_file() or bool((state or {}).get("sources_frozen"))
+        merged = merged if isinstance(merged, dict) else {}
         return cls(
             snapshot_ids=snapshot_ids,
             snapshot_hashes=snapshot_hashes,
+            snapshot_originals=snapshot_originals,
             entries=entries,
             sources=sources if isinstance(sources, dict) else {},
             quotes=quotes if isinstance(quotes, dict) else {},
-            merged=merged if isinstance(merged, dict) else {},
+            merged=merged,
             frozen=frozen,
             currency_unavailable=currency_checker_unavailable(state),
+            pinpoints_not_in_raw=pinpoints_by_source(pinpoint_findings, merged),
         )
 
     def source_of_quote(self, quote_id: str) -> str | None:
@@ -554,6 +593,11 @@ class SourceIndex:
         memorandum and is not disclosed as one. `None` means the caller does not know the citations
         and every unverified record is listed, which is what it always did. The recorded currency
         and liveness tokens are printed through `memo.currency_names` / `memo.link_names`.
+
+        D-204: the appendix also says what the saved text is (`text_note`), and every C-09 of the
+        rendered draft that survived the lint-fix round is a line of its source, one per pinpoint.
+        A `client_file` with `unchecked` currency is not an unverified source: its currency line is
+        not printed, so on its own it prints nothing at all.
         """
         rows: list[dict] = []
         for source_id in sorted(self.sources):
@@ -562,6 +606,7 @@ class SourceIndex:
                 continue
             if cited is not None and source_id not in cited:
                 continue
+            kind = self.declared_kind(source_id)
             notes: list[str] = []
             verification = record.get("verification")
             if isinstance(verification, dict) and verification.get("us") in UNVERIFIED_US:
@@ -570,20 +615,26 @@ class SourceIndex:
                 notes.append(label("eu_syntax_note", language))
             currency = record.get("currency")
             status = currency.get("status") if isinstance(currency, dict) else None
-            if status in UNVERIFIED_CURRENCY and not (
-                self.currency_unavailable and status == "unchecked"
+            if (
+                status in UNVERIFIED_CURRENCY
+                and not (self.currency_unavailable and status == "unchecked")
+                and not (kind == "client_file" and status == "unchecked")
             ):
                 notes.append(
                     label("currency_note", language, status=oscola.currency_name(status, language))
                 )
-            # D-158: the frozen snapshot decides, exactly as it does for C-08 — the registry may
-            # still carry the hash of a raw file that was gone by the time the freeze ran.
-            if (
-                source_id in self.entries
-                and str(record.get("tier") or "") in ("critical", "supporting")
-                and self.snapshot_hashes.get(source_id) is None
-            ):
-                notes.append(label("no_saved_text_note", language))
+            text_note = self.text_note(source_id, record, kind)
+            if text_note:
+                notes.append(label(text_note, language))
+            for pinpoint in self.pinpoints_not_in_raw.get(source_id, ()):
+                notes.append(
+                    label(
+                        "pinpoint_not_in_raw_note",
+                        language,
+                        pinpoint=oscola.display_pinpoint(oscola.normalise_pinpoint(pinpoint), language),
+                        source_id=source_id,
+                    )
+                )
             liveness = record.get("liveness")
             if isinstance(liveness, dict) and liveness.get("status") in UNVERIFIED_LIVENESS:
                 notes.append(
@@ -603,6 +654,42 @@ class SourceIndex:
                 )
         return rows
 
+    def declared_kind(self, source_id: str) -> str | None:
+        """The `raw_kind` the pack entry declares, or None when it declares none (D-200, D-204).
+
+        After the freeze the pack decides, not the registry. An entry frozen before the field
+        existed declares nothing: it draws no extended C-08, so it has no line to go with one.
+        """
+        entry = self.entries.get(source_id)
+        kind = entry.get("raw_kind") if isinstance(entry, dict) else None
+        return kind if kind in RAW_KINDS else None
+
+    def text_note(self, source_id: str, record: dict, kind: str | None) -> str | None:
+        """The `memo.labels` key that says what the saved text of a packed source is, or None.
+
+        D-158: the frozen snapshot decides, exactly as it does for C-08 — the registry may still
+        carry the hash of a raw file that was gone by the time the freeze ran. Controller's addendum
+        §1 (D-201): a snapshot row with an original and no text digest is a PDF nobody could read —
+        its original was saved and pinned, so it prints `pdf_unverified_note` **instead of**
+        `no_saved_text_note`, never both. D-204: a text the snapshot holds is judged by its kind — an
+        excerpt or an agent copy says so, for the same `critical`/`supporting` sources whose missing
+        text is named (the extended C-08 grades `critical` only; the appendix discloses), and a short
+        act without reasoning says that instead of «an excerpt».
+        """
+        if source_id not in self.entries:
+            return None
+        tier = str(record.get("tier") or "")
+        if tier not in SAVED_TEXT_TIERS:
+            return None
+        if self.snapshot_hashes.get(source_id) is None:
+            return "pdf_unverified_note" if self.snapshot_originals.get(source_id) else "no_saved_text_note"
+        if kind not in KIND_NOTES:
+            return None
+        meta = record.get("meta")
+        if kind == "excerpt" and isinstance(meta, dict) and meta.get("save_outcome") == NO_REASONING_OUTCOME:
+            return "no_reasoning_note"
+        return KIND_NOTES[kind]
+
 
 def _read_object(path: Path) -> dict:
     try:
@@ -610,6 +697,26 @@ def _read_object(path: Path) -> dict:
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def pinpoints_by_source(findings: list | None, merged: dict | None = None) -> dict[str, list[str]]:
+    """Canonical id -> the distinct pinpoints of the C-09 findings handed in, in order (D-204).
+
+    A finding names the id its `[[src:]]` token carried; an alias the freeze collapsed is filed under
+    the source that survived it (D-143), whose row the appendix prints. Rows without a `source_id`
+    and a `pinpoint` are not C-09 findings and are ignored.
+    """
+    found: dict[str, list[str]] = {}
+    for row in findings or []:
+        if not isinstance(row, dict):
+            continue
+        source_id, pinpoint = row.get("source_id"), row.get("pinpoint")
+        if not isinstance(source_id, str) or not isinstance(pinpoint, str) or not pinpoint.strip():
+            continue
+        pins = found.setdefault(canonical_id(merged or {}, source_id), [])
+        if pinpoint not in pins:
+            pins.append(pinpoint)
+    return found
 
 
 def line_contexts(text: str) -> tuple[list, list, list]:
@@ -1008,10 +1115,19 @@ def render(
     }
 
 
-def render_workdir(work_dir: str | Path, draft_path: str | Path, *, state: dict | None = None) -> dict:
-    """Render `draft_path` using the registry files of `work_dir` and the state's warnings."""
+def render_workdir(
+    work_dir: str | Path,
+    draft_path: str | Path,
+    *,
+    state: dict | None = None,
+    pinpoint_findings: list | None = None,
+) -> dict:
+    """Render `draft_path` using the registry files of `work_dir` and the state's warnings.
+
+    D-204: `pinpoint_findings` — the C-09 findings of this very draft, from whoever chose it.
+    """
     text = Path(draft_path).read_text(encoding="utf-8-sig")
-    index = SourceIndex.load(work_dir, state=state)
+    index = SourceIndex.load(work_dir, state=state, pinpoint_findings=pinpoint_findings)
     warnings = (state or {}).get("drafting_warnings") or []
     return render(
         text,

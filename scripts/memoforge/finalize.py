@@ -17,6 +17,7 @@ from pathlib import Path
 from . import events, fallbacks, hooks_common, i18n, limits, phases, render, sources, state_io, stepctx
 from .docx import fallback as md_fallback
 from .docx import (
+    exported_pinpoints,
     memo_docx_path,
     memo_md_path,
     rendered_source_sha,
@@ -139,8 +140,12 @@ def condense_appendix(body: str, work_dir: Path, state: dict) -> str:
     head, marker, tail = body.partition(md_fallback.appendix_heading(language))
     appendix = ""
     if marker:
-        index = md_fallback.SourceIndex.load(work_dir, state=state)
-        cited = _cited_source_ids(work_dir, state, index)
+        draft = _selected_draft_path(work_dir, state)
+        # D-204: the C-09 lines are computed for the selected draft itself, like its citations.
+        index = md_fallback.SourceIndex.load(
+            work_dir, state=state, pinpoint_findings=exported_pinpoints(work_dir, draft)
+        )
+        cited = _cited_source_ids(draft, index)
         if cited is None:
             appendix = (marker + tail).rstrip()
         else:
@@ -159,7 +164,16 @@ def condense_appendix(body: str, work_dir: Path, state: dict) -> str:
     return "\n\n".join(parts) + "\n"
 
 
-def _cited_source_ids(work_dir: Path, state: dict, index) -> set | None:
+def _selected_draft_path(work_dir: Path, state: dict) -> Path | None:
+    """The draft `select_draft` picks for this export, or None when there is none to read (D-197)."""
+    try:
+        path = select_draft(state, work_dir).get("path")
+    except (OSError, ValueError, KeyError):
+        return None
+    return Path(path) if path else None
+
+
+def _cited_source_ids(draft: Path | None, index) -> set | None:
     """The source ids the selected draft cites, or None when there is no draft to read (D-197).
 
     `condense_appendix` rewrites an already rendered body, whose `[[src:]]` tokens are gone, so the
@@ -170,12 +184,11 @@ def _cited_source_ids(work_dir: Path, state: dict, index) -> set | None:
     filter a v2 export — and inferring «not cited» from a tier hid a cited background authority
     while still listing an uncited supporting record. Both were removed.
     """
+    if draft is None:
+        return None
     try:
-        path = select_draft(state, work_dir).get("path")
-        if not path:
-            return None
-        text = Path(path).read_text(encoding="utf-8-sig")
-    except (OSError, ValueError, KeyError):
+        text = draft.read_text(encoding="utf-8-sig")
+    except (OSError, ValueError):
         return None
     return md_fallback.cited_source_ids(md_fallback.scan_mentions(text, index)["mentions"])
 
@@ -414,7 +427,12 @@ def _markdown_body(
             return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons
 
     if selection["path"] is not None:
-        result = md_fallback.render_workdir(work_dir, selection["path"], state=view)
+        result = md_fallback.render_workdir(
+            work_dir,
+            selection["path"],
+            state=view,
+            pinpoint_findings=exported_pinpoints(work_dir, selection["path"]),
+        )
         if reuse_export:
             state_io.write_bytes_atomic(rendered, result["markdown"].encode("utf-8"))
         return result["markdown"], banners + list(result["banners"]), None, reasons

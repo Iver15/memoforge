@@ -250,6 +250,46 @@ class PackParityTest(unittest.TestCase):
                     f"{code}: the two artefacts must not read alike",
                 )
 
+    def test_the_four_text_lines_of_the_appendix_are_the_brief_sentences_in_every_pack(self):
+        # D-204: each reaches the client, so each is pinned verbatim in all five packs.
+        expected = {
+            "excerpt_note": {
+                "en": "an excerpt saved by code, not the whole document",
+                "ru": "выдержка, сохранённая кодом, а не документ целиком",
+                "de": "ein per Code gespeicherter Auszug, nicht das ganze Dokument",
+                "fr": "un extrait enregistré par le code, pas le document entier",
+                "es": "un extracto guardado por el código, no el documento completo",
+            },
+            "agent_summary_note": {
+                "en": "text copied by the agent from a database answer, not saved by code",
+                "ru": "текст скопирован агентом из ответа базы, кодом не сохранялся",
+                "de": "vom Agenten aus einer Datenbankantwort kopierter Text, nicht per Code gespeichert",
+                "fr": (
+                    "texte copié par l'agent depuis une réponse de base de données, "
+                    "non enregistré par le code"
+                ),
+                "es": "texto copiado por el agente de la respuesta de una base, no guardado por el código",
+            },
+            "no_reasoning_note": {
+                "en": "only the operative part was published; there is no reasoning to check",
+                "ru": "опубликована только резолютивная часть; мотивировки для проверки нет",
+                "de": "nur der Tenor wurde veröffentlicht; es gibt keine Begründung zu prüfen",
+                "fr": "seul le dispositif a été publié ; il n'y a pas de motivation à vérifier",
+                "es": "solo se publicó la parte dispositiva; no hay motivación que comprobar",
+            },
+            "pinpoint_not_in_raw_note": {
+                "en": "pinpoint {pinpoint} was not found in the saved text of {source_id}",
+                "ru": "пинпойнт {pinpoint} не найден в сохранённом тексте {source_id}",
+                "de": "die Fundstelle {pinpoint} wurde im gespeicherten Text von {source_id} nicht gefunden",
+                "fr": "le renvoi {pinpoint} est introuvable dans le texte enregistré de {source_id}",
+                "es": "la referencia {pinpoint} no aparece en el texto guardado de {source_id}",
+            },
+        }
+        for key, sentences in expected.items():
+            for code in ("en", *PACK_CODES):
+                with self.subTest(key=key, code=code):
+                    self.assertEqual(sentences[code], str(i18n.t(code, f"memo.labels.{key}")))
+
     def test_disclaimer_pattern_compiles_and_matches_probe_disclaimer(self):
         for code in PACK_CODES:
             with self.subTest(code=code):

@@ -104,6 +104,14 @@ EN: dict = {
                 "the saved text of {source_id} no longer matches what the freeze recorded "
                 "and was not exported"
             ),
+            # D-204: what the saved text of a cited `critical` source is, when it is not the whole
+            # document — the lines that go with the extended C-08. A short act published without
+            # its reasoning is not «an excerpt of a longer text», so it has a line of its own.
+            "excerpt_note": "an excerpt saved by code, not the whole document",
+            "agent_summary_note": "text copied by the agent from a database answer, not saved by code",
+            "no_reasoning_note": "only the operative part was published; there is no reasoning to check",
+            # D-204: a C-09 finding that survived the v1 lint-fix round — one per pinpoint.
+            "pinpoint_not_in_raw_note": "pinpoint {pinpoint} was not found in the saved text of {source_id}",
             "link_note": "link {status}",
             # D-192: the Sources annex of a source with no public url — the database it came from
             # instead of an address. `{server}` is a bundled server's label, or `legal_database`
@@ -400,6 +408,7 @@ EN: dict = {
             "C-06": "Pinpoint format",
             "C-07": "Uncited rule source",
             "C-08": "Citation without saved text",
+            "C-09": "Pinpoint not in saved text",
         },
         "blockers": {
             "hard_fail_unknown": "Checklist item {checklist_id} could not be verified.",

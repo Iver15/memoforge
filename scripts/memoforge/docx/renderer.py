@@ -963,19 +963,22 @@ def needs_banner(final_status: str | None, banners: list[dict], reasons: list[st
 # --- public API ------------------------------------------------------------
 
 
-def load_index(work_dir: str | Path, *, state: dict | None = None) -> fallback.SourceIndex:
+def load_index(
+    work_dir: str | Path, *, state: dict | None = None, pinpoint_findings: list | None = None
+) -> fallback.SourceIndex:
     """`SourceIndex` over the frozen snapshot, checked against `published[]` first (D-41, M6).
 
     The renderer reads `research/{source-pack,sources,quotes}.json`; each one that `published[]`
     knows must still hash to its published sha, exactly the guarantee `stepctx.read_published`
-    gives, otherwise the step is reissued with `output_modified_after_publish`.
+    gives, otherwise the step is reissued with `output_modified_after_publish`. D-204:
+    `pinpoint_findings` are the C-09 findings of the draft being rendered, handed in as data.
     """
     if state is None:
         state = state_io.read_state_or_none(work_dir) or {}
     for relative in ("research/source-pack.json", "research/sources.json", "research/quotes.json"):
         if stepctx.verify_published(work_dir, state, relative):
             raise stepctx.OutputModifiedAfterPublish(relative)
-    return fallback.SourceIndex.load(work_dir, state=state)
+    return fallback.SourceIndex.load(work_dir, state=state, pinpoint_findings=pinpoint_findings)
 
 
 def render(
@@ -1097,10 +1100,14 @@ def render_workdir(
     state: dict | None = None,
     banners: list | None = None,
     final_status_reasons: list | None = None,
+    pinpoint_findings: list | None = None,
 ) -> dict:
-    """Render `draft_path` into `output_path` using the registry files of `work_dir`."""
+    """Render `draft_path` into `output_path` using the registry files of `work_dir`.
+
+    D-204: `pinpoint_findings` — the C-09 findings of this very draft, from whoever chose it.
+    """
     text = Path(draft_path).read_text(encoding="utf-8-sig")
-    index = load_index(work_dir, state=state)
+    index = load_index(work_dir, state=state, pinpoint_findings=pinpoint_findings)
     state = state or {}
     return render(
         text,

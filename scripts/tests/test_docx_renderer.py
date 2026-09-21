@@ -33,6 +33,7 @@ from test_docx_fallback import (  # noqa: E402
     CASUS_ENDPOINT,
     LINK_LESS_RECORD,
     RU_DELIVERABLE,
+    RU_TEXT_NOTES,
     issue_step,
     warnings_fixture,
 )
@@ -500,6 +501,96 @@ class SourcesSectionTest(GoldenCase):
         with zipfile.ZipFile(path) as archive:
             text = normalise(archive.read(DOCUMENT_PART))
         self.assertNotIn(escape(fallback.label("appendix_heading")), text)
+
+
+class TextKindAppendixTest(GoldenCase):
+    """D-204: the docx appendix says what each cited text is, with the words of the markdown one."""
+
+    KINDS = {
+        # source id: (pack raw_kind, snapshot text digest, snapshot original digest, registry extras)
+        "ex": ("excerpt", "c" * 64, None, {}),
+        "sum": ("agent_summary", "c" * 64, None, {}),
+        "nr": ("excerpt", "c" * 64, None, {"meta": {"save_outcome": "excerpt:no_reasoning"}}),
+        "scan": ("none", None, "d" * 64, {}),
+        "gone": ("none", None, None, {"raw_original_sha256": "e" * 64}),
+        "client": ("client_file", "c" * 64, None, {"currency": {"status": "unchecked"}}),
+        "full": ("full_text", "c" * 64, None, {}),
+        # Controller's ruling: a `supporting` agent copy is disclosed too (C-08 stays `critical`).
+        "sup": ("agent_summary", "c" * 64, None, {"tier": "supporting"}),
+        "bg": ("agent_summary", "c" * 64, None, {"tier": "background"}),
+    }
+    DRAFT = " ".join(f"Point [[src:{source_id} ст. 9]]." for source_id in KINDS) + "\n"
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(i18n, "PACK_DIR", Path(tmp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(Path(tmp.name), "ru", dict(RU_DELIVERABLE, **RU_TEXT_NOTES))
+
+    def index(self) -> fallback.SourceIndex:
+        records, entries = {}, {}
+        for source_id, (kind, _digest, _original, extra) in self.KINDS.items():
+            records[source_id] = {
+                "source_id": source_id,
+                "tier": "critical",
+                "citation_form": f"Act {source_id}",
+                "url": f"https://example.org/{source_id}",
+                "layer": "case_law",
+                **extra,
+            }
+            entries[source_id] = {
+                "source_id": source_id,
+                "tier": "critical",
+                "citation_form": f"Act {source_id}",
+                "raw_kind": kind,
+            }
+        return fallback.SourceIndex(
+            snapshot_ids=list(self.KINDS),
+            snapshot_hashes={source_id: row[1] for source_id, row in self.KINDS.items()},
+            snapshot_originals={source_id: row[2] for source_id, row in self.KINDS.items() if row[2]},
+            entries=entries,
+            sources=records,
+            frozen=True,
+            pinpoints_not_in_raw={"full": ["ст. 9"]},
+        )
+
+    def appendix(self, language: str) -> str:
+        path = self.render(self.DRAFT, index=self.index(), language=language)
+        with zipfile.ZipFile(path) as archive:
+            text = normalise(archive.read(DOCUMENT_PART))
+        return text.partition(escape(fallback.label("appendix_heading", language)))[2]
+
+    def test_each_line_prints_for_its_kind_in_en_and_ru(self):
+        for language in ("en", "ru"):
+            with self.subTest(language=language):
+                appendix = self.appendix(language)
+                expected = {
+                    "ex": fallback.label("excerpt_note", language),
+                    "sum": fallback.label("agent_summary_note", language),
+                    "nr": fallback.label("no_reasoning_note", language),
+                    "scan": fallback.label("pdf_unverified_note", language),
+                    "gone": fallback.label("no_saved_text_note", language),
+                    "full": fallback.label(
+                        "pinpoint_not_in_raw_note", language, pinpoint="ст. 9", source_id="full"
+                    ),
+                    "sup": fallback.label("agent_summary_note", language),
+                }
+                for source_id, note in expected.items():
+                    self.assertIn(escape(f"Act {source_id} — {note}"), appendix, source_id)
+                self.assertEqual(1, appendix.count(escape(fallback.label("no_saved_text_note", language))))
+                self.assertNotIn("Act client", appendix, "a client file with unchecked currency prints nothing")
+                self.assertNotIn("Act bg", appendix, "a background source's text is not disclosed")
+
+    def test_the_docx_and_the_markdown_appendix_carry_the_same_lines(self):
+        docx_appendix = self.appendix("en")
+        markdown = fallback.render(self.DRAFT, self.index())["markdown"]
+        md_appendix = markdown.partition(fallback.appendix_heading())[2]
+        for row in self.index().unverified_rows("en", {source_id for source_id in self.KINDS}):
+            line = fallback.unverified_line(row)
+            self.assertIn(escape(line), docx_appendix)
+            self.assertIn(f"- {line}", md_appendix)
 
 
 class StatusSectionTest(GoldenCase):

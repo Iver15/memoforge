@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -29,9 +30,11 @@ from memoforge import (  # noqa: E402
     preflight,
     probe,
     review,
+    sources,
     state_io,
     stepctx,
 )
+from memoforge.docx import fallback as md_fallback  # noqa: E402
 
 
 def _published_shas(state: dict) -> dict:
@@ -1301,6 +1304,164 @@ class DraftCheckRerunTest(unittest.TestCase):
         self.assertEqual("script", step["kind"])
         self.assertEqual("draft.finish", machine.command_key(step["command"]))
         self.assertEqual("drafting", driver.state()["current_phase"])
+
+
+def _ask_for_polish(driver: Driver, action: dict) -> None:
+    """Answer the client-readiness dispatch with `needs_final_polish` (§2.1 row 14)."""
+    agent = action["agents"][0]
+    target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+    document = probe.fixture_client_readiness(str(driver.state()["current_draft_sha"]), 1)
+    document["verdict"] = "needs_final_polish"
+    document["issues"] = [
+        {
+            "section_id": "s-3",
+            "severity": "minor",
+            "issue": "The conclusion could name the owner earlier.",
+            "suggestion": "Move the owner to the first sentence.",
+        }
+    ]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    state_io.write_json_atomic(target, document)
+    _agent_done(driver, action, agent["slot"])
+    driver.report(action["step_id"], action["attempt"], agent=agent["slot"])
+
+
+class PinpointNotInRawTest(unittest.TestCase):
+    """D-204: a C-09 starts the ordinary lint-fix round of v1 — and changes nothing anywhere else."""
+
+    PHANTOM = ("art 5(1)(e)]]", "art 9(2)]]")
+    """The fixture draft's pinpoint moved to an article its saved text never prints."""
+
+    def _code_saved(self, driver: Driver) -> None:
+        """Every saved text becomes code-saved before the freeze pins the kinds (D-200)."""
+        registry = sources.read_registry(driver.work_dir)
+        for record in registry["sources"].values():
+            if record.get("raw_path"):
+                record["raw_kind"] = "full_text"
+        with sources.sources_lock(driver.work_dir):
+            sources.write_registry(driver.work_dir, registry)
+
+    def _v1_with_phantom(self, slug: str) -> Driver:
+        """A full-mode run up to `draft finish` of a v1 whose only defect is a C-09."""
+        driver = Driver(temp_root(self), slug=slug)
+        driver.run_until("source_pack")
+        self._code_saved(driver)
+        action = driver.run_until("drafting")
+        while action["kind"] != "dispatch":  # D-57 renders the writer's md views first
+            driver.act(action)
+            action = driver.next()
+        _act_writer(driver, action, edit=self.PHANTOM)
+        _drive_to_script(driver, "draft.finish")
+        state = driver.state()
+        self.assertEqual((True, True), machine._draft_checks(driver.work_dir, state))
+        self.assertTrue(self._c09(driver), "the phantom pinpoint must draw a C-09")
+        return driver
+
+    @staticmethod
+    def _c09(driver: Driver) -> list[dict]:
+        report = state_io.read_json(driver.work_dir / "citations.json")
+        return [row for row in report["findings"] if row["rule"] == "C-09"]
+
+    def test_c09_alone_runs_one_lint_fix_round_then_the_loop_without_the_banner(self):
+        driver = self._v1_with_phantom("c09-round")
+        self.assertTrue(machine._has_c09(driver.work_dir, driver.state()))
+
+        fix = driver.next()
+        self.assertEqual("dispatch", fix["kind"])
+        self.assertTrue(fix["agents"][0]["subagent_type"].endswith("memo-writer"), fix)
+        self.assertIn("fix the pinpoint or remove it", fix["agents"][0]["prompt"])
+        self.assertEqual(1, driver.state()["attempts"]["lint_fix"]["1"])
+        _act_writer(driver, fix)  # the fixture writer edits another sentence: the phantom stays
+        _drive_to_script(driver, "draft.finish")
+        self.assertTrue(machine._has_c09(driver.work_dir, driver.state()))
+
+        action = driver.next()
+        state = driver.state()
+        self.assertEqual("revision_loop", state["current_phase"])
+        self.assertEqual("dispatch", action["kind"])
+        self.assertFalse(
+            any(agent["subagent_type"].endswith("memo-writer") for agent in action["agents"]),
+            "the reviewers, not a second fix",
+        )
+        # Full mode allows two rounds for blockers; a C-09 alone buys exactly one.
+        self.assertEqual(2, state["config"]["lint_fix_rounds"])
+        self.assertEqual(1, state["attempts"]["lint_fix"]["1"])
+        self.assertFalse(machine._lint_not_converged(state), "C-09 alone never raises the banner")
+
+    def test_a_leftover_c09_ends_in_the_ordinary_export_with_its_appendix_line(self):
+        driver = self._v1_with_phantom("c09-export")
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("done", state["current_phase"])
+        self.assertEqual("approved_on_v1", state["final_status"])
+        self.assertFalse(machine._lint_not_converged(state))
+        self.assertEqual(1, state["attempts"]["lint_fix"]["1"])
+        self.assertTrue(all(row["citations_clean"] for row in state["draft_versions"]))
+
+        leftover = self._c09(driver)
+        self.assertEqual(1, len(leftover), leftover)
+        note = md_fallback.label(
+            "pinpoint_not_in_raw_note", pinpoint="art 9(2)", source_id=leftover[0]["source_id"]
+        )
+        views = list(driver.work_dir.glob("memo-*.md"))
+        self.assertTrue(views, "the markdown view always ships")
+        self.assertIn(note, views[0].read_text(encoding="utf-8"))
+        with zipfile.ZipFile(driver.work_dir / "deliverable.docx") as archive:
+            self.assertIn(note, archive.read("word/document.xml").decode("utf-8"))
+
+    def test_the_polish_path_is_untouched_by_c09(self):
+        driver = self._v1_with_phantom("c09-polish")
+        _ask_for_polish(driver, driver.run_until("client_readiness"))
+        polish = driver.next()
+        self.assertTrue(polish["agents"][0]["subagent_type"].endswith("memo-writer"))
+        driver.act(polish)
+
+        order: list[str] = []
+        for _ in range(6):
+            step = driver.next()
+            if step["kind"] == "script":
+                order.append(machine.command_key(step["command"]))
+            elif step["kind"] == "dispatch":
+                order.append("dispatch:" + step["agents"][0]["subagent_type"].split(":")[-1])
+                break
+            else:
+                break
+            driver.act(step)
+        self.assertEqual(["draft.finish", "dispatch:client-readiness-reviewer"], order)
+        self.assertTrue(machine._has_c09(driver.work_dir, driver.state()), "the phantom survived the polish")
+        self.assertNotIn("polish", driver.state()["attempts"].get("lint_fix") or {})
+
+    def test_has_c09_reads_the_report_of_the_current_draft_only(self):
+        driver = Driver(temp_root(self), slug="c09-predicate")
+        sha = "a" * 64
+
+        def mutate(state: dict) -> None:
+            state["current_draft_sha"] = sha
+            state["current_draft_path"] = "drafts/v1.md"
+
+        state_io.write_state(driver.work_dir, mutate)
+        c09 = {
+            "rule": "C-09",
+            "severity": "major",
+            "line": 3,
+            "section_id": "s-3",
+            "excerpt": "Body [[src:x ст. 9]].",
+            "hint": "Pinpoint `ст. 9` …",
+            "source_id": "x",
+            "pinpoint": "ст. 9",
+        }
+        for findings, draft_sha, expected in (
+            ([c09], sha, True),
+            ([dict(c09, rule="C-08")], sha, False),
+            ([], sha, False),
+            ([c09], "b" * 64, False),
+        ):
+            with self.subTest(findings=[row["rule"] for row in findings], draft_sha=draft_sha[:1]):
+                state_io.write_json_atomic(
+                    driver.work_dir / "citations.json",
+                    {"draft_sha": draft_sha, "clean": True, "findings": findings},
+                )
+                self.assertEqual(expected, machine._has_c09(driver.work_dir, driver.state()))
 
 
 class DraftFinishContractTest(unittest.TestCase):

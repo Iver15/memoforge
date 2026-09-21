@@ -69,6 +69,10 @@
       "pdf_unverified_note": "original guardado; los datos y las citas no fueron verificados por el código",
       "pdf_export_mismatch_note": "el PDF original de {source_id} ya no coincide con lo fijado en el congelado y no se exportó",
       "text_export_mismatch_note": "el texto guardado de {source_id} ya no coincide con lo fijado en el congelado y no se exportó",
+      "excerpt_note": "un extracto guardado por el código, no el documento completo",
+      "agent_summary_note": "texto copiado por el agente de la respuesta de una base, no guardado por el código",
+      "no_reasoning_note": "solo se publicó la parte dispositiva; no hay motivación que comprobar",
+      "pinpoint_not_in_raw_note": "la referencia {pinpoint} no aparece en el texto guardado de {source_id}",
       "link_note": "enlace {status}",
       "retrieved_from_note": "texto obtenido de {server}",
       "legal_database": "una base de datos jurídica",
@@ -286,7 +290,8 @@
       "C-05": "Fuente fuera del paquete",
       "C-06": "Formato del pinpoint",
       "C-07": "Fuente de regla no citada",
-      "C-08": "Cita sin texto guardado"
+      "C-08": "Cita sin texto guardado",
+      "C-09": "Referencia ausente del texto guardado"
     },
     "blockers": {
       "hard_fail_unknown": "El elemento {checklist_id} de la lista no pudo verificarse."

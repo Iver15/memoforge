@@ -75,6 +75,10 @@
       "pdf_unverified_note": "Original gespeichert; Aktenzeichen und Zitate wurden nicht durch Code geprüft",
       "pdf_export_mismatch_note": "das Original-PDF {source_id} stimmt nicht mehr mit dem beim Einfrieren festgehaltenen überein und wurde nicht exportiert",
       "text_export_mismatch_note": "der gespeicherte Text von {source_id} stimmt nicht mehr mit dem beim Einfrieren festgehaltenen überein und wurde nicht exportiert",
+      "excerpt_note": "ein per Code gespeicherter Auszug, nicht das ganze Dokument",
+      "agent_summary_note": "vom Agenten aus einer Datenbankantwort kopierter Text, nicht per Code gespeichert",
+      "no_reasoning_note": "nur der Tenor wurde veröffentlicht; es gibt keine Begründung zu prüfen",
+      "pinpoint_not_in_raw_note": "die Fundstelle {pinpoint} wurde im gespeicherten Text von {source_id} nicht gefunden",
       "link_note": "Link {status}",
       "retrieved_from_note": "Text aus {server} abgerufen",
       "legal_database": "einer Rechtsdatenbank",
@@ -292,7 +296,8 @@
       "C-05": "Quelle außerhalb des Pakets",
       "C-06": "Pinpoint-Format",
       "C-07": "Nicht zitierte Regelquelle",
-      "C-08": "Zitat ohne gespeicherten Text"
+      "C-08": "Zitat ohne gespeicherten Text",
+      "C-09": "Fundstelle nicht im gespeicherten Text"
     },
     "blockers": {
       "hard_fail_unknown": "Checklistenpunkt {checklist_id} konnte nicht geprüft werden."

@@ -84,6 +84,9 @@ class CitationsTestCase(unittest.TestCase):
             tool="mcp__ldh__get_document",
             tier="critical",
             raw_file=raw,
+            # D-204: the one `critical` source of the clean research is text the code saved whole;
+            # an agent copy would draw the extended C-08 on every direct citation of it.
+            raw_kind="full_text",
             source_id="gdpr-art-6",
         )
         art7 = self.root / "art7.md"
@@ -210,6 +213,69 @@ class CitationsTestCase(unittest.TestCase):
 
     def only(self, findings: list[dict], rule: str) -> list[dict]:
         return [row for row in findings if row["rule"] == rule]
+
+    def add_source(
+        self,
+        source_id: str,
+        text: str,
+        *,
+        raw_kind: str = "full_text",
+        tier: str = "supporting",
+        layer: str = "statutes",
+    ) -> None:
+        """One more registered source whose saved text is `text`, of the given kind (D-200)."""
+        raw = self.root / f"{source_id}.md"
+        raw.write_bytes(text.encode("utf-8"))
+        sources.register_source(
+            self.work_dir,
+            layer=layer,
+            title=f"Source {source_id}",
+            citation=f"Source {source_id}",
+            url=f"https://example.org/{source_id}",
+            tool="mf-save example.org",
+            tier=tier,
+            raw_file=raw,
+            raw_kind=raw_kind,
+            source_id=source_id,
+        )
+
+    def patch_record(self, source_id: str, **fields) -> None:
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][source_id].update(fields)
+        with sources.sources_lock(self.work_dir):
+            sources.write_registry(self.work_dir, registry)
+
+    def drop_field(self, source_id: str, name: str) -> None:
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][source_id].pop(name, None)
+        with sources.sources_lock(self.work_dir):
+            sources.write_registry(self.work_dir, registry)
+
+    def add_original(self, source_id: str, layer: str = "case_law") -> None:
+        """Give a record the PDF original a `save` keeps beside its text (D-201)."""
+        original = self.work_dir / "research" / "raw" / layer / f"{source_id}.pdf"
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_bytes(b"%PDF-1.4\n% a scanned page\n")
+        self.patch_record(
+            source_id,
+            raw_original_path=f"research/raw/{layer}/{source_id}.pdf",
+            raw_original_sha256=state_io.sha256_file(original),
+        )
+
+    def add_scan(self, source_id: str, *, tier: str = "critical") -> None:
+        """A PDF saved without a text layer (D-201): `raw_kind: none`, an original and no text."""
+        sources.register_source(
+            self.work_dir,
+            layer="case_law",
+            title=f"Scan {source_id}",
+            citation=f"Scan {source_id}",
+            url=f"https://example.org/{source_id}.pdf",
+            tool="mf-save example.org",
+            tier=tier,
+            source_id=source_id,
+        )
+        self.patch_record(source_id, raw_kind="none")
+        self.add_original(source_id)
 
 
 class CleanTest(CitationsTestCase):
@@ -598,6 +664,272 @@ class C08Test(CitationsTestCase):
         text = fixture("classical-clean") + "\nBackground reading [[src:commentary-1 p 2]].\n"
         findings = citations.audit(text, work_dir=self.work_dir)
         self.assertEqual([], [row for row in findings if row["rule"] == "C-08"], findings)
+
+
+RU_ACT = (
+    "Статья 5. Предмет регулирования\n"
+    "\n"
+    "1. Настоящий закон применяется согласно ст. 7 и пункту 2 статьи 3.\n"
+    "\n"
+    "Статья 152.1. Охрана изображения гражданина\n"
+)
+"""A saved Russian text: its whole number tokens are 5, 1, 7, 2, 3 and 152.1 — never 9, 15 or 152."""
+
+
+class C08ExtendedTest(CitationsTestCase):
+    """D-204: a `critical` source whose pack `raw_kind` is neither `full_text` nor `client_file`."""
+
+    def c08(self, text: str) -> list[dict]:
+        return self.only(self.audit(text), "C-08")
+
+    def test_a_critical_excerpt_cited_directly_is_a_major(self):
+        self.add_source("ru-act", RU_ACT, raw_kind="excerpt", tier="critical")
+        self.freeze()
+        findings = self.c08("Body [[src:ru-act ст. 5]].\n")
+        self.assertEqual(1, len(findings), findings)
+        self.assertEqual("major", findings[0]["severity"])
+        self.assertIn("ru-act", findings[0]["hint"])
+        self.assertIn("excerpt", findings[0]["hint"])
+
+    def test_a_critical_agent_summary_is_the_same_major(self):
+        # D-204: `excerpt` and `agent_summary` differ only in the appendix line.
+        self.add_source("ru-copy", RU_ACT, raw_kind="agent_summary", tier="critical")
+        self.freeze()
+        findings = self.c08("Body [[src:ru-copy ст. 5]].\n")
+        self.assertEqual(1, len(findings), findings)
+        self.assertEqual("major", findings[0]["severity"])
+        self.assertIn("agent_summary", findings[0]["hint"])
+
+    def test_a_critical_client_file_and_a_full_text_are_silent(self):
+        self.add_source("client-contract", RU_ACT, raw_kind="client_file", tier="critical")
+        self.add_source("ru-full", RU_ACT.replace("гражданина", "лица"), raw_kind="full_text", tier="critical")
+        self.freeze()
+        self.assertEqual(
+            [], self.c08("Body [[src:client-contract ст. 5]] and [[src:ru-full ст. 5]].\n")
+        )
+
+    def test_a_supporting_excerpt_is_silent(self):
+        # The owner's rule concerns a `critical` claim; the null-digest rule keeps its two tiers.
+        self.add_source("ru-support", RU_ACT, raw_kind="excerpt", tier="supporting")
+        self.freeze()
+        self.assertEqual([], self.c08("Body [[src:ru-support ст. 5]].\n"))
+
+    def test_the_pack_entry_decides_after_the_freeze(self):
+        # D-200: after the freeze the pack is authoritative; the registry is not read for the kind.
+        self.add_source("ru-act", RU_ACT, raw_kind="excerpt", tier="critical")
+        self.freeze()
+        self.patch_record("ru-act", raw_kind="full_text")
+        self.assertEqual(1, len(self.c08("Body [[src:ru-act ст. 5]].\n")))
+
+    def test_an_entry_frozen_without_the_field_is_silent(self):
+        # D-200: a pack frozen before `raw_kind` existed declares nothing, and the extended C-08
+        # does not fire for it — only the null-digest rule can.
+        self.add_source("old-act", RU_ACT, raw_kind="agent_summary", tier="critical")
+        self.drop_field("old-act", "raw_kind")
+        self.freeze()
+        entry = next(row for row in sources.read_pack(self.work_dir)["entries"] if row["source_id"] == "old-act")
+        self.assertNotIn("raw_kind", entry)
+        self.assertEqual([], self.c08("Body [[src:old-act ст. 5]].\n"))
+
+    def test_a_critical_source_without_text_draws_one_c08_per_token(self):
+        sources.register_source(
+            self.work_dir,
+            layer="statutes",
+            title="No text",
+            citation="No text 2024",
+            url="https://example.org/no-text",
+            tool="WebFetch example.org",
+            tier="critical",
+            source_id="no-text",
+        )
+        self.patch_record("no-text", raw_kind="none")
+        self.freeze()
+        findings = self.c08("Body [[src:no-text ст. 5]].\n")
+        self.assertEqual(1, len(findings), findings)
+        self.assertIn("no saved text", findings[0]["hint"])
+
+    def test_a_quote_on_a_critical_excerpt_is_not_a_direct_citation(self):
+        self.add_source("ru-act", RU_ACT, raw_kind="excerpt", tier="critical")
+        quote = quotes.extract_quote(self.work_dir, "ru-act", "Настоящий закон применяется согласно ст. 7")
+        self.freeze()
+        text = f"> [[q:{quote['quote_id']}]] {quote['text']}\n"
+        self.assertEqual([], self.c08(text))
+
+    def test_a_critical_scan_draws_c08(self):
+        # Controller's addendum §2: a scan is `raw_kind: none` — its requisites were not checked by
+        # code, which is exactly what C-08 says.
+        self.add_scan("vs-scan", tier="critical")
+        self.freeze()
+        findings = self.c08("Body [[src:vs-scan п. 3]].\n")
+        self.assertEqual(1, len(findings), findings)
+        self.assertEqual("major", findings[0]["severity"])
+
+
+class C09Test(CitationsTestCase):
+    """D-204: a pinpoint whose printed number the saved text of its source does not contain."""
+
+    def c09(self, pinpoint: str, source_id: str = "ru-act") -> list[dict]:
+        return self.only(self.audit(f"Body [[src:{source_id} {pinpoint}]].\n"), "C-09")
+
+    def seed_ru(self, raw_kind: str = "full_text", text: str = RU_ACT, source_id: str = "ru-act") -> None:
+        self.add_source(source_id, text, raw_kind=raw_kind)
+
+    def test_c09_is_a_major_rule(self):
+        self.assertEqual("major", citations.SEVERITY["C-09"])
+        self.assertEqual("major", citations.severity_for("C-09", "brief"))
+
+    def test_a_number_the_saved_text_lacks_is_a_major_with_the_source_and_the_pinpoint(self):
+        self.seed_ru()
+        self.freeze()
+        findings = self.c09("ст. 9")
+        self.assertEqual(1, len(findings), findings)
+        row = findings[0]
+        self.assertEqual("major", row["severity"])
+        self.assertEqual("ru-act", row["source_id"])
+        self.assertEqual("ст. 9", row["pinpoint"])
+        self.assertIn("ru-act", row["hint"])
+        self.assertIn("ст. 9", row["hint"])
+        self.assertEqual(1, row["line"])
+
+    def test_a_number_anywhere_in_the_text_satisfies_it(self):
+        # Anywhere, not only in a heading: «согласно ст. 7» in the middle of a sentence counts.
+        self.seed_ru()
+        self.freeze()
+        for pinpoint in ("ст. 7", "ст. 5", "п. 2 ст. 3", "п. 1 ст. 5", "Ст. 5", "ст. 152.1"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual([], self.c09(pinpoint))
+
+    def test_a_dotted_number_is_matched_whole(self):
+        # `152` is not in «152.1», and `152.1` is not in «152.».
+        self.seed_ru()
+        self.seed_ru(text="Статья 152. Охрана частной жизни\n", source_id="ru-152")
+        self.freeze()
+        self.assertEqual(1, len(self.c09("ст. 152")))
+        self.assertEqual(1, len(self.c09("ст. 152.1", "ru-152")))
+        self.assertEqual([], self.c09("ст. 152", "ru-152"))
+
+    def test_every_checked_number_must_be_there(self):
+        self.seed_ru()
+        self.freeze()
+        findings = self.c09("п. 9 ст. 5")
+        self.assertEqual(1, len(findings))
+        self.assertIn("9", findings[0]["hint"])
+
+    def test_a_part_a_paragraph_and_a_digitless_pinpoint_are_exempt(self):
+        self.seed_ru()
+        self.freeze()
+        for pinpoint in ("ч. 9 ст. 5", "абз. 9 п. 1 ст. 5", "ч. 15", "абз. 9", "разд. «Предмет регулирования»"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual([], self.c09(pinpoint))
+
+    def test_the_latin_labels_that_carry_a_number_are_checked(self):
+        # The seed's `gdpr-art-6` is code-saved text: «Article 6», «1. Processing», «(a)».
+        self.freeze()
+        self.assertEqual([], self.c09("Art. 6(1)(a)", "gdpr-art-6"))
+        for pinpoint in ("art 9", "Article 9", "para 42", "paras 42-45", "s 12", "section 12", "reg 12",
+                         "point 12", "ch 9", "art 6(4)"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual(1, len(self.c09(pinpoint, "gdpr-art-6")), pinpoint)
+
+    def test_a_page_a_recital_a_bare_number_and_a_roman_numeral_are_exempt(self):
+        self.freeze()
+        for pinpoint in ("p 15", "pp 15-17", "page 15", "recital 44", "6(4)", "art IV(1)"):
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual([], self.c09(pinpoint, "gdpr-art-6"))
+        # The Roman numeral is exempt, the digit beside it is not.
+        self.assertEqual(1, len(self.c09("art IV(9)", "gdpr-art-6")))
+
+    def test_the_numbers_a_pinpoint_prints(self):
+        # The grammar is not forked: the numbers are read through `CYRILLIC_LABEL` and `PINPOINT`.
+        cases = {
+            "ст. 152.1": ["152.1"],
+            "п. 2 ст. 152": ["2", "152"],
+            "пп. 3 п. 1 ст. 8": ["3", "1", "8"],
+            "ч. 5 ст. 36": ["36"],
+            "абз. 2 п. 1 ст. 10": ["1", "10"],
+            "п. 3 разд. «Возмещение»": ["3"],
+            "раздел 4": ["4"],
+            "гл. 2 п. 3": ["2", "3"],
+            "прил. 1": ["1"],
+            "ст. 10а": ["10"],
+            "п. 2(1) ст. 7": ["2", "1", "7"],
+            "разд. «Возмещение»": [],
+            "Art. 6(1)(a)": ["6", "1"],
+            "paras 42-45": ["42", "45"],
+            "art IV(2)": ["2"],
+            "p 15": [],
+            "recital 32": [],
+            "6(1)(f)": [],
+            "§ 26": [],
+            "": [],
+        }
+        for pinpoint, expected in cases.items():
+            with self.subTest(pinpoint=pinpoint):
+                self.assertEqual(expected, citations.printed_numbers(pinpoint))
+
+    def test_an_agent_summary_is_not_checked(self):
+        self.seed_ru(raw_kind="agent_summary")
+        self.freeze()
+        self.assertEqual([], self.c09("ст. 9"))
+
+    def test_an_excerpt_and_a_client_file_are_checked(self):
+        self.seed_ru(raw_kind="excerpt")
+        self.seed_ru(raw_kind="client_file", text=RU_ACT + "\nКлиент.\n", source_id="client-contract")
+        self.freeze()
+        self.assertEqual(1, len(self.c09("ст. 9")))
+        self.assertEqual(1, len(self.c09("п. 9", "client-contract")))
+
+    def test_an_entry_frozen_without_the_field_is_not_checked(self):
+        # D-200: no field in the pack and a digest in the snapshot reads as `agent_summary`.
+        self.seed_ru()
+        self.drop_field("ru-act", "raw_kind")
+        self.freeze()
+        self.assertEqual([], self.c09("ст. 9"))
+
+    def test_a_scan_is_not_checked(self):
+        # Controller's addendum §2: no text to search, so no C-09 — C-08 says what is missing.
+        self.add_scan("vs-scan", tier="supporting")
+        self.freeze()
+        self.assertEqual([], self.c09("п. 9", "vs-scan"))
+
+    def test_a_pdf_text_layer_is_checked_like_any_saved_text(self):
+        self.add_source("vs-pdf", RU_ACT, raw_kind="full_text", layer="case_law")
+        self.add_original("vs-pdf")
+        self.freeze()
+        self.assertEqual(1, len(self.c09("п. 9", "vs-pdf")))
+        self.assertEqual([], self.c09("п. 1 ст. 5", "vs-pdf"))
+
+    def test_a_malformed_pinpoint_is_c06_and_not_c09(self):
+        self.seed_ru()
+        self.freeze()
+        findings = self.audit("Body [[src:ru-act ст. foo 9]].\n")
+        self.assertIn("C-06", self.rules(findings))
+        self.assertNotIn("C-09", self.rules(findings))
+
+    def test_an_unknown_source_is_c01_and_not_c09(self):
+        self.freeze()
+        findings = self.audit("Body [[src:ghost ст. 9]].\n")
+        self.assertIn("C-01", self.rules(findings))
+        self.assertNotIn("C-09", self.rules(findings))
+
+    def test_the_report_carries_c09_and_stays_clean(self):
+        # D-204: a major — `clean` still means «no blocker», and the finding validates.
+        self.seed_ru()
+        self.freeze()
+        path = self.work_dir / "drafts" / "v1.md"
+        path.write_text(fixture("classical-clean") + "\nSee [[src:ru-act ст. 9]].\n", encoding="utf-8")
+        self.issue_step("s-012c")
+        result = citations.run_audit(
+            argparse.Namespace(
+                workdir=str(self.work_dir), step="s-012c", attempt=1, draft="drafts/v1.md", phase="drafting"
+            )
+        )
+        self.assertTrue(result["clean"])
+        report = state_io.read_json(self.work_dir / citations.CITATIONS_PATH)
+        self.assertEqual([], schema.validate(report, "lint"))
+        c09 = self.only(report["findings"], "C-09")
+        self.assertEqual(1, len(c09))
+        self.assertEqual(("ru-act", "ст. 9"), (c09[0]["source_id"], c09[0]["pinpoint"]))
 
 
 class MergedSourceTest(CitationsTestCase):

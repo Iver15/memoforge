@@ -69,6 +69,10 @@
       "pdf_unverified_note": "original enregistré ; les références et les citations n'ont pas été vérifiées par le code",
       "pdf_export_mismatch_note": "le PDF original de {source_id} ne correspond plus à ce qui a été figé et n'a pas été exporté",
       "text_export_mismatch_note": "le texte enregistré de {source_id} ne correspond plus à ce qui a été figé et n'a pas été exporté",
+      "excerpt_note": "un extrait enregistré par le code, pas le document entier",
+      "agent_summary_note": "texte copié par l'agent depuis une réponse de base de données, non enregistré par le code",
+      "no_reasoning_note": "seul le dispositif a été publié ; il n'y a pas de motivation à vérifier",
+      "pinpoint_not_in_raw_note": "le renvoi {pinpoint} est introuvable dans le texte enregistré de {source_id}",
       "link_note": "lien {status}",
       "retrieved_from_note": "texte obtenu via {server}",
       "legal_database": "une base de données juridique",
@@ -286,7 +290,8 @@
       "C-05": "Source hors dossier figé",
       "C-06": "Format du pinpoint",
       "C-07": "Source de règle non citée",
-      "C-08": "Citation sans texte enregistré"
+      "C-08": "Citation sans texte enregistré",
+      "C-09": "Renvoi absent du texte enregistré"
     },
     "blockers": {
       "hard_fail_unknown": "L'élément {checklist_id} de la liste de vérification n'a pas pu être vérifié."

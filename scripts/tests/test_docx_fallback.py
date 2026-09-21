@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -17,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import docx, fallbacks, i18n, state_io, task  # noqa: E402
+from memoforge import citations, docx, fallbacks, finalize, i18n, sources, state_io, task  # noqa: E402
 from memoforge.docx import fallback, oscola  # noqa: E402
 
 FOOTNOTES = oscola.STYLE_FOOTNOTES
@@ -188,6 +189,437 @@ class UnverifiedRowsNoteTest(unittest.TestCase):
     def test_a_source_the_freeze_saved_is_not_named(self):
         # The mirror image: the snapshot holds the text, so there is nothing to disclose.
         self.assertEqual([], self._packed("s-kept", registry_sha=None, snapshot_sha="b" * 64).unverified_rows())
+
+
+RU_TEXT_NOTES: dict = {
+    "memo.labels.excerpt_note": "выдержка, сохранённая кодом, а не документ целиком",
+    "memo.labels.agent_summary_note": "текст скопирован агентом из ответа базы, кодом не сохранялся",
+    "memo.labels.no_reasoning_note": (
+        "опубликована только резолютивная часть; мотивировки для проверки нет"
+    ),
+    "memo.labels.pinpoint_not_in_raw_note": (
+        "пинпойнт {pinpoint} не найден в сохранённом тексте {source_id}"
+    ),
+    "memo.labels.pdf_unverified_note": "оригинал сохранён; реквизиты и цитаты кодом не проверялись",
+    "memo.labels.no_saved_text_note": (
+        "нет сохранённого текста источника — цитату нельзя было сверить с источником"
+    ),
+    "memo.currency_names.unchecked": "не проверялась",
+}
+"""D-204: the Russian lines of the appendix, as the brief and the Russian pack word them."""
+
+
+def text_index(
+    kind: str | None = None,
+    *,
+    tier: str = "critical",
+    digest: str | None = "c" * 64,
+    original: str | None = None,
+    meta: dict | None = None,
+    currency: str | None = None,
+    pinpoints: dict | None = None,
+) -> fallback.SourceIndex:
+    """One packed source `s1` whose pack entry declares `kind` (None: a pack older than the field)."""
+    record = {
+        "source_id": "s1",
+        "tier": tier,
+        "title": "T",
+        "citation_form": "T 2024",
+        "url": "https://example.org/t",
+        "layer": "case_law",
+        "raw_sha256": digest,
+    }
+    if meta:
+        record["meta"] = dict(meta)
+    if currency:
+        record["currency"] = {"status": currency}
+    entry = {"source_id": "s1", "tier": tier, "citation_form": "T 2024"}
+    if kind:
+        entry["raw_kind"] = kind
+    return fallback.SourceIndex(
+        snapshot_ids=["s1"],
+        snapshot_hashes={"s1": digest},
+        snapshot_originals={"s1": original} if original else {},
+        entries={"s1": entry},
+        sources={"s1": record},
+        frozen=True,
+        pinpoints_not_in_raw=pinpoints,
+    )
+
+
+class TextKindNoteTest(unittest.TestCase):
+    """D-204: the appendix says what the saved text of a cited source is, in the memo language."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(i18n, "PACK_DIR", Path(tmp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _i18n.fake_pack(Path(tmp.name), "ru", RU_TEXT_NOTES)
+
+    def notes(self, index: fallback.SourceIndex, language: str = "en") -> list[str]:
+        rows = index.unverified_rows(language)
+        self.assertLessEqual(len(rows), 1, rows)
+        return rows[0]["notes"] if rows else []
+
+    def test_each_kind_prints_its_own_note_in_en_and_ru(self):
+        cases = (
+            ("excerpt", None, "excerpt_note"),
+            ("agent_summary", None, "agent_summary_note"),
+            ("excerpt", {"save_outcome": "excerpt:no_reasoning"}, "no_reasoning_note"),
+        )
+        for kind, meta, key in cases:
+            for language in ("en", "ru"):
+                with self.subTest(kind=kind, meta=meta, language=language):
+                    self.assertEqual(
+                        [fallback.label(key, language)], self.notes(text_index(kind, meta=meta), language)
+                    )
+        self.assertEqual(
+            "an excerpt saved by code, not the whole document", fallback.label("excerpt_note")
+        )
+        self.assertEqual(RU_TEXT_NOTES["memo.labels.excerpt_note"], fallback.label("excerpt_note", "ru"))
+
+    def test_a_short_act_without_reasoning_is_not_called_an_excerpt_of_a_longer_text(self):
+        notes = self.notes(text_index("excerpt", meta={"save_outcome": "excerpt:no_reasoning"}))
+        self.assertNotIn(fallback.label("excerpt_note"), notes)
+
+    def test_a_full_text_and_a_client_file_print_no_text_note(self):
+        for kind in ("full_text", "client_file"):
+            with self.subTest(kind=kind):
+                self.assertEqual([], self.notes(text_index(kind)))
+
+    def test_a_client_file_with_unchecked_currency_prints_no_line_at_all(self):
+        # The third item of the plan-67 review: a document the client supplied is not an
+        # unverified source, so «currency unchecked» is not said about it.
+        self.assertEqual([], text_index("client_file", currency="unchecked").unverified_rows())
+        self.assertEqual([], text_index("client_file", currency="unchecked").unverified_rows("ru"))
+        # Any other kind still carries the currency line, as before.
+        notes = self.notes(text_index("full_text", currency="unchecked"))
+        self.assertEqual(
+            [fallback.label("currency_note", status=oscola.currency_name("unchecked", "en"))], notes
+        )
+
+    def test_a_client_file_keeps_a_currency_status_that_needs_a_human(self):
+        notes = self.notes(text_index("client_file", currency="manual_check"))
+        self.assertEqual(1, len(notes))
+
+    def test_a_scan_prints_the_pdf_note_instead_of_no_saved_text(self):
+        # Controller's addendum §1: the original was saved and pinned; «no saved text» would be false.
+        for language in ("en", "ru"):
+            with self.subTest(language=language):
+                notes = self.notes(text_index("none", digest=None, original="d" * 64), language)
+                self.assertEqual([fallback.label("pdf_unverified_note", language)], notes)
+                self.assertNotIn(fallback.label("no_saved_text_note", language), notes)
+
+    def test_an_original_gone_at_the_freeze_still_prints_no_saved_text(self):
+        # The snapshot decides (D-158): no text digest and no original pinned — the freeze found nothing.
+        index = text_index("none", digest=None)
+        index.sources["s1"]["raw_original_sha256"] = "e" * 64
+        for language in ("en", "ru"):
+            with self.subTest(language=language):
+                self.assertEqual([fallback.label("no_saved_text_note", language)], self.notes(index, language))
+
+    def test_a_pdf_with_a_text_layer_is_judged_by_its_kind(self):
+        self.assertEqual(
+            [fallback.label("excerpt_note")], self.notes(text_index("excerpt", original="d" * 64))
+        )
+        self.assertEqual([], self.notes(text_index("full_text", original="d" * 64)))
+
+    def test_a_pack_frozen_before_the_field_prints_no_kind_note(self):
+        # D-200: an entry without `raw_kind` declares nothing — the extended C-08 is silent for it,
+        # and so is its appendix line.
+        self.assertEqual([], self.notes(text_index(None)))
+
+    def test_the_kind_note_speaks_for_critical_and_supporting_sources(self):
+        # Controller's ruling: the kind lines follow their sibling `no_saved_text_note`, not the
+        # `critical`-only C-08 — C-08 is a grade, the appendix is disclosure.
+        for kind, key in (("excerpt", "excerpt_note"), ("agent_summary", "agent_summary_note")):
+            for language in ("en", "ru"):
+                with self.subTest(kind=kind, language=language):
+                    self.assertEqual(
+                        [fallback.label(key, language)],
+                        self.notes(text_index(kind, tier="supporting"), language),
+                    )
+        self.assertEqual([], self.notes(text_index("excerpt", tier="background")))
+        self.assertEqual([], self.notes(text_index("agent_summary", tier="background")))
+
+    def test_a_leftover_c09_prints_one_note_per_pinpoint_in_en_and_ru(self):
+        index = text_index("full_text", pinpoints={"s1": ["ст. 9", "п. 3 ст. 9"]})
+        for language in ("en", "ru"):
+            with self.subTest(language=language):
+                self.assertEqual(
+                    [
+                        fallback.label("pinpoint_not_in_raw_note", language, pinpoint="ст. 9", source_id="s1"),
+                        fallback.label(
+                            "pinpoint_not_in_raw_note", language, pinpoint="п. 3 ст. 9", source_id="s1"
+                        ),
+                    ],
+                    self.notes(index, language),
+                )
+        self.assertEqual(
+            "pinpoint ст. 9 was not found in the saved text of s1",
+            fallback.label("pinpoint_not_in_raw_note", pinpoint="ст. 9", source_id="s1"),
+        )
+
+    def test_a_c09_pinpoint_prints_the_way_the_memo_prints_it(self):
+        index = text_index("full_text", pinpoints={"s1": ["Art. 9(2)"]})
+        self.assertEqual(
+            [fallback.label("pinpoint_not_in_raw_note", pinpoint="art 9(2)", source_id="s1")],
+            self.notes(index),
+        )
+
+    def test_a_c09_line_joins_the_kind_note_of_its_source(self):
+        index = text_index("excerpt", pinpoints={"s1": ["ст. 9"]})
+        self.assertEqual(
+            [
+                fallback.label("excerpt_note"),
+                fallback.label("pinpoint_not_in_raw_note", pinpoint="ст. 9", source_id="s1"),
+            ],
+            self.notes(index),
+        )
+
+    def test_the_markdown_appendix_prints_the_lines_of_cited_sources_only(self):
+        index = text_index("agent_summary", pinpoints={"s1": ["ст. 9"]})
+        index.sources["s2"] = dict(index.sources["s1"], source_id="s2", citation_form="Uncited 2024")
+        index.entries["s2"] = dict(index.entries["s1"], source_id="s2", citation_form="Uncited 2024")
+        index.snapshot_ids.append("s2")
+        index.snapshot_hashes["s2"] = "c" * 64
+        markdown = fallback.render("Body [[src:s1 ст. 9]].\n", index)["markdown"]
+        appendix = markdown.partition(APPENDIX_HEADING)[2]
+        self.assertIn(
+            "- T 2024 — "
+            + fallback.label("agent_summary_note")
+            + "; "
+            + fallback.label("pinpoint_not_in_raw_note", pinpoint="ст. 9", source_id="s1"),
+            appendix,
+        )
+        self.assertNotIn("Uncited 2024", appendix)
+
+
+class PinpointFindingsLoadTest(unittest.TestCase):
+    """D-204: the index files the C-09 findings it is handed under the canonical id of their source."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work_dir = Path(tmp.name)
+        research = self.work_dir / "research"
+        research.mkdir()
+        state_io.write_json_atomic(
+            research / "source-pack.json",
+            {
+                "schema_version": 2,
+                "frozen_at": "2026-09-08T12:00:00Z",
+                "snapshot": [
+                    {"source_id": "ru-act", "raw_sha256": "0" * 64},
+                    {"source_id": "vs-scan", "raw_sha256": None, "raw_original_sha256": "d" * 64},
+                ],
+                "entries": [
+                    {"source_id": "ru-act", "citation_form": "Закон", "raw_kind": "full_text"},
+                    {"source_id": "vs-scan", "citation_form": "Определение", "raw_kind": "none"},
+                ],
+                "merged_into": {"ru-act-copy": "ru-act"},
+            },
+        )
+        state_io.write_json_atomic(
+            research / "sources.json",
+            {"schema_version": 2, "sources": {"ru-act": {"citation_form": "Закон"}}},
+        )
+    FINDING = {
+        "rule": "C-09",
+        "severity": "major",
+        "line": 1,
+        "section_id": None,
+        "excerpt": "Body [[src:ru-act-copy ст. 9]].",
+        "hint": "Pinpoint `ст. 9` …",
+        "source_id": "ru-act-copy",
+        "pinpoint": "ст. 9",
+    }
+
+    def test_findings_are_filed_under_the_canonical_id_once_each(self):
+        findings = [self.FINDING, dict(self.FINDING), dict(self.FINDING, source_id="ru-act", pinpoint="п. 3")]
+        loaded = fallback.SourceIndex.load(self.work_dir, pinpoint_findings=findings)
+        self.assertEqual({"ru-act": ["ст. 9", "п. 3"]}, loaded.pinpoints_not_in_raw)
+
+    def test_rows_that_name_no_source_or_no_pinpoint_are_ignored(self):
+        findings = [
+            {"rule": "C-08", "hint": "no fields"},
+            dict(self.FINDING, pinpoint=""),
+            dict(self.FINDING, source_id=None),
+            "C-09",
+        ]
+        self.assertEqual({}, fallback.SourceIndex.load(self.work_dir, pinpoint_findings=findings).pinpoints_not_in_raw)
+        self.assertEqual({}, fallback.SourceIndex.load(self.work_dir).pinpoints_not_in_raw)
+
+    def test_a_report_on_disk_is_never_read(self):
+        # D-204 (controller's ruling): `citations.json` holds the last audited draft only, which is
+        # not always the exported one — the index says only what it is handed.
+        state_io.write_json_atomic(
+            self.work_dir / "citations.json", {"draft_sha": "f" * 64, "clean": True, "findings": [self.FINDING]}
+        )
+        self.assertEqual({}, fallback.SourceIndex.load(self.work_dir).pinpoints_not_in_raw)
+
+    def test_the_snapshot_originals_are_loaded(self):
+        loaded = fallback.SourceIndex.load(self.work_dir)
+        self.assertEqual({"vs-scan": "d" * 64}, loaded.snapshot_originals)
+
+    def test_the_renderers_never_import_the_citation_audit(self):
+        # D-195: the markdown fallback (and the docx renderer beside it) stay free of the audit
+        # module; the C-09 findings reach them as data from whoever chose the exported version.
+        import ast
+
+        for module in ("fallback.py", "renderer.py"):
+            with self.subTest(module=module):
+                tree = ast.parse((Path(fallback.__file__).parent / module).read_text(encoding="utf-8"))
+                imported = {
+                    alias.name
+                    for node in ast.walk(tree)
+                    if isinstance(node, (ast.Import, ast.ImportFrom))
+                    for alias in node.names
+                }
+                imported |= {
+                    str(node.module) for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                }
+                self.assertFalse({name for name in imported if "citations" in name}, imported)
+
+
+EXPORT_RAW = "Статья 5. Предмет регулирования\n\n1. Настоящий закон применяется.\n"
+"""The saved text of the one source of `ExportedVersionPinpointTest`: it prints 5 and 1, never 9."""
+
+
+class ExportedVersionPinpointTest(unittest.TestCase):
+    """D-204: the appendix describes the version that is exported, not the last one audited."""
+
+    GOOD = "Body [[src:ru-law ст. 5]].\n\n<!-- sources: generated -->\n"
+    BAD = "Body [[src:ru-law ст. 9]].\n\n<!-- sources: generated -->\n"
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.work_dir = self.root / "memo-20260908T120000Z-c09"
+        task.create_work_dir_tree(self.work_dir)
+        state = task.build_initial_state(
+            task_id=self.work_dir.name,
+            user_query="q",
+            language="en",
+            work_dir=self.work_dir,
+            output_folder=self.root,
+            config={},
+        )
+        state_io.create_state(self.work_dir, state)
+        raw = self.root / "law.md"
+        raw.write_text(EXPORT_RAW, encoding="utf-8")
+        sources.register_source(
+            self.work_dir,
+            layer="statutes",
+            title="Закон",
+            citation="Закон, ст. 5",
+            url="https://example.org/law",
+            tool="mf-save example.org",
+            tier="supporting",
+            raw_file=raw,
+            raw_kind="full_text",
+            source_id="ru-law",
+        )
+        issue_step(self.work_dir, "s-pack")
+        frozen = sources.run_pack(
+            argparse.Namespace(workdir=str(self.work_dir), freeze=True, step="s-pack", attempt=1, phase=None)
+        )
+        self.assertFalse(frozen.get("errors"), frozen)
+
+        def mutator(current: dict) -> None:
+            current["current_phase"] = "export"
+
+        state_io.write_state(self.work_dir, mutator)
+
+    def put_version(self, version: int, body: str, *, checked: bool) -> None:
+        relative = f"drafts/v{version}.md"
+        (self.work_dir / relative).write_bytes(body.encode("utf-8"))
+        sha = state_io.sha256_file(self.work_dir / relative)
+
+        def mutator(state: dict) -> None:
+            rows = [row for row in state.get("draft_versions") or [] if row.get("version") != version]
+            rows.append(
+                {
+                    "version": version,
+                    "path": relative,
+                    "sha256": sha,
+                    "lint_clean": checked,
+                    "citations_clean": True,
+                    "checked_at": "2026-09-08T12:00:00.000Z",
+                }
+            )
+            state["draft_versions"] = sorted(rows, key=lambda row: row["version"])
+            state["current_draft_path"] = relative
+
+        state_io.write_state(self.work_dir, mutator)
+
+    def last_audit_says(self, body: str) -> None:
+        """`citations.json` as the last `draft finish` left it — about the *last* version."""
+        state_io.write_json_atomic(
+            self.work_dir / "citations.json",
+            {
+                "draft_sha": state_io.sha256_bytes(body.encode("utf-8")),
+                "clean": True,
+                "findings": citations.pinpoint_findings(body, work_dir=self.work_dir),
+            },
+        )
+
+    def export(self) -> dict:
+        """`mf docx render` of the version §2.1 row 15 selects: the markdown view and the docx text."""
+        issue_step(self.work_dir, "s-render")
+        result = docx.run_render(
+            argparse.Namespace(
+                workdir=str(self.work_dir), step="s-render", attempt=1, draft_sha=None, human=False
+            )
+        )
+        self.assertFalse(result.get("errors"), result)
+        markdown = (self.work_dir / "memo-c09.md").read_text(encoding="utf-8")
+        text = ""
+        docx_path = self.work_dir / "memo-c09.docx"
+        if docx_path.is_file():
+            with zipfile.ZipFile(docx_path) as archive:
+                text = archive.read("word/document.xml").decode("utf-8")
+        return {"markdown": markdown, "docx": text}
+
+    NOTE = "pinpoint ст. 9 was not found in the saved text of ru-law"
+
+    def test_an_earlier_exported_version_prints_its_own_c09_line(self):
+        # v1 is the last checked version and cites a pinpoint its source never prints; v2 is fine
+        # but failed lint, so the export selects v1 while `citations.json` speaks about v2.
+        self.put_version(1, self.BAD, checked=True)
+        self.put_version(2, self.GOOD, checked=False)
+        self.last_audit_says(self.GOOD)
+        selection = docx.select_draft(state_io.read_state(self.work_dir), self.work_dir)
+        self.assertEqual("drafts/v1.md", selection["relative"])
+        self.assertEqual(self.NOTE, fallback.label("pinpoint_not_in_raw_note", pinpoint="ст. 9", source_id="ru-law"))
+
+        exported = self.export()
+        self.assertIn(self.NOTE, exported["markdown"])
+        if exported["docx"]:
+            self.assertIn(self.NOTE, exported["docx"])
+        # `finalize` rebuilds the appendix of that same export for the same selected version.
+        rebuilt = finalize.condense_appendix(exported["markdown"], self.work_dir, state_io.read_state(self.work_dir))
+        self.assertIn(self.NOTE, rebuilt)
+
+    def test_the_last_audited_version_s_c09_never_reaches_an_earlier_export(self):
+        self.put_version(1, self.GOOD, checked=True)
+        self.put_version(2, self.BAD, checked=False)
+        self.last_audit_says(self.BAD)
+        exported = self.export()
+        self.assertNotIn("was not found in the saved text", exported["markdown"])
+        self.assertNotIn("was not found in the saved text", exported["docx"])
+        rebuilt = finalize.condense_appendix(exported["markdown"], self.work_dir, state_io.read_state(self.work_dir))
+        self.assertNotIn("was not found in the saved text", rebuilt)
+
+    def test_exported_pinpoints_never_stops_an_export(self):
+        self.assertEqual([], docx.exported_pinpoints(self.work_dir, None))
+        self.assertEqual([], docx.exported_pinpoints(self.work_dir, self.work_dir / "drafts" / "gone.md"))
+        with mock.patch("memoforge.citations.audit", side_effect=RuntimeError("boom")):
+            (self.work_dir / "drafts" / "v1.md").write_bytes(self.BAD.encode("utf-8"))
+            self.assertEqual([], docx.exported_pinpoints(self.work_dir, self.work_dir / "drafts" / "v1.md"))
 
 
 class SourcesSectionTest(unittest.TestCase):

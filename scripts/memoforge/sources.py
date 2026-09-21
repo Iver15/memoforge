@@ -1860,25 +1860,70 @@ _WS_RUN_RE = re.compile(r"[ \t\r\f\v]+")
 _CHARSET_RE = re.compile(rb"(?:charset|encoding)\s*=\s*[\"']?\s*([A-Za-z0-9_.\-:]+)", re.IGNORECASE)
 
 
+_DECIMAL_LIST_TYPES: tuple[str, ...] = ("", "1")
+"""D-204: the `<ol type>` values a browser numbers with digits; `a`/`A`/`i`/`I` print no digit."""
+
+
+def _list_counter(tag: str, attrs: dict) -> int | None:
+    """The number before the first item of a list that just opened; None when its items print none.
+
+    D-204: `<ul>` and a list numbered by letters or Roman numerals carry no number into the text —
+    a digit the page never showed would be a number the source does not print. So does a
+    `reversed` list, whose numbers depend on how many items follow. `start` is honoured, because a
+    list that continues at 4 is read as 4 by the person who reads the page.
+    """
+    if tag != "ol" or "reversed" in attrs:
+        return None
+    if str(attrs.get("type") or "").strip() not in _DECIMAL_LIST_TYPES:
+        return None
+    number = _html_int(attrs.get("start"))
+    return 0 if number is None else number - 1
+
+
+def _html_int(value: object) -> int | None:
+    """An integer HTML attribute (`start`, `value`), or None when it holds none."""
+    try:
+        return int(str(value).strip()) if value is not None else None
+    except ValueError:
+        return None
+
+
 class _TextExtractor(HTMLParser):
-    """Block tags become line breaks, `script`/`style`/`head` vanish, entities are decoded (D-163)."""
+    """Block tags become line breaks, `script`/`style`/`head` vanish, entities are decoded (D-163).
+
+    D-204: an item of an `<ol>` begins with its number (`N. `). A point numbered only by the list
+    markup would otherwise vanish from the text, and C-09 would fire on a correct pinpoint. Every
+    list keeps its own counter, so a nested list restarts; `<ul>` is unchanged.
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip = 0
+        self._lists: list[int | None] = []
+        """The open lists, innermost last: the number of the last item printed, None for no numbers."""
 
     def handle_starttag(self, tag, attrs):  # noqa: D102 - HTMLParser contract
         if tag in _SKIP_TAGS:
             self._skip += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
+        if tag in ("ol", "ul"):
+            self._lists.append(_list_counter(tag, dict(attrs)))
+        elif tag == "li" and self._lists and self._lists[-1] is not None:
+            # `<li value="7">` renumbers this item and the ones after it, as the browser does.
+            number = _html_int(dict(attrs).get("value"))
+            self._lists[-1] = number if number is not None else self._lists[-1] + 1
+            if not self._skip:
+                self.parts.append(f"{self._lists[-1]}. ")
 
     def handle_endtag(self, tag):  # noqa: D102
         if tag in _SKIP_TAGS:
             self._skip = max(self._skip - 1, 0)
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
+        if tag in ("ol", "ul") and self._lists:
+            self._lists.pop()
 
     def handle_data(self, data):  # noqa: D102
         if not self._skip:
@@ -1902,6 +1947,10 @@ def markup_to_text(payload: bytes, content_type: str = "") -> bytes | None:
     Article headings (`<p class="oj-ti-art">Article 9</p>` on Cellar, `<h2>Article 9</h2>` elsewhere)
     end up on a line of their own, which is what `article_spans` and `quote extract` need; the
     delivered `sources/*.txt` become readable for the same reason.
+
+    D-204: the items of an `<ol>` keep the numbers the browser shows (`1. …`), so a point numbered
+    only by the list markup is still in the text C-09 searches. The same page therefore converts to
+    other bytes than before this rule, and there is no migration of texts saved earlier.
     """
     if not is_markup(payload, content_type):
         return None

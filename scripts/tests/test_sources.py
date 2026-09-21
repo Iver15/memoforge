@@ -5645,6 +5645,61 @@ class MarkupToTextTest(unittest.TestCase):
         self.assertIn("1.   Text", text)
         self.assertNotIn("\xa0", text)
 
+    # --- D-204: a point numbered only by the list markup keeps its number ---------
+
+    @staticmethod
+    def lines_of(payload: bytes) -> list[str]:
+        text = sources.markup_to_text(payload, "text/html").decode("utf-8")
+        return [line for line in text.splitlines() if line]
+
+    def test_an_ordered_list_numbers_its_items(self):
+        # D-204: `<ol>` numbers its points in the browser only; without the number in the text a
+        # correct `п. 2` would draw a C-09 because the saved text never prints «2».
+        payload = "<p>Статья 5</p><ol><li>первый пункт</li><li>второй пункт</li></ol>".encode("utf-8")
+        self.assertEqual(["Статья 5", "1. первый пункт", "2. второй пункт"], self.lines_of(payload))
+
+    def test_a_nested_ordered_list_restarts_its_own_counter(self):
+        payload = b"<ol><li>one<ol><li>inner a</li><li>inner b</li></ol></li><li>two</li></ol>"
+        self.assertEqual(["1. one", "1. inner a", "2. inner b", "2. two"], self.lines_of(payload))
+
+    def test_a_list_after_a_list_starts_again_at_one(self):
+        payload = b"<ol><li>a</li><li>b</li></ol><p>between</p><ol><li>c</li></ol>"
+        self.assertEqual(["1. a", "2. b", "between", "1. c"], self.lines_of(payload))
+
+    def test_an_unordered_list_is_unchanged(self):
+        payload = b"<ul><li>alpha</li><li>beta</li></ul>"
+        self.assertEqual("alpha\n\nbeta\n", sources.markup_to_text(payload, "text/html").decode("utf-8"))
+
+    def test_an_unordered_list_inside_an_ordered_item_prints_no_numbers(self):
+        payload = b"<ol><li>one<ul><li>bullet</li></ul></li><li>two</li></ol>"
+        self.assertEqual(["1. one", "bullet", "2. two"], self.lines_of(payload))
+
+    def test_the_start_attribute_is_the_first_number(self):
+        # What the reader of the page sees: a list that continues at 4 prints 4, not 1.
+        payload = b'<ol start="4"><li>four</li><li>five</li></ol>'
+        self.assertEqual(["4. four", "5. five"], self.lines_of(payload))
+
+    def test_a_list_numbered_by_letters_or_roman_numerals_gets_no_digits(self):
+        # `type="a"` shows «a.» in the browser; writing «1.» would put a number into the text that
+        # the page never printed, so such an item keeps no number at all.
+        for kind in ("a", "A", "i", "I"):
+            with self.subTest(type=kind):
+                payload = f'<ol type="{kind}"><li>item</li></ol>'.encode("ascii")
+                self.assertEqual(["item"], self.lines_of(payload))
+
+    def test_an_item_value_renumbers_it_and_the_items_after_it(self):
+        payload = b'<ol><li>one</li><li value="7">seven</li><li>eight</li></ol>'
+        self.assertEqual(["1. one", "7. seven", "8. eight"], self.lines_of(payload))
+
+    def test_a_reversed_list_gets_no_digits(self):
+        # Its numbers count down from the number of items, which is not known at the first one.
+        payload = b"<ol reversed><li>three</li><li>two</li></ol>"
+        self.assertEqual(["three", "two"], self.lines_of(payload))
+
+    def test_an_ordered_list_inside_a_skipped_element_prints_nothing(self):
+        payload = b"<template><ol><li>hidden</li></ol></template><ol><li>shown</li></ol>"
+        self.assertEqual(["1. shown"], self.lines_of(payload))
+
 
 class MarkupStorageTest(SourcesTestCase):
     """D-163: register and fetch store the converted text; liveness hashes the same text."""

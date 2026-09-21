@@ -19,7 +19,11 @@ SEVERITY: dict[str, str] = {
     "C-06": "major",
     "C-07": "major",
     "C-08": "major",
+    "C-09": "major",
 }
+
+PINPOINT_NOT_IN_RAW = "C-09"
+"""D-204: `pinpoint_not_in_raw` — a pinpoint names a number its source's saved text does not print."""
 
 BRIEF_MODE = "brief"
 
@@ -62,16 +66,89 @@ guillemets may stand where a number would — `п. 3 разд. «Возмеще�
 """
 
 PINPOINT = re.compile(
-    r"^(?:art(?:icle)?|s|ss|sec(?:tion)?|§{1,2}|para(?:graph)?s?|recital|rec|ch(?:apter)?|annex|"
+    r"^(?P<label>art(?:icle)?|s|ss|sec(?:tion)?|§{1,2}|para(?:graph)?s?|recital|rec|ch(?:apter)?|annex|"
     r"sch(?:edule)?|pp?|page|reg(?:ulation)?|rule|point|r)\b\.?\s*[\w().,\-/ ]*\d",
     re.IGNORECASE,
 )
+"""The pinpoint of a non-Russian source, led by its label; D-204 reads the label through `label`."""
 BARE_PINPOINT = re.compile(r"^\d+[\w().,\-/ ]*$")
 
 MANUAL_CHECK_STATUSES: tuple[str, ...] = ("manual_check",)
 
 RAW_TEXT_TIERS: tuple[str, ...] = ("critical", "supporting")
 """Tiers whose text must be saved before they are cited directly (A43-4 / D-156; `background` is exempt)."""
+
+FULL_TEXT_KINDS: tuple[str, ...] = ("full_text", "client_file")
+"""D-204: the `raw_kind`s a `critical` source may be cited on without the extended C-08 — the whole
+document, as the code saved it or as the client supplied it."""
+
+PINPOINT_CHECKED_KINDS: tuple[str, ...] = ("full_text", "excerpt", "client_file")
+"""D-204: the `raw_kind`s whose saved text C-09 searches — text that is the document's own words.
+An `agent_summary` is not searched (the agent's copy proves nothing either way); `none` has no text."""
+
+C09_EXEMPT_CYRILLIC: tuple[str, ...] = ("абз", "ч")
+"""D-204: the Russian labels whose number C-09 never looks for — an `абз.` or a `ч.` is counted, not
+printed, in the source. Every other label of `CYRILLIC_LABEL` carries a printed number."""
+
+C09_CHECKED_LATIN = re.compile(
+    r"art(?:icle)?|s|ss|sec(?:tion)?|para(?:graph)?s?|ch(?:apter)?|reg(?:ulation)?|point",
+    re.IGNORECASE,
+)
+"""D-204: the labels of `PINPOINT` whose number is printed in the source — article, section, paragraph,
+chapter, regulation, point. A page, a recital, an annex, a schedule, a rule and `§` are exempt."""
+
+_CYRILLIC_PART = re.compile(
+    rf"(?P<label>{CYRILLIC_LABEL})\.?\s*(?P<number>{_CYRILLIC_NUMBER})|{_CYRILLIC_HEADING}",
+    re.IGNORECASE,
+)
+"""One segment of a Russian pinpoint, built from the same pieces as `CYRILLIC_PINPOINT` (D-204)."""
+
+_PRINTED_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+"""A printed number: digits, and a dot only between digits — `152.1` is one number, never `152`."""
+
+
+def printed_numbers(pinpoint: str) -> list[str]:
+    """The numbers of a pinpoint that its source must print, in order, each once (D-204, C-09).
+
+    The grammar is not forked: a Russian pinpoint is read segment by segment through
+    `CYRILLIC_LABEL`, a non-Russian one through the label `PINPOINT` matched. Exempt, and so never
+    returned: an `абз.` or `ч.` segment, a heading in guillemets, a page, a recital, a bare number,
+    Roman numerals (they are not digits) and anything the grammar does not recognise.
+    """
+    text = str(pinpoint or "").strip()
+    numbers: list[str] = []
+    if CYRILLIC_PINPOINT.match(text):
+        for part in _CYRILLIC_PART.finditer(text):
+            label = part.group("label")
+            if label is None or label.lower() in C09_EXEMPT_CYRILLIC:
+                continue
+            numbers.extend(_PRINTED_NUMBER.findall(part.group("number")))
+    else:
+        match = PINPOINT.match(text)
+        if match and C09_CHECKED_LATIN.fullmatch(match.group("label")):
+            numbers.extend(_PRINTED_NUMBER.findall(text[match.end("label"):]))
+    return list(dict.fromkeys(numbers))
+
+
+def number_in_text(number: str, text: str) -> bool:
+    """True when `number` stands in `text` as a whole number, anywhere (D-204).
+
+    Neither a digit nor a dotted continuation may touch it: `152` is not in «152.1» or «1152», and
+    `152.1` is not in «152.12»; a full stop that ends a sentence («ст. 152.») does not count as one.
+    """
+    pattern = rf"(?<!\d)(?<!\d\.){re.escape(number)}(?!\.?\d)"
+    return re.search(pattern, text) is not None
+
+
+def declared_raw_kind(entry: dict) -> str | None:
+    """The `raw_kind` a pack entry declares, or None when it declares none (D-200, D-204).
+
+    `sources.pack_raw_kind` reads a missing field as `agent_summary`/`none` — right for deciding what
+    a text is, wrong for the extended C-08: a pack frozen before the field existed must not start
+    drawing majors on every `critical` source it holds.
+    """
+    kind = (entry or {}).get("raw_kind")
+    return sources.pack_raw_kind(entry) if kind in sources.RAW_KINDS else None
 
 
 def finding(
@@ -178,7 +255,7 @@ def read_frozen_pack(work_dir: str | Path) -> dict | None:
 
 
 def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[dict]:
-    """Apply C-01..C-08 to one draft against the registry, the quote store and the snapshot."""
+    """Apply C-01..C-09 to one draft against the registry, the quote store and the snapshot."""
     document = lint.parse_draft(text, lint.grammar(resolve_language(work_dir)))
     run_mode = resolve_mode(work_dir, mode)
     registry = sources.read_registry(work_dir)
@@ -221,6 +298,8 @@ def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[d
     risk_line_numbers = risk_lines(document)
 
     used_sources: set[str] = set()
+    raw_texts: dict[str, str | None] = {}
+    """C-09 reads each saved text once per audit, however many tokens cite it."""
 
     for token in document["q_tokens"]:
         record = quote_registry["quotes"].get(token["id"])
@@ -278,6 +357,10 @@ def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[d
                     "Cite as `[[src:<source_id> <pinpoint>]]`, e.g. `Art. 6(1)(f)`, `para 42`, `p 15`.",
                 )
             )
+        else:
+            findings.extend(
+                _check_pinpoint_in_raw(token, source_id, registry, snapshot, entries, work_dir, raw_texts)
+            )
 
     for source_id, entry in sorted(entries.items()):
         if (entry.get("pack") or {}).get("use_in_memo") != "rule" or source_id in used_sources:
@@ -304,6 +387,16 @@ def audit(text: str, *, work_dir: str | Path, mode: str | None = None) -> list[d
     return findings
 
 
+def pinpoint_findings(text: str, *, work_dir: str | Path) -> list[dict]:
+    """The C-09 findings of one draft, computed afresh from its text (D-204).
+
+    What the appendix of an export discloses: the version chosen for export is not always the last
+    one audited, and `citations.json` describes only that last one. The renderers never import this
+    module (D-195); whoever chooses the exported version calls this and hands them the result.
+    """
+    return [row for row in audit(text, work_dir=work_dir) if row["rule"] == PINPOINT_NOT_IN_RAW]
+
+
 def _check_source(
     token: dict,
     source_id: str,
@@ -315,7 +408,12 @@ def _check_source(
     *,
     via_quote: bool,
 ) -> list[dict]:
-    """C-01/C-03/C-04/C-05/C-08 for one source, whether cited directly or reached through `[[q:]]`."""
+    """C-01/C-03/C-04/C-05/C-08 for one source, whether cited directly or reached through `[[q:]]`.
+
+    D-204: C-08 also fires for a direct citation of a `critical` source whose **pack** entry declares
+    a `raw_kind` outside `FULL_TEXT_KINDS`. The pack decides after the freeze, not the registry; an
+    entry frozen before the field existed declares nothing and draws only the null-digest C-08.
+    """
     out: list[dict] = []
     record = registry["sources"].get(source_id)
     if record is None:
@@ -341,7 +439,10 @@ def _check_source(
         )
         return out
 
-    if not via_quote and str(record.get("tier") or "") in RAW_TEXT_TIERS and snapshot.get(source_id) is None:
+    entry = entries.get(source_id, {})
+    tier = str(record.get("tier") or "")
+    declared = declared_raw_kind(entry)
+    if not via_quote and tier in RAW_TEXT_TIERS and snapshot.get(source_id) is None:
         # D-156: the freeze kept the source but has no text for it — the claim cannot be checked
         # against the source. A caveat (major), not a refusal: the memo still ships with the note.
         out.append(
@@ -354,8 +455,21 @@ def _check_source(
                 "cannot be checked against the source and the appendix says so.",
             )
         )
+    elif not via_quote and tier == "critical" and declared is not None and declared not in FULL_TEXT_KINDS:
+        # D-204: the owner's rule — a `critical` claim on a text that is not the whole document is a
+        # major, never a blocker. One finding per token: the null-digest branch above already spoke
+        # for a source with no text at all. `excerpt` and `agent_summary` differ only in the appendix.
+        out.append(
+            finding(
+                "C-08",
+                token["line"],
+                token["section_id"],
+                token["text"],
+                f"Source {source_id} (critical) is cited on `{declared}` text, not on the whole document "
+                "saved by code; the citation is checked against a partial text and the appendix says so.",
+            )
+        )
 
-    entry = entries.get(source_id, {})
     use = (entry.get("pack") or {}).get("use_in_memo")
     currency_status = entry.get("currency_status") or (record.get("currency") or {}).get("status", "unchecked")
     us = entry.get("verification_us") or (record.get("verification") or {}).get("us", "n/a")
@@ -385,6 +499,55 @@ def _check_source(
                 )
             )
     return out
+
+
+def _check_pinpoint_in_raw(
+    token: dict,
+    canonical: str,
+    registry: dict,
+    snapshot: dict,
+    entries: dict,
+    work_dir: str | Path,
+    texts: dict,
+) -> list[dict]:
+    """C-09 (D-204): every printed number of a `[[src:]]` pinpoint stands whole in the saved text.
+
+    The text is that of the id the token names — the very file C-02 reads for a quote — and it is
+    searched only when it holds the document's own words (`PINPOINT_CHECKED_KINDS`); after the freeze
+    the pack entry says which kind it is. A number found anywhere satisfies the rule: this filters
+    phantoms, it does not prove that the provision exists. The finding carries `source_id` and
+    `pinpoint`, the two things the appendix line names.
+    """
+    own_id = token["id"]
+    record = registry["sources"].get(own_id)
+    if record is None or canonical not in snapshot:
+        return []  # C-01 or C-05 has already said all there is to say about this token
+    entry = entries.get(own_id)
+    kind = sources.pack_raw_kind(entry, snapshot.get(own_id)) if entry else sources.raw_kind_of(record)
+    if kind not in PINPOINT_CHECKED_KINDS:
+        return []
+    numbers = printed_numbers(token["pinpoint"])
+    if not numbers:
+        return []
+    if own_id not in texts:
+        texts[own_id] = sources.read_raw_text(work_dir, record)
+    text = texts[own_id]
+    if text is None:
+        return []
+    missing = [number for number in numbers if not number_in_text(number, text)]
+    if not missing:
+        return []
+    row = finding(
+        PINPOINT_NOT_IN_RAW,
+        token["line"],
+        token["section_id"],
+        token["text"],
+        f"Pinpoint `{token['pinpoint']}` names {', '.join(missing)}, which the saved text of {own_id} "
+        "does not print anywhere; fix the pinpoint or remove it.",
+    )
+    row["source_id"] = own_id
+    row["pinpoint"] = token["pinpoint"]
+    return [row]
 
 
 def _check_quote_text(
