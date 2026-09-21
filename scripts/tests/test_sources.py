@@ -892,6 +892,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     route_hits: dict = {}
     """D-202: how many requests each list-valued route has answered so far."""
 
+    post_only: frozenset = frozenset()
+    """D-205: paths that serve their document to a POST and answer `405` to HEAD and GET — the
+    Normattiva open-data API, which a liveness probe would otherwise record as dead."""
+
     def _route(self) -> tuple | None:
         """The `routes` entry of this request; the query is the resolver's, not the address's.
 
@@ -906,6 +910,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return route
 
     def _payload(self, route: tuple | None) -> tuple[int, bytes]:
+        if self.path.split("?")[0] in type(self).post_only and self.command != "POST":
+            return 405, b"method not allowed"
         if route is not None:
             return (route[3] if len(route) > 3 else 200), route[0]
         if self.path in ("/ok", "/short", "/served.pdf"):
@@ -991,8 +997,10 @@ class LocalServer:
         short_bytes: int | None = None,
         length_suffix: str = "",
         routes: dict | None = None,
+        post_only: tuple = (),
     ) -> None:
         _Handler.body = body
+        _Handler.post_only = frozenset(post_only)
         _Handler.seen = []
         _Handler.posted = []
         _Handler.variants = list(variants)
@@ -6795,6 +6803,128 @@ class RawKindTest(SourcesTestCase):
         self.assertTrue(other.exists(), "a refused registration does not consume the raw file")
         stored = (self.work_dir / after["raw_path"]).read_text(encoding="utf-8")
         self.assertEqual(RAW_TEXT, stored)
+
+
+ARTICLE_7_TEXT = (
+    "Article 7 - Conditions for consent\n\n"
+    + "Where processing is based on consent, the controller shall be able to demonstrate it. " * 4
+    + "\n"
+).encode("utf-8")
+"""A statute article a GET save certifies whole with `--expect-article 7` (D-203)."""
+
+
+class SaveMethodLivenessTest(SaveTestCase):
+    """D-205 fix round 1: a source saved by POST is not probed by liveness, which speaks HEAD and GET.
+
+    The Normattiva open-data API serves an article to `POST /atto/dettaglio-atto-urn` and refuses
+    HEAD and GET. Probing the saved address wrote a correctly saved official article down as `dead`,
+    a false statement that reaches the client's appendix. `save` records the method it used in
+    `meta.save_method` — written by code only, and only when it is not GET — and liveness answers
+    `unchecked` with its reason instead of probing a transport it cannot replay.
+    """
+
+    POST_ROUTE = "/atto"
+    URN_BODY = '{"urn": "urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01"}'
+    TITLE = "D.Lgs. 196/2003, art. 7"
+    CITATION = "D.Lgs. 30 giugno 2003, n. 196, art. 7"
+
+    def server(self) -> "LocalServer":
+        routes = {self.POST_ROUTE: (RIS_JSON, "application/json")}
+        return LocalServer(ARTICLE_7_TEXT, routes=routes, post_only=(self.POST_ROUTE,))
+
+    def save_post(self, base: str) -> dict:
+        return self.save(
+            f"{base}{self.POST_ROUTE}",
+            layer="statutes",
+            title=self.TITLE,
+            citation=self.CITATION,
+            method="POST",
+            json_body=self.URN_BODY,
+        )
+
+    def liveness(self) -> dict:
+        return sources.run_liveness(argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0))
+
+    def test_the_endpoint_answers_a_probe_with_405(self):
+        """The premise: a probe of this address is refused, and without the rule that reads as dead."""
+        with self.server() as base:
+            probe = sources.probe_url(f"{base}{self.POST_ROUTE}", want_body=True, timeout=5.0)
+        self.assertEqual("dead", probe["status"])
+        self.assertEqual(405, probe["code"])
+
+    def test_a_post_saved_source_records_the_method(self):
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            result = self.save_post(base)
+        self.assertEqual([], result.get("errors", []))
+        self.assertEqual("POST", self.records()[result["source_id"]]["meta"]["save_method"])
+
+    def test_liveness_leaves_a_post_saved_source_unchecked_and_never_probes_it(self):
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            saved = self.save_post(base)
+            before = len(_Handler.seen)
+            result = self.liveness()
+            probes = _Handler.seen[before:]
+        row = result["checked"][0]
+        self.assertEqual("unchecked", row["status"])
+        self.assertEqual(f"{sources.LIVENESS_NOT_REPLAYABLE}: POST", row["error"])
+        self.assertEqual([], probes, "a HEAD or GET would be answered 405 and read as dead")
+        record = self.records()[saved["source_id"]]
+        self.assertEqual("unchecked", record["liveness"]["status"])
+        self.assertIsNone(record["liveness"]["code"])
+        self.assertEqual("agent_saved", record["provenance"], "an unprobed source is never promoted")
+
+    def test_a_get_saved_source_is_probed_as_before(self):
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            saved = self.save(
+                f"{base}/ok", layer="statutes", title="GDPR Article 7", citation="GDPR, Art. 7", expect_article="7"
+            )
+            before = len(_Handler.seen)
+            result = self.liveness()
+            probes = _Handler.seen[before:]
+        self.assertEqual("full_text", saved["save_outcome"])
+        self.assertNotIn("save_method", self.records()[saved["source_id"]]["meta"])
+        self.assertTrue(probes)
+        self.assertEqual("ok", result["checked"][0]["status"])
+        self.assertEqual(200, result["checked"][0]["code"])
+
+    def test_a_get_save_that_replaces_the_text_drops_the_method(self):
+        """The method describes the request behind the record's url, so it moves only with that url."""
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            first = self.save_post(base)
+            second = self.save(
+                f"{base}/ok", layer="statutes", title=self.TITLE, citation=self.CITATION, expect_article="7"
+            )
+            result = self.liveness()
+        self.assertEqual(first["source_id"], second["source_id"])
+        self.assertEqual("full_text", second["save_outcome"])
+        record = self.records()[first["source_id"]]
+        self.assertTrue(record["url"].endswith("/ok"), record["url"])
+        self.assertNotIn("save_method", record["meta"])
+        self.assertEqual("ok", result["checked"][0]["status"])
+
+    def test_the_method_is_written_by_code_only(self):
+        raw = self.raw_file()
+        result = self.register(raw_file=raw, raw_kind="excerpt", meta={"save_method": "GET"})
+        self.assertEqual(["save_method_not_allowed: 'GET'"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertTrue(raw.exists(), "a refused registration does not consume the raw file")
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            saved = self.save(
+                f"{base}/ok",
+                layer="statutes",
+                title="GDPR Article 7",
+                citation="GDPR, Art. 7",
+                expect_article="7",
+                meta='{"save_method": "POST", "short_name": "GDPR"}',
+            )
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertNotIn("save_method", meta, "an agent's --meta never claims a method the save did not use")
+        self.assertEqual("GDPR", meta["short_name"])
 
 
 class RegisterSaveOutcomeTest(SourcesTestCase):

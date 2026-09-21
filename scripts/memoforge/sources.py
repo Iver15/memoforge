@@ -878,7 +878,15 @@ def meta_save_outcome_refusal(meta: dict | None) -> dict | None:
     text is not sent round again for a save that cannot succeed (the design's D-202 line). Anything
     else is a claim only code may make: `full_text` would say code saved a text it never saw, and it
     would switch off the reviewer's «not attempted yet» remedy.
+
+    D-205 fix round 1: `meta.save_method` is code's alone as well — it tells liveness not to probe the
+    source — so `register` writes none, whatever its value.
     """
+    if meta and SAVE_METHOD_KEY in meta:
+        return {
+            "errors": [f"save_method_not_allowed: {meta[SAVE_METHOD_KEY]!r}"],
+            "hint": "meta.save_method is written by `mf sources save` alone: the request method liveness cannot replay",
+        }
     if not meta or "save_outcome" not in meta:
         return None
     value = meta["save_outcome"]
@@ -2268,6 +2276,15 @@ def finish_step(work_dir: Path, args: argparse.Namespace, result: dict, args_key
     return result
 
 
+SAVE_METHOD_KEY = "save_method"
+"""D-205 fix round 1: `meta.save_method` — the request method `save` used, written by code alone and
+only when it is not GET, so a record saved by GET (every record before this rule) carries none."""
+
+LIVENESS_NOT_REPLAYABLE = "method_not_replayable"
+"""D-205 fix round 1: why liveness leaves a record `unchecked` without probing it — the record was
+saved by a method (the Normattiva `POST`) that a HEAD/GET probe cannot replay."""
+
+
 def run_liveness(args: argparse.Namespace) -> dict:
     """`mf sources liveness` — stdlib HEAD/GET, 10 s, best effort; sha match promotes provenance (M5)."""
     work_dir = Path(args.workdir)
@@ -2296,6 +2313,22 @@ def run_liveness(args: argparse.Namespace) -> dict:
             if not url:
                 record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
                 checked.append({"source_id": source_id, "status": "unchecked", "error": "no_url"})
+                continue
+            method = str((record.get("meta") or {}).get(SAVE_METHOD_KEY) or "GET").upper()
+            if method != "GET":
+                # D-205 fix round 1: the address answers only the method `save` used (the Normattiva
+                # API refuses HEAD and GET), so a probe would write a correctly saved article down as
+                # `dead`. Liveness says it could not check instead of guessing, and promotes nothing.
+                record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
+                checked.append(
+                    {
+                        "source_id": source_id,
+                        "status": "unchecked",
+                        "code": None,
+                        "provenance": record.get("provenance"),
+                        "error": f"{LIVENESS_NOT_REPLAYABLE}: {method}",
+                    }
+                )
                 continue
             # D-146: one loop over the registry is one crawler as far as the host is concerned.
             # D-151: the host is the one `probe_url` will really call, or `""` for a url it refuses.
@@ -4172,7 +4205,18 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
                     merged.update({name: value for name, value in identifiers.items() if value})
                     record["identifiers"] = merged
                 if meta:
-                    record["meta"] = {**(record.get("meta") or {}), **meta}
+                    # D-205 fix round 1: `save_method` is code's to write, never the agent's `--meta`.
+                    agent_meta = {name: value for name, value in meta.items() if name != SAVE_METHOD_KEY}
+                    record["meta"] = {**(record.get("meta") or {}), **agent_meta}
+                if clean_url:
+                    # D-205 fix round 1: the method moves with the url it reached. It is recorded only
+                    # when a HEAD/GET probe could not replay it, so liveness does not call the source
+                    # dead, and a GET save that moves the url drops it.
+                    held = dict(record.get("meta") or {})
+                    held.pop(SAVE_METHOD_KEY, None)
+                    if method != "GET":
+                        held[SAVE_METHOD_KEY] = method
+                    record["meta"] = held
             record["meta"] = {**(record.get("meta") or {}), "save_outcome": outcome}
             # Validate the complete candidate, persist the registry, publish the file last. The
             # two writes cannot be made one transaction, so the order is chosen by what the

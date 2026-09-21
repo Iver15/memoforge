@@ -248,6 +248,26 @@ class SourceSavingTest(unittest.TestCase):
                 self.assertIn(words, rules)
         self.assertNotIn("A `critical` source registered without saved raw text is a `missing` gap", rules)
 
+    def test_no_agent_text_hands_a_challenge_to_the_user(self):
+        """D-205 fix round 1: a CAPTCHA met on any path is never outsourced to a person.
+
+        The researcher's rule has no exceptions — the channel is closed for the run and the work moves
+        to the fallbacks — and an agent reads its body, its dispatch prompt and the shared blocks
+        alike, so none of them may keep the old «ask the user to open it and paste the passage back».
+        """
+        handoff = re.compile(
+            # The prohibition itself — «never ask the user to solve it» — is the rule, not a handoff.
+            r"paste (?:the|it|that)\b|own browser|(?<!never )ask(?:s|ing)? the user to (?:open|solve|paste|get past)",
+            re.IGNORECASE,
+        )
+        texts = sorted(AGENTS.glob("*.md")) + sorted(PROMPTS.glob("*.md"))
+        texts += sorted((PLUGIN_ROOT / "lib" / "agent-core").glob("*.md"))
+        for path in texts:
+            with self.subTest(path=path.name):
+                self.assertEqual([], handoff.findall(read(path)))
+        tooling = read(PLUGIN_ROOT / "lib" / "agent-core" / "tooling-core.md")
+        self.assertIn("nobody is asked to solve anything", tooling)
+
     def test_the_shared_tooling_block_no_longer_registers_a_fetched_file(self):
         text = read(PLUGIN_ROOT / "lib" / "agent-core" / "tooling-core.md")
         self.assertNotIn('register the file with `--tool "mf-fetch <host>"`', text)
