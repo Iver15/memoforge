@@ -6906,6 +6906,71 @@ class SaveMethodLivenessTest(SaveTestCase):
         self.assertNotIn("save_method", record["meta"])
         self.assertEqual("ok", result["checked"][0]["status"])
 
+    def unmark(self, source_id: str) -> None:
+        """A record a POST save wrote before `save_method` existed — work dirs are never migrated."""
+        registry = sources.read_registry(self.work_dir)
+        registry["sources"][source_id]["meta"].pop(sources.SAVE_METHOD_KEY)
+        sources.write_registry(self.work_dir, registry)
+
+    def test_an_idempotent_post_save_marks_a_record_that_lacked_the_method(self):
+        """Fix round 2: the same bytes again publish nothing, and the method is still written.
+
+        The method says how the record's address must be reached — bookkeeping of the address, not of
+        the publication — so the repair and the idempotent answer write it as well.
+        """
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            first = self.save_post(base)
+            self.unmark(first["source_id"])
+            again = self.save_post(base)
+            before = len(_Handler.seen)
+            result = self.liveness()
+            probes = _Handler.seen[before:]
+        self.assertEqual(first["source_id"], again["source_id"])
+        self.assertTrue(again["idempotent"])
+        self.assertEqual("POST", self.records()[first["source_id"]]["meta"][sources.SAVE_METHOD_KEY])
+        self.assertEqual([], probes)
+        self.assertEqual("unchecked", result["checked"][0]["status"])
+        self.assertEqual(f"{sources.LIVENESS_NOT_REPLAYABLE}: POST", result["checked"][0]["error"])
+
+    def test_an_idempotent_get_save_of_the_same_address_removes_the_mark(self):
+        """The mirror: the address answered a GET with the same bytes, so a probe can replay it."""
+        routes = {self.POST_ROUTE: (RIS_JSON, "application/json")}
+        with LocalServer(ARTICLE_7_TEXT, routes=routes) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_post(base)
+            self.assertEqual("POST", self.records()[first["source_id"]]["meta"][sources.SAVE_METHOD_KEY])
+            again = self.save(
+                f"{base}{self.POST_ROUTE}", layer="statutes", title=self.TITLE, citation=self.CITATION
+            )
+            result = self.liveness()
+        self.assertEqual(first["source_id"], again["source_id"])
+        self.assertTrue(again["idempotent"])
+        self.assertNotIn(sources.SAVE_METHOD_KEY, self.records()[first["source_id"]]["meta"])
+        self.assertEqual("ok", result["checked"][0]["status"])
+
+    def test_a_save_that_reached_another_address_leaves_the_mark_of_the_record_s_own(self):
+        """A GET save from another address that publishes nothing keeps the record's url — and its mark.
+
+        Same `--citation`, other bytes, a record that still holds its text: only `meta.save_outcome`
+        moves. The mark describes the record's url, which this request did not reach, so removing it
+        would send liveness back to the POST-only endpoint and call the article dead again.
+        """
+        with self.server() as base:
+            self.allow(sources.url_host(base))
+            first = self.save_post(base)
+            other = self.save(f"{base}/ok", layer="statutes", title=self.TITLE, citation=self.CITATION)
+            before = len(_Handler.seen)
+            result = self.liveness()
+            probes = _Handler.seen[before:]
+        record = self.records()[first["source_id"]]
+        self.assertEqual(first["source_id"], other["source_id"])
+        self.assertFalse(other["idempotent"])
+        self.assertTrue(record["url"].endswith(self.POST_ROUTE), record["url"])
+        self.assertEqual("POST", record["meta"][sources.SAVE_METHOD_KEY])
+        self.assertEqual([], probes)
+        self.assertEqual("unchecked", result["checked"][0]["status"])
+
     def test_the_method_is_written_by_code_only(self):
         raw = self.raw_file()
         result = self.register(raw_file=raw, raw_kind="excerpt", meta={"save_method": "GET"})

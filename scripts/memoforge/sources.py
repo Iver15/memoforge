@@ -4208,15 +4208,20 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
                     # D-205 fix round 1: `save_method` is code's to write, never the agent's `--meta`.
                     agent_meta = {name: value for name, value in meta.items() if name != SAVE_METHOD_KEY}
                     record["meta"] = {**(record.get("meta") or {}), **agent_meta}
-                if clean_url:
-                    # D-205 fix round 1: the method moves with the url it reached. It is recorded only
-                    # when a HEAD/GET probe could not replay it, so liveness does not call the source
-                    # dead, and a GET save that moves the url drops it.
-                    held = dict(record.get("meta") or {})
-                    held.pop(SAVE_METHOD_KEY, None)
-                    if method != "GET":
-                        held[SAVE_METHOD_KEY] = method
-                    record["meta"] = held
+            if clean_url and normalize_url(record.get("url")) == normalize_url(clean_url):
+                # D-205 fix rounds 1-2: `save_method` says how the record's address must be reached,
+                # which is bookkeeping of the address, not of the publication. So every accepted save
+                # whose request reached that address writes it — a publication that moved the url to
+                # it, a repair, and the idempotent answer that publishes nothing (a record a POST save
+                # wrote before the key existed is marked on its next save). Set only for a method a
+                # HEAD/GET probe cannot replay, removed for GET. A save that reached another address
+                # and did not move the url leaves it alone: the mark describes the record's url, not
+                # this request. Refusals return before this point and never write it.
+                held = dict(record.get("meta") or {})
+                held.pop(SAVE_METHOD_KEY, None)
+                if method != "GET":
+                    held[SAVE_METHOD_KEY] = method
+                record["meta"] = held
             record["meta"] = {**(record.get("meta") or {}), "save_outcome": outcome}
             # Validate the complete candidate, persist the registry, publish the file last. The
             # two writes cannot be made one transaction, so the order is chosen by what the
