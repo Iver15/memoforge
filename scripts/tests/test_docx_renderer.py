@@ -510,7 +510,7 @@ class TextKindAppendixTest(GoldenCase):
         # source id: (pack raw_kind, snapshot text digest, snapshot original digest, registry extras)
         "ex": ("excerpt", "c" * 64, None, {}),
         "sum": ("agent_summary", "c" * 64, None, {}),
-        "nr": ("excerpt", "c" * 64, None, {"meta": {"save_outcome": "excerpt:no_reasoning"}}),
+        "nr": ("excerpt", "c" * 64, None, {"meta": {"text_outcome": "excerpt:no_reasoning"}}),
         "scan": ("none", None, "d" * 64, {}),
         "gone": ("none", None, None, {"raw_original_sha256": "e" * 64}),
         "client": ("client_file", "c" * 64, None, {"currency": {"status": "unchecked"}}),

@@ -750,12 +750,19 @@ def deliverable_source_files(work_dir: Path) -> list[tuple[str, str, Path, str |
     `expected` of None means «not exportable», never «export it unchecked»: fix round 3 closed the
     asymmetry where the original was gated by the frozen digest while the text was handed over on
     the strength of being present, so an edit made after the freeze reached the client.
+
+    Final review D: a record the freeze merged into another (`merged_into`, D34-04) is not listed at
+    all. It is represented by its canonical — whose snapshot row pins the text and, when the alias
+    carried the group's only original, that original too — so it is neither exported separately nor
+    reported as a changed file: it has no snapshot row by design, and «no pin» there never meant
+    «changed». A pack that cannot be read names no alias, and authorises nothing, as before.
     """
     try:
         registry = sources.read_registry(work_dir)
     except (OSError, ValueError):
         return []
     frozen: dict[str, dict[str, str]] | None = None
+    merged: dict[str, str] = {}
     if sources.pack_path(work_dir).is_file():
         try:
             frozen = {
@@ -766,12 +773,15 @@ def deliverable_source_files(work_dir: Path) -> list[tuple[str, str, Path, str |
                 },
                 SOURCE_ORIGINAL_KIND: sources.snapshot_originals(work_dir),
             }
+            merged = sources.merged_map(work_dir)
         except (OSError, ValueError):
             frozen = {SOURCE_TEXT_KIND: {}, SOURCE_ORIGINAL_KIND: {}}
     found: list[tuple[str, str, Path, str | None]] = []
     for source_id, record in sorted((registry.get("sources") or {}).items()):
         if not isinstance(record, dict) or record.get("tier") not in PUBLISHED_TIERS:
             continue
+        if source_id in merged:
+            continue  # an alias: its canonical is what the client is given
         for kind, field, digest_field in (
             (SOURCE_TEXT_KIND, "raw_path", "raw_sha256"),
             (SOURCE_ORIGINAL_KIND, "raw_original_path", "raw_original_sha256"),

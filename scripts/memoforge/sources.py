@@ -880,13 +880,13 @@ def meta_save_outcome_refusal(meta: dict | None) -> dict | None:
     would switch off the reviewer's «not attempted yet» remedy.
 
     D-205 fix round 1: `meta.save_method` is code's alone as well — it tells liveness not to probe the
-    source — so `register` writes none, whatever its value.
+    source — so `register` writes none, whatever its value. Final review: so are `meta.save_endpoint`
+    (the address a POST save sent its request to) and `meta.text_outcome` (what code classified the
+    text the record holds as) — every key of `CODE_META_KEYS`.
     """
-    if meta and SAVE_METHOD_KEY in meta:
-        return {
-            "errors": [f"save_method_not_allowed: {meta[SAVE_METHOD_KEY]!r}"],
-            "hint": "meta.save_method is written by `mf sources save` alone: the request method liveness cannot replay",
-        }
+    for key in CODE_META_KEYS:
+        if meta and key in meta:
+            return {"errors": [f"{key}_not_allowed: {meta[key]!r}"], "hint": CODE_META_HINTS[key]}
     if not meta or "save_outcome" not in meta:
         return None
     value = meta["save_outcome"]
@@ -1051,6 +1051,7 @@ def register_source(
             existing_id = new_id
         else:
             record = sources[existing_id]
+            previous_url = normalize_url(record.get("url"))
             record["title"] = title
             record["citation_form"] = citation
             record["tier"] = tier
@@ -1066,6 +1067,12 @@ def register_source(
             if retrieved_from:
                 # An endpoint url never clears the public address a previous registration found.
                 record["retrieved_from"] = retrieved_from
+            if normalize_url(record.get("url")) != previous_url and record.get("meta"):
+                # Final review, Minor 3: the method and the endpoint describe how the OLD address
+                # was reached. Left behind, a POST marker kept liveness off a new GET address.
+                record["meta"] = {
+                    name: value for name, value in record["meta"].items() if name not in ADDRESS_META_KEYS
+                }
             created = False
 
         if identifiers:
@@ -1080,6 +1087,10 @@ def register_source(
         if raw_file:
             record.update(store_raw(work_dir, layer, existing_id, raw_file, raw_kind=raw_kind))
             record["provenance"] = "agent_saved"
+            if TEXT_OUTCOME_KEY in (record.get("meta") or {}):
+                # Final review E: code classified a text that is no longer the one held. The attempt
+                # history (`save_outcome`) stays; the description of the held text goes with it.
+                record["meta"] = {name: value for name, value in record["meta"].items() if name != TEXT_OUTCOME_KEY}
 
         write_registry(work_dir, registry)
 
@@ -1299,6 +1310,20 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
     if contradictory:
         raise ContradictoryDuplicates(contradictory)
     kept = [source_id for source_id in sorted(sources) if source_id not in merged]
+    for canonical in sorted(set(merged.values())):
+        # Final review D (D-201 × D34-04): the original a merged member carries survives the merge.
+        # Only the canonical id gets a snapshot row, so an original left on an alias was pinned by
+        # nothing and never reached the client — a text-only record merged with a PDF-backed one of
+        # the same text lost the only original there was. A canonical with no original of its own
+        # takes one from its group (the member `canonical_of` ranks first among those whose file is
+        # on disk), and the row below pins the digest the integrity pass already took of that file.
+        if sources[canonical].get("raw_original_path"):
+            continue
+        donors = sorted(alias for alias, target in merged.items() if target == canonical and originals.get(alias))
+        if donors:
+            donor = canonical_of(sources, donors)
+            sources[canonical]["raw_original_path"] = sources[donor]["raw_original_path"]
+            originals[canonical] = originals[donor]
     roles: dict[str, dict] = {sid: {} for sid in sources}
     weights: dict[str, list[str]] = {sid: [] for sid in sources}
     confidences: dict[str, list[str]] = {sid: [] for sid in sources}
@@ -1900,13 +1925,33 @@ def visible_text_ratio(payload: bytes) -> float:
     return len(visible_text(payload).replace(b" ", b"")) / len(payload)
 
 
+_MEDIA_TYPE_RE = re.compile(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+")
+"""RFC 6838 `type/subtype`, each a non-empty run of the restricted-name characters, lower-cased."""
+
+
+def declared_type(content_type: object) -> str:
+    """The media type an answer declares, `type/subtype` lower-cased; `""` when it declares none.
+
+    Final review B: **one** reading of `Content-Type` for every rule that asks — the challenge
+    rules (`is_markup`, and through it `is_interstitial` and `markup_to_text`) and the save's
+    admission (`save_text_type`). Task 9 read an empty subtype as no type on the save path only (the
+    Commission newsroom serves the WP248 PDF as `application/`), while the transport still read it
+    as a declared non-markup type: a «verify you are human» wall served as `application/` skipped
+    every interstitial rule and was then admitted as text and certified. An empty or malformed type
+    or subtype declares nothing, and the body is judged exactly as one that came without the header.
+    """
+    kind = str(content_type or "").split(";")[0].strip().lower()
+    return kind if _MEDIA_TYPE_RE.fullmatch(kind) else ""
+
+
 def is_markup(payload: bytes, content_type: str = "") -> bool:
     """True when the body is an html page — the only kind the size/ratio rules can judge (D-149).
 
     The declared type decides when there is one, so a JSON answer that happens to quote `<html` in a
-    field is never read as a page; without it the first kilobyte is sniffed.
+    field is never read as a page; without it the first kilobyte is sniffed. «Declared» is
+    `declared_type`: an empty or malformed type is none (final review B).
     """
-    kind = str(content_type or "").split(";")[0].strip().lower()
+    kind = declared_type(content_type)
     if kind:
         return kind in MARKUP_CONTENT_TYPES
     return bool(_HTML_SNIFF_RE.search(payload[:1024]))
@@ -2100,8 +2145,20 @@ def _unchecked_http(code: int, headers: object = None, hops: object = ()) -> dic
     }
 
 
-def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dict:
-    """HEAD, then GET when a body is needed; every failure is best effort (§5.3)."""
+def probe_url(
+    url: str, *, want_body: bool, timeout: float | None = None, stop=None, hop=None, before_dispatch=None
+) -> dict:
+    """HEAD, then GET when a body is needed; every failure is best effort (§5.3).
+
+    Final review C: `stop`, `hop` and `before_dispatch` are what `fetch_allowed` takes — a redirect
+    hop never followed, what a followed hop costs, and what runs immediately before **each** of the
+    two requests goes out. The sudact channel passes its rules through them (`sudact_transport`), so
+    a probe of the host is a request of the channel like any other. A `ChannelUnavailable` they raise
+    is the channel's refusal and is let through — never read as a dead link. Every other caller
+    passes none of them and gets exactly the probe it always got. `truncated` says that the GET body
+    ended before the `Content-Length` its server promised, which is what the channel needs to tell a
+    cut page from a challenge (`sudact_refusal`).
+    """
     timeout = limits.LIVENESS_TIMEOUT_SECONDS if timeout is None else timeout
     problem = url_error(url)
     if problem is not None:
@@ -2113,8 +2170,10 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
     headers: object = None
     content_type = ""
     hops: list = []
+    if before_dispatch is not None:
+        before_dispatch()
     try:
-        with _open(url, "HEAD", timeout, hops=hops) as response:
+        with _open(url, "HEAD", timeout, hops=hops, stop=stop, hop=hop) as response:
             code = getattr(response, "status", None) or response.getcode()
             final_url = response.geturl()
             headers = response.headers
@@ -2124,6 +2183,9 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
     except RedirectRefused as exc:
         # D-151: the GET would follow the same hop, so it is never sent.
         return {"status": "unchecked", "code": None, "sha256": None, "error": exc.error_name, "redirects": hops}
+    except ChannelUnavailable:
+        # Final review C: a hop the channel refused to pay for — its answer, not a transport failure.
+        raise
     except Exception:  # noqa: BLE001 - liveness never fails the pipeline; the GET below decides
         code = None
 
@@ -2138,14 +2200,19 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
         return {"status": status, "code": code, "sha256": None, "error": None, "redirects": hops}
 
     hops = []  # the GET walks the same chain again; the HEAD hops must not count against the cap
+    if before_dispatch is not None:
+        before_dispatch()
     try:
-        with _open(url, "GET", timeout, hops=hops) as response:
+        with _open(url, "GET", timeout, hops=hops, stop=stop, hop=hop) as response:
             code = getattr(response, "status", None) or response.getcode()
             final_url = response.geturl()
             headers = response.headers
             if code in UNCHECKED_HTTP_CODES:
                 return _unchecked_http(code, headers, hops)
             payload = response.read(limits.LIVENESS_MAX_BODY_BYTES)
+            # Measured on the bytes as they arrived, before `_inflate`, exactly as `fetch_body` does.
+            declared = header_value(headers, "Content-Length").strip()
+            short = declared.isdigit() and len(payload) < int(declared)
             payload = _inflate(payload, headers)
             # the same cap fetch applies after inflating (D-162): both sides hash the same prefix
             payload = payload[: limits.LIVENESS_MAX_BODY_BYTES]
@@ -2156,10 +2223,16 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
         return {"status": "dead", "code": exc.code, "sha256": None, "error": f"http_{exc.code}", "redirects": hops}
     except RedirectRefused as exc:
         return {"status": "unchecked", "code": code, "sha256": None, "error": exc.error_name, "redirects": hops}
+    except ChannelUnavailable:
+        raise
     except Exception as exc:  # noqa: BLE001 - timeouts, DNS, TLS: all best effort
         return {"status": "dead", "code": code, "sha256": None, "error": probe_error(exc), "redirects": hops}
 
-    if code == 200 and is_interstitial(payload, content_type):
+    # Final review B: a PDF is the signature, whatever the header says (`is_pdf`) — the save keeps a
+    # signed body served as `text/html` as the PDF it is, so the probe neither judges those bytes by
+    # the markup rules nor converts them: the original's digest is compared with the body as served.
+    signed = is_pdf(payload)
+    if code == 200 and not signed and is_interstitial(payload, content_type):
         # D-146: a 200 that carries a challenge page or a JS shell is never `ok` and never hashed.
         return {
             "status": "unchecked",
@@ -2167,9 +2240,10 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
             "sha256": None,
             "error": "interstitial_suspected",
             "redirects": hops,
+            "truncated": short,
         }
 
-    text = markup_to_text(payload, content_type)
+    text = None if signed else markup_to_text(payload, content_type)
     payload = text if text is not None else payload
     status = "redirect" if normalize_url(final_url) != normalize_url(url) else "ok"
     return {
@@ -2181,6 +2255,7 @@ def probe_url(url: str, *, want_body: bool, timeout: float | None = None) -> dic
         "sha256_normalised": state_io.sha256_bytes(prepare_raw(payload)),
         "error": None,
         "redirects": hops,
+        "truncated": short,
     }
 
 
@@ -2280,9 +2355,55 @@ SAVE_METHOD_KEY = "save_method"
 """D-205 fix round 1: `meta.save_method` — the request method `save` used, written by code alone and
 only when it is not GET, so a record saved by GET (every record before this rule) carries none."""
 
+SAVE_ENDPOINT_KEY = "save_endpoint"
+"""Final review A (D-205): `meta.save_endpoint` — the address a save that is not a GET sent its
+request to. The record's `url` is the public page of the document (`--public-url`), because the
+endpoint names no document: the Normattiva API answers every article at one address, and the body
+decides which. Written by code alone, beside `save_method`, and moved or removed with it."""
+
+ADDRESS_META_KEYS: tuple[str, ...] = (SAVE_METHOD_KEY, SAVE_ENDPOINT_KEY)
+"""Final review A: the `meta` keys that describe how the record's url is reached — rewritten together
+by every accepted save that reached that url, and cleared when `register` moves the url (Minor 3)."""
+
+TEXT_OUTCOME_KEY = "text_outcome"
+"""Final review E (D-199, D-204): `meta.text_outcome` — the outcome of the save that published the text
+the record holds, written only when a text is published. `meta.save_outcome` stays what D-199 made it,
+the history of the last attempt, which also moves when an attempt publishes nothing (another excerpt
+over a held one); the appendix describes the text the client receives, so it reads this key. A
+`register --raw-file` that replaces the text, and a save that leaves the record with no text, remove
+it: code classified a text that is no longer there."""
+
+CODE_META_KEYS: tuple[str, ...] = (SAVE_METHOD_KEY, SAVE_ENDPOINT_KEY, TEXT_OUTCOME_KEY)
+"""The `meta` keys only code writes: `register --meta` refuses each, `save --meta` drops each."""
+
+CODE_META_HINTS: dict[str, str] = {
+    SAVE_METHOD_KEY: (
+        "meta.save_method is written by `mf sources save` alone: the request method liveness cannot replay"
+    ),
+    SAVE_ENDPOINT_KEY: "meta.save_endpoint is written by `mf sources save` alone: the address a POST save was sent to",
+    TEXT_OUTCOME_KEY: "meta.text_outcome is written by `mf sources save` alone: what code found the text it published",
+}
+"""One line of advice per refused `CODE_META_KEYS` key."""
+
 LIVENESS_NOT_REPLAYABLE = "method_not_replayable"
 """D-205 fix round 1: why liveness leaves a record `unchecked` without probing it — the record was
 saved by a method (the Normattiva `POST`) that a HEAD/GET probe cannot replay."""
+
+
+def not_probed(record: dict, source_id: str, error: str) -> dict:
+    """A record liveness leaves `unchecked` without a request: its reason, nothing sent, nothing promoted.
+
+    D-205 fix round 1 (a method a probe cannot replay) and final review C (a sudact host the run has
+    closed, or whose budget is spent): the record says it was not checked, and the row says why.
+    """
+    record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
+    return {
+        "source_id": source_id,
+        "status": "unchecked",
+        "code": None,
+        "provenance": record.get("provenance"),
+        "error": error,
+    }
 
 
 def run_liveness(args: argparse.Namespace) -> dict:
@@ -2319,24 +2440,37 @@ def run_liveness(args: argparse.Namespace) -> dict:
                 # D-205 fix round 1: the address answers only the method `save` used (the Normattiva
                 # API refuses HEAD and GET), so a probe would write a correctly saved article down as
                 # `dead`. Liveness says it could not check instead of guessing, and promotes nothing.
-                record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
-                checked.append(
-                    {
-                        "source_id": source_id,
-                        "status": "unchecked",
-                        "code": None,
-                        "provenance": record.get("provenance"),
-                        "error": f"{LIVENESS_NOT_REPLAYABLE}: {method}",
-                    }
-                )
+                # Final review A: the url is now the public page of the document, which is not the
+                # body that was saved either — comparing them would only produce a false `changed`.
+                checked.append(not_probed(record, source_id, f"{LIVENESS_NOT_REPLAYABLE}: {method}"))
                 continue
+            on_sudact = sudact_address(url)
+            if on_sudact:
+                # Final review C: the channel is the host, whoever is asking. A host the run has closed
+                # (the captcha marker) is asked nothing — not even after a politeness pause.
+                try:
+                    channel_check_open(work_dir, SUDACT_CHANNEL)
+                except ChannelUnavailable as exc:
+                    checked.append(not_probed(record, source_id, resolve_channel_refusal(exc)["errors"][0]))
+                    continue
             # D-146: one loop over the registry is one crawler as far as the host is concerned.
             # D-151: the host is the one `probe_url` will really call, or `""` for a url it refuses.
             host = request_host(url)
             since = last_probe.get(host)
             if host and since is not None:
                 _wait(host_delay(host) - (time.monotonic() - since))
-            probe = probe_url(url, want_body=bool(expected), timeout=args.timeout)
+            try:
+                if on_sudact:
+                    # Final review C: its slot, pace and count, the stop before `/defence/`, and the
+                    # marker for any challenge the probe meets (`channel_probe`).
+                    probe = channel_probe(work_dir, url, want_body=bool(expected), timeout=args.timeout)
+                else:
+                    probe = probe_url(url, want_body=bool(expected), timeout=args.timeout)
+            except ChannelUnavailable as exc:
+                # The channel refused before a request went out (a spent budget, a marker another
+                # process wrote while this one waited): nothing was asked, nothing is known.
+                checked.append(not_probed(record, source_id, resolve_channel_refusal(exc)["errors"][0]))
+                continue
             if host:
                 last_probe[host] = time.monotonic()
             status = probe["status"]
@@ -2636,6 +2770,40 @@ def fetch_refusal(url: str, hosts: frozenset) -> tuple[str, dict] | None:
     return None
 
 
+PUBLIC_URL_HINT = (
+    "a save that is not a GET names its document by the public page a client can open: pass it as "
+    "--public-url (for a Normattiva article, https://www.normattiva.it/uri-res/N2Ls?<the URN of --json>)"
+)
+"""Final review A: the advice of `public_url_required`."""
+
+
+def public_url_refusal(method: str, address: str) -> dict | None:
+    """Why this save's `--public-url` cannot stand, or None when it can (final review A, D-205).
+
+    A save that is not a GET must name the public page of the document it fetches: the transport
+    endpoint serves many documents at one address, so it identifies none, and a client cannot open
+    it. That page becomes the record's `url` — identity, the duplicate search and the client's link.
+    It must be an address a client may be given (`public_url`), and it is checked before anything is
+    read or sent. A GET takes none: the address it fetched is the public one, and a second address
+    would be a second identity.
+    """
+    if method == "GET":
+        if not address:
+            return None
+        return {
+            "errors": ["public_url_requires_post"],
+            "hint": "--public-url names the document of a --method POST; a GET's own --url is the public address",
+        }
+    if not address:
+        return {"errors": ["public_url_required"], "hint": PUBLIC_URL_HINT}
+    problem = url_error(address)
+    if problem is None and not public_url(address)[0]:
+        problem = URL_NOT_PUBLIC
+    if problem is not None:
+        return {"errors": [f"public_url_required: {problem}"], "hint": PUBLIC_URL_HINT}
+    return None
+
+
 def fetch_request_body(method: str, raw_body: object) -> tuple[bytes | None, dict | None]:
     """`(body, refusal)` — the bytes a POST sends, or why this call cannot be made (D-151).
 
@@ -2720,15 +2888,26 @@ def run_fetch(args: argparse.Namespace) -> dict:
     except ValueError as exc:
         return {"errors": [str(exc)], "hint": "--out is a relative path under research/raw/"}
 
-    answer = fetch_allowed(
-        url,
-        hosts,
-        accept=args.accept,
-        lang=args.lang,
-        timeout=args.timeout,
-        method=method,
-        body=body,
-    )
+    # Final review C: a request to the sudact host is a request of its channel, whichever command
+    # sends it — the shutdown check first (a closed host costs no pause either), then its slot, the
+    # stop before `/defence/`, and the marker for any challenge the answer carries.
+    on_sudact = sudact_address(url)
+    try:
+        if on_sudact:
+            channel_check_open(work_dir, SUDACT_CHANNEL)
+        answer = fetch_allowed(
+            url,
+            hosts,
+            accept=args.accept,
+            lang=args.lang,
+            timeout=args.timeout,
+            method=method,
+            body=body,
+            **(sudact_transport(work_dir) if on_sudact else {}),
+        )
+    except ChannelUnavailable as exc:
+        return {key: value for key, value in resolve_channel_refusal(exc).items() if key != "candidates"}
+    challenge = sudact_challenge_met(work_dir, answer, answer["payload"]) if on_sudact else None
 
     payload = answer.pop("payload")
     if payload and answer["status"] in ("ok", "redirect"):
@@ -2746,6 +2925,9 @@ def run_fetch(args: argparse.Namespace) -> dict:
         "path": None,
         "retrieval_tool": f"{FETCH_TOOL} {host}",
     }
+    if challenge is not None:
+        # The host is closed for the run from here on, for every command (`channel_unavailable: captcha`).
+        result["challenge"] = challenge
     if payload:
         if target is None:
             target = fetch_target(
@@ -2796,10 +2978,10 @@ A PDF has its own path (D-201). Anything else — an image, an archive, an unkno
 refused `unsupported_media_type`: only a text answer can be certified.
 """
 
-SAVE_PDF_TYPE = "application/pdf"
 PDF_SIGNATURE = b"%PDF-"
 PDF_EXTENSION = ".pdf"
-"""D-201: what a PDF answer is, and the name its original is kept under (`<source_id>.pdf`)."""
+"""D-201: what a PDF answer is (`is_pdf`: the signature, never the declared type), and the name its
+original is kept under (`<source_id>.pdf`)."""
 
 SAVE_HINTS: dict[str, str] = {
     "unchecked": "the server did not serve the document; nothing was registered",
@@ -2816,31 +2998,18 @@ SAVE_HINTS: dict[str, str] = {
 """One line of advice per refusal; `meta.save_outcome` records `refused:<key>` (D-199)."""
 
 
-def save_declared_type(content_type: object) -> str:
-    """The media type an answer declares, for the save path's two type checks; `""` when none is.
+def is_pdf(payload: bytes) -> bool:
+    """True when the body is a PDF: the `%PDF-` signature in its first `PDF_HEADER_WINDOW` bytes.
 
-    Task 9 correction of Task 5 (D-201, D-205): a type with an empty subtype declares nothing. The
-    Commission newsroom serves the WP248 guidelines as `Content-Type: application/`, and while a
-    declared type decided, that real PDF was refused `unsupported_media_type`. Read as no type at
-    all, it takes the path of an answer without the header: the `%PDF-` signature decides.
+    Final review B: **one** rule for the resolver and the save, the one Task 6 proved on the real
+    chain (D-202), and the header does not enter it — in either direction. A signed body is a PDF
+    even when it is served as `application/octet-stream` or `text/html` (the real `2394482.pdf`
+    certified in the resolver under both, and the save refused the one and decoded the other as
+    markup); a body without the signature is not a PDF even when it declares `application/pdf`, so
+    it is never kept as an «original». The window is the one the PDF specification allows for
+    leading junk before the header.
     """
-    kind = str(content_type or "").split(";")[0].strip().lower()
-    return "" if kind.endswith("/") else kind
-
-
-def save_pdf_answer(content_type: object, payload: bytes = b"") -> bool:
-    """True when the answer is a PDF, by its declared type or — with none declared — its signature.
-
-    D-201: a declared type decides, the way it decides everywhere else in this module. With none
-    declared, `%PDF-` is the one signature that really is served that way and really is not text;
-    Task 4 refused those bytes rather than decode them into mojibake, and this is where they go
-    instead. One signature, not a type sniffer. «None declared» includes an empty subtype
-    (`save_declared_type`).
-    """
-    kind = save_declared_type(content_type)
-    if kind:
-        return kind == SAVE_PDF_TYPE
-    return payload.startswith(PDF_SIGNATURE)
+    return PDF_SIGNATURE in payload[:PDF_HEADER_WINDOW]
 
 
 def extract_pdf_text(payload: bytes) -> str | None:
@@ -2867,15 +3036,16 @@ def extract_pdf_text(payload: bytes) -> str | None:
 def save_text_type(content_type: object, payload: bytes = b"") -> bool:
     """True when the answer is text this command can certify (D-199).
 
-    A declared type decides. With none declared the body is admitted as text — many portals send
-    no header — except for the one signature that really is served that way and really is not
-    text: `%PDF-`, which takes the PDF path of D-201 instead of being decoded with replacement
-    characters and exported to the client as a `.txt` of mojibake. An empty subtype is no declared
-    type either (`save_declared_type`).
+    A PDF never is (`is_pdf`, whatever it is declared as): it takes the PDF path of D-201 instead of
+    being decoded with replacement characters and exported to the client as a `.txt` of mojibake.
+    Otherwise a declared type decides, and with none declared the body is admitted as text — many
+    portals send no header. «Declared» is `declared_type`: an empty or malformed type is none.
     """
-    kind = save_declared_type(content_type)
+    if is_pdf(payload):
+        return False
+    kind = declared_type(content_type)
     if not kind:
-        return not payload.startswith(PDF_SIGNATURE)
+        return True
     return kind.startswith("text/") or kind in SAVE_TEXT_TYPES
 
 
@@ -2892,21 +3062,24 @@ def save_admission(answer: dict, payload: bytes) -> tuple[str, str] | None:
     if error.startswith("redirect_not_allowed"):
         # D-151 refused the hop before it was requested; the outcome names the hop.
         return "host_not_allowed", error.partition(": ")[2]
+    pdf = is_pdf(payload)
     if error == "interstitial_suspected":
-        return ("access_stub" if is_access_stub(payload) else "interstitial"), ""
-    if answer.get("status") == "unchecked":
+        # Final review B: the signature decides both ways, as it does for the resolver's candidates —
+        # a signed body served as `text/html` is a PDF, whatever the markup rules suspected of it.
+        if not pdf:
+            return ("access_stub" if is_access_stub(payload) else "interstitial"), ""
+    elif answer.get("status") == "unchecked":
         return "unchecked", error
     if answer.get("status") == "dead":
         return "dead", error
-    pdf = save_pdf_answer(answer.get("content_type"), payload)
     if answer.get("truncated"):
         # A partial document is the exact failure this command exists to stop: never an excerpt.
         return ("pdf_truncated" if pdf else "truncated"), ""
     if pdf:
         return None
     if not save_text_type(answer.get("content_type"), payload):
-        # Only a declared type reaches this: with none declared, the single signature that fails
-        # `save_text_type` is `%PDF-`, and it was admitted above.
+        # Only a declared type reaches this: a PDF was admitted above, and with no type declared
+        # every other body is text.
         kind = str(answer.get("content_type") or "").split(";")[0].strip()
         return "unsupported_media_type", kind or "application/octet-stream"
     return None
@@ -3099,7 +3272,11 @@ RESOLVE_HINTS: dict[str, str] = {
         "the portal answered with a challenge: it is never solved or retried, and the channel stays closed "
         "for this run; use a fallback route (LDH RU/Sudact, web search) and --url"
     ),
-    "channel_budget_spent": "this run has spent the channel's request budget; use a fallback route and --url",
+    "channel_budget_spent": (
+        "this run has spent the sudact.ru request budget, which every request to the host counts against, "
+        "save --url included: nothing more is sent there in this run — use a fallback route (LDH RU/Sudact, "
+        "web search), keep LDH's own answer as an excerpt, and save a copy on another allowed host with --url"
+    ),
     "clock": (
         "channels.json holds a reservation no run could have made (a clock stepped back, or an edited "
         "file); nothing was sent — use a fallback route and --url"
@@ -3353,7 +3530,7 @@ def vsrf_candidate_text(url: str, *, hosts: frozenset, timeout: float) -> str | 
     # is markup under the size floor to `is_interstitial`, yet it is not a challenge. The
     # signature may stand anywhere in the first `PDF_HEADER_WINDOW` bytes, because the PDF
     # specification allows leading junk before the header and real servers do emit it.
-    if PDF_SIGNATURE not in payload[:PDF_HEADER_WINDOW]:
+    if not is_pdf(payload):
         raise ChannelUnavailable("not_a_pdf")
     return extract_pdf_text(payload)
 
@@ -3486,18 +3663,15 @@ def channel_slot(work_dir: str | os.PathLike, channel: str) -> None:
     channel_check_open(work_dir, channel)
 
 
-def channel_hop(work_dir: str | os.PathLike, channel: str, newurl: str = "", *, reserve: bool = True) -> None:
+def channel_hop(work_dir: str | os.PathLike, channel: str, newurl: str = "") -> None:
     """What a redirect hop to the sudact host costs before it is followed (`RedirectGuard.hop`, D-202).
 
-    Round 2, item 2: a followed hop is a request. For a request of the channel (`reserve`) it takes a
-    slot exactly as a first request does — reservation, wait, count and reread — so a hop can neither
-    skip the pace nor go past the budget. For a plain save to the host, which is not a request of
-    the channel, it rereads the marker before the hop is dispatched.
+    Round 2, item 2: a followed hop is a request, so it takes a slot exactly as a first request does —
+    reservation, wait, count and reread — and a hop can neither skip the pace nor go past the budget.
+    Final review C: every request to the host is a request of the channel, whoever sends it, so there
+    is no longer a hop that only rereads the marker (a plain save's used to).
     """
-    if reserve:
-        channel_slot(work_dir, channel)
-    else:
-        channel_check_open(work_dir, channel)
+    channel_slot(work_dir, channel)
 
 
 def channel_mark_captcha(work_dir: str | os.PathLike, channel: str) -> None:
@@ -3540,7 +3714,8 @@ def sudact_address(url: object) -> bool:
     The wall is the host's, not the search endpoint's: a portal that challenged the search challenges
     its document pages too. So every save to this host — resolved or a plain `--url` — refuses the
     hop into `/defence/` before following it, and after the captcha marker is set refuses before
-    any request (`run_save`).
+    any request (`run_save`). Final review C: so does every other request to the host — a fetch,
+    liveness, the preflight probe — and each is paced and counted by the channel (`sudact_transport`).
     """
     host = request_host(url)
     channel = request_host(SUDACT_BASE)
@@ -3551,6 +3726,54 @@ def channel_challenge(work_dir: str | os.PathLike, seen: str) -> ChannelCaptcha:
     """Write the captcha marker, and return the exception that says so (D-202)."""
     channel_mark_captcha(work_dir, SUDACT_CHANNEL)
     return ChannelCaptcha(seen)
+
+
+def sudact_transport(work_dir: str | os.PathLike) -> dict:
+    """The channel's rules on one request to the sudact host, for any command that sends one.
+
+    Final review C (D-202): **the channel is the host, whoever is asking.** The resolver's requests
+    (`sudact_fetch`), a save's — resolved or a plain `--url` — a fetch's, liveness's and the
+    preflight probe's all pay the same: `before_dispatch` reserves a slot under `sources.lock`, waits
+    for it outside the lock and rereads the marker immediately before the request goes out
+    (`channel_slot`), so the request is paced and counted against the one budget; `stop` refuses the
+    hop into `/defence/` before it is requested; `hop` makes every followed hop pay its own slot.
+    The three keys are the ones `fetch_allowed` and `probe_url` take.
+    """
+    return {
+        "stop": sudact_defence,
+        "hop": functools.partial(channel_hop, work_dir, SUDACT_CHANNEL),
+        "before_dispatch": functools.partial(channel_slot, work_dir, SUDACT_CHANNEL),
+    }
+
+
+def sudact_challenge_met(work_dir: str | os.PathLike, answer: dict, payload: bytes = b"") -> str | None:
+    """Write the marker when this answer of the sudact host is a challenge; what gave it away, or None.
+
+    Final review C: one rule for every command, and it is the resolver's own (`sudact_refusal`, an HTML
+    endpoint): a refused hop into `/defence/` or off the chain, an anti-bot or throttle status, and —
+    on a body that arrived whole — the interstitial rules. A broken request (a timeout, a 404, a body
+    cut short) is no challenge and closes nothing. Used by the commands whose answer is not already
+    judged by the resolver or the save's admission: liveness, fetch and the preflight probe.
+    """
+    try:
+        sudact_refusal(work_dir, {"truncated": False, **answer}, payload, markup=True)
+    except ChannelCaptcha as exc:
+        return exc.seen
+    except ChannelUnavailable:
+        return None
+    return None
+
+
+def channel_probe(work_dir: str | os.PathLike, url: str, *, want_body: bool, timeout: float | None = None) -> dict:
+    """`probe_url` of an address on the sudact host, under the channel's rules (final review C).
+
+    Each of the probe's requests takes its slot (`sudact_transport`), the hop into `/defence/` is
+    never followed, and a challenge the probe meets writes the marker. Raises `ChannelUnavailable`
+    when the channel refuses before a request goes out — a spent budget, a closed host.
+    """
+    probe = probe_url(url, want_body=want_body, timeout=timeout, **sudact_transport(work_dir))
+    sudact_challenge_met(work_dir, probe)
+    return probe
 
 
 def sudact_fetch(
@@ -3837,14 +4060,10 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
             "found": answer["found"],
         }
     chosen = argparse.Namespace(**{**vars(args), "url": distinct[0], "resolve": None})
-    if resolver == SUDACT_CHANNEL:
-        # The save fetches the chosen act once more (see above), and that fetch is a request of the
-        # channel like any other: it takes a slot and counts against the budget. A challenge in its
-        # answer closes the host for the run — `run_save` does that for every save to the host.
-        try:
-            channel_slot(work_dir, SUDACT_CHANNEL)
-        except ChannelUnavailable as exc:
-            return resolve_channel_refusal(exc)
+    # The save fetches the chosen act once more (see above), and on the sudact host that fetch is a
+    # request of the channel like any other: `run_save` takes its slot at dispatch — as it does for
+    # every save to the host since the final review (C) — and a challenge in its answer closes the
+    # host for the run.
     return run_save(chosen, resolved=True)
 
 
@@ -3878,7 +4097,9 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     save refuses before any request — its redirect into `/defence/` is refused before it is followed
     and closes the host, and so does any other challenge the save meets there
     (`SUDACT_SAVE_CHALLENGES` whatever the body's length, `SUDACT_SAVE_BODY_CHALLENGES` only on a whole
-    body): the wall is the host's, not the search endpoint's.
+    body): the wall is the host's, not the search endpoint's. Final review C: its request — resolved
+    or plain — and every hop it follows are requests of the channel (`sudact_transport`): a slot
+    reserved, waited for and counted against the run's one budget.
     """
     resolver = str(getattr(args, "resolve", "") or "").strip()
     if resolver in SAVE_RESOLVERS:
@@ -3899,6 +4120,10 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     body, body_refusal = fetch_request_body(method, getattr(args, "json_body", None))
     if body_refusal is not None:
         return body_refusal
+    public_address = str(getattr(args, "public_url", "") or "").strip()
+    address_refusal = public_url_refusal(method, public_address)
+    if address_refusal is not None:
+        return address_refusal
 
     work_dir = Path(args.workdir)
     layer = str(args.layer)
@@ -3910,7 +4135,11 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     identifiers = scrub_values(identifiers) if identifiers else {}
     url = str(getattr(args, "url", "") or "").strip()
     # D-192: the address a client may be given; the request itself goes to the url as it was passed.
-    clean_url, retrieved_from = public_url(url)
+    # Final review A: a save that is not a GET is given that address by `--public-url` — the
+    # endpoint names no document — and keeps the endpoint in `meta.save_endpoint`, scrubbed like any
+    # string the memo may print.
+    clean_url, retrieved_from = public_url(public_address or url)
+    endpoint = scrub_urls(url) if method != "GET" else ""
     explicit_id = slugify(args.id) if getattr(args, "id", None) else None
     identity = {"layer": layer, "source_id": explicit_id, "url": clean_url, "citation": citation}
     on_sudact = sudact_address(url)
@@ -3955,15 +4184,11 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     host = request_host(url)
     # D-202, round 2: a request to the sudact host rereads the marker after the politeness pause and
     # immediately before it goes out (another process may have closed the host while this one
-    # waited), and every hop it would follow costs what a request costs — a slot of the channel for
-    # the resolved save, which is a request of the channel, and the same reread for a plain `--url`.
-    channel = {}
-    if on_sudact:
-        channel = {
-            "stop": sudact_defence,
-            "hop": functools.partial(channel_hop, work_dir, SUDACT_CHANNEL, reserve=resolved),
-            "before_dispatch": functools.partial(channel_check_open, work_dir, SUDACT_CHANNEL),
-        }
+    # waited), and every hop it would follow costs what a request costs. Final review C: that
+    # request is a request of the channel for a plain `--url` as much as for the resolved save — the
+    # prescribed fallback after `channel_budget_spent` used to reach the host unpaced and uncounted —
+    # so both take their slot at dispatch (`sudact_transport`: reserve, wait, reread).
+    channel = sudact_transport(work_dir) if on_sudact else {}
     try:
         answer = fetch_allowed(
             url, hosts, accept=args.accept, lang=args.lang, timeout=args.timeout, method=method, body=body, **channel
@@ -3997,7 +4222,7 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     # D-201: a PDF is kept as the bytes the server served — it never goes through `prepare_raw`,
     # which decodes as `utf-8-sig` with `errors="replace"` and would corrupt the file it is meant
     # to preserve. Its text layer is read once, here, and is then text like any other.
-    original = payload if save_pdf_answer(answer["content_type"], payload) else None
+    original = payload if is_pdf(payload) else None
     original_digest = state_io.sha256_bytes(payload) if original is not None else None
     if original is not None:
         pdf_text = extract_pdf_text(payload)
@@ -4205,8 +4430,9 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
                     merged.update({name: value for name, value in identifiers.items() if value})
                     record["identifiers"] = merged
                 if meta:
-                    # D-205 fix round 1: `save_method` is code's to write, never the agent's `--meta`.
-                    agent_meta = {name: value for name, value in meta.items() if name != SAVE_METHOD_KEY}
+                    # D-205 fix round 1: `save_method` is code's to write, never the agent's `--meta` —
+                    # and so is every other key of `CODE_META_KEYS` (final review).
+                    agent_meta = {name: value for name, value in meta.items() if name not in CODE_META_KEYS}
                     record["meta"] = {**(record.get("meta") or {}), **agent_meta}
             if clean_url and normalize_url(record.get("url")) == normalize_url(clean_url):
                 # D-205 fix rounds 1-2: `save_method` says how the record's address must be reached,
@@ -4217,12 +4443,25 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
                 # HEAD/GET probe cannot replay, removed for GET. A save that reached another address
                 # and did not move the url leaves it alone: the mark describes the record's url, not
                 # this request. Refusals return before this point and never write it.
-                held = dict(record.get("meta") or {})
-                held.pop(SAVE_METHOD_KEY, None)
+                # Final review A: for such a save the record's url is its `--public-url`, and the
+                # endpoint it reached travels with the method (`ADDRESS_META_KEYS`).
+                held = {
+                    name: value for name, value in (record.get("meta") or {}).items() if name not in ADDRESS_META_KEYS
+                }
                 if method != "GET":
                     held[SAVE_METHOD_KEY] = method
+                    held[SAVE_ENDPOINT_KEY] = endpoint
                 record["meta"] = held
-            record["meta"] = {**(record.get("meta") or {}), "save_outcome": outcome}
+            held_meta = dict(record.get("meta") or {})
+            if publish_text:
+                # Final review E: the outcome of the text the record holds from now on — written only
+                # when a text is published, so another excerpt that publishes nothing leaves it alone.
+                held_meta[TEXT_OUTCOME_KEY] = outcome
+            elif replacing:
+                # This answer replaced the record and published no text (a PDF with no text layer):
+                # the record holds none, so no outcome describes one.
+                held_meta.pop(TEXT_OUTCOME_KEY, None)
+            record["meta"] = {**held_meta, "save_outcome": outcome}
             # Validate the complete candidate, persist the registry, publish the file last. The
             # two writes cannot be made one transaction, so the order is chosen by what the
             # surviving window costs: publishing first and being killed before the registry write
@@ -4598,6 +4837,12 @@ def register(subparsers) -> None:
     save.add_argument("--expect-article", dest="expect_article", default=None, help="article for --layer statutes")
     save.add_argument("--method", default="GET", choices=list(FETCH_METHODS), help="POST for the IT URN route")
     save.add_argument("--json", dest="json_body", default=None, help="JSON body of a --method POST")
+    save.add_argument(
+        "--public-url",
+        dest="public_url",
+        default=None,
+        help="required with --method POST: the public page of the document, stored as the source's url",
+    )
     save.add_argument("--accept", default=None, help="Accept header (BOE needs application/xml)")
     save.add_argument("--lang", default=None, help="Accept-Language (Cellar takes eng/deu/fra)")
     save.add_argument("--timeout", type=float, default=limits.LIVENESS_TIMEOUT_SECONDS)

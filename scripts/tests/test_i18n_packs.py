@@ -253,22 +253,22 @@ class PackParityTest(unittest.TestCase):
     def test_the_four_text_lines_of_the_appendix_are_the_brief_sentences_in_every_pack(self):
         # D-204: each reaches the client, so each is pinned verbatim in all five packs.
         expected = {
+            # Final review E (Minor 1): true of every producer of the kind — an MCP answer registered
+            # as `excerpt` was not saved by code, and a code-saved file the freeze demoted to
+            # `agent_summary` was not copied by the agent.
             "excerpt_note": {
-                "en": "an excerpt saved by code, not the whole document",
-                "ru": "выдержка, сохранённая кодом, а не документ целиком",
-                "de": "ein per Code gespeicherter Auszug, nicht das ganze Dokument",
-                "fr": "un extrait enregistré par le code, pas le document entier",
-                "es": "un extracto guardado por el código, no el documento completo",
+                "en": "an excerpt, not the whole document",
+                "ru": "выдержка, а не документ целиком",
+                "de": "ein Auszug, nicht das ganze Dokument",
+                "fr": "un extrait, pas le document entier",
+                "es": "un extracto, no el documento completo",
             },
             "agent_summary_note": {
-                "en": "text copied by the agent from a database answer, not saved by code",
-                "ru": "текст скопирован агентом из ответа базы, кодом не сохранялся",
-                "de": "vom Agenten aus einer Datenbankantwort kopierter Text, nicht per Code gespeichert",
-                "fr": (
-                    "texte copié par l'agent depuis une réponse de base de données, "
-                    "non enregistré par le code"
-                ),
-                "es": "texto copiado por el agente de la respuesta de una base, no guardado por el código",
+                "en": "a text the code has not certified as the document itself",
+                "ru": "текст, который код не удостоверил как сам документ",
+                "de": "ein Text, den der Code nicht als das Dokument selbst bestätigt hat",
+                "fr": "un texte que le code n'a pas certifié comme étant le document lui-même",
+                "es": "un texto que el código no ha certificado como el propio documento",
             },
             "no_reasoning_note": {
                 "en": "only the operative part was published; there is no reasoning to check",

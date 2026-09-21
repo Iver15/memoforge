@@ -107,8 +107,11 @@ EN: dict = {
             # D-204: what the saved text of a cited `critical` source is, when it is not the whole
             # document — the lines that go with the extended C-08. A short act published without
             # its reasoning is not «an excerpt of a longer text», so it has a line of its own.
-            "excerpt_note": "an excerpt saved by code, not the whole document",
-            "agent_summary_note": "text copied by the agent from a database answer, not saved by code",
+            # Final review E: each is true of every producer of its kind — an MCP answer registered
+            # as `excerpt` was not saved by code, and a code-saved file the freeze demoted to
+            # `agent_summary` was not copied by the agent.
+            "excerpt_note": "an excerpt, not the whole document",
+            "agent_summary_note": "a text the code has not certified as the document itself",
             "no_reasoning_note": "only the operative part was published; there is no reasoning to check",
             # D-204: a C-09 finding that survived the v1 lint-fix round — one per pinpoint.
             "pinpoint_not_in_raw_note": "pinpoint {pinpoint} was not found in the saved text of {source_id}",

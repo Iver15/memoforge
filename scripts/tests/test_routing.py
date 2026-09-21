@@ -205,6 +205,11 @@ class MemberStateTest(unittest.TestCase):
             {"urn": "urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01"},
             json.loads(args.json_body),
         )
+        # Final review A: the endpoint names no article, so the command names the public page of the
+        # one it asks for — built from the very URN of its body — and the save accepts it as that.
+        urn = json.loads(args.json_body)["urn"]
+        self.assertEqual("https://www.normattiva.it/uri-res/N2Ls?" + urn, args.public_url)
+        self.assertIsNone(sources.public_url_refusal(args.method, args.public_url))
 
     def test_the_official_api_notes_save_the_text_with_the_header_options(self):
         """D-148 / D-205: WebFetch takes no headers, and the text those channels serve is a source.
@@ -544,6 +549,9 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertTrue(registers[0].raw_file)
         self.assertIn("channel_unavailable: captcha", note)
         self.assertIn("closed for the run", note)
+        # Final review C: a spent budget closes the host for every command too — `save --url` counts.
+        self.assertIn("`channel_budget_spent`", note)
+        self.assertIn("every request to sudact.ru counts against its one budget", note)
 
     def test_the_russian_notes_pass_the_number_whole_and_the_act_s_own_date(self):
         note = routing.route("case_law", "RU")["note"]

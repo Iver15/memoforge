@@ -930,6 +930,15 @@ class ResearcherSaveRuleTest(unittest.TestCase):
             self.assertNotIn('register that file with `--tool "mf-fetch <host>"`', prompt)
             self.assertNotIn("register it with `--tool WebFetch <domain>`", prompt)
 
+    def test_a_post_save_names_the_public_page_of_its_document(self):
+        """Final review A: a POST endpoint answers many documents at one address and names none, so
+        the prompt says that such a save takes `--public-url` — for Normattiva, the resolver page of
+        the URN the body carries — and that the save refuses without it."""
+        for prompt in self._researchers():
+            self.assertIn("`--public-url", prompt)
+            self.assertIn("`https://www.normattiva.it/uri-res/N2Ls?`", prompt)
+            self.assertIn("refused without it", prompt)
+
     def test_every_save_and_register_example_is_a_command_the_cli_accepts(self):
         """Addendum §6: an example that does not parse is worse than none."""
         for prompt in self._researchers():
@@ -984,6 +993,15 @@ class ResearcherSaveRuleTest(unittest.TestCase):
                 "`--raw-kind excerpt`",
                 "another allowed host",
             ):
+                with self.subTest(words=words):
+                    self.assertIn(words, line)
+
+    def test_a_spent_budget_closes_sudact_for_every_command(self):
+        """Final review C: the budget is the host's, so `save --url` on sudact.ru counts against it too —
+        after `channel_budget_spent` an address there is refused like one after a captcha."""
+        for prompt in self._researchers():
+            line = next(row for row in prompt.splitlines() if row.startswith("- `channel_budget_spent`"))
+            for words in ("do not pass an address on sudact.ru", "`--raw-kind excerpt`", "another allowed host"):
                 with self.subTest(words=words):
                     self.assertIn(words, line)
 

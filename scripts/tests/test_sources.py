@@ -586,6 +586,7 @@ def save_namespace(work_dir: str, url: str, **overrides) -> dict:
         "expect_article": None,
         "method": "GET",
         "json_body": None,
+        "public_url": None,
         "accept": None,
         "lang": None,
         "timeout": 5.0,
@@ -2331,6 +2332,21 @@ class InterstitialRuleTest(unittest.TestCase):
                 self.assertLess(len(body), 15 * 1024, "the shape D-146 rejected by size")
                 self.assertFalse(sources.is_interstitial(body, content_type))
 
+    def test_a_type_with_an_empty_or_malformed_subtype_declares_nothing(self):
+        """Final review B: the declared type is normalised once, for the challenge rules and the save.
+
+        `application/` read as a declared non-markup type here, and as no type at the save's admission:
+        a «verify you are human» wall served under it skipped every interstitial rule and was admitted
+        as text. Undeclared, the body is sniffed exactly as when no `Content-Type` came at all.
+        """
+        for declared in ("application/", "application/; charset=binary", " Application/ ", "/html", "text", "a b/c"):
+            with self.subTest(declared=declared):
+                self.assertEqual("", sources.declared_type(declared))
+                self.assertTrue(sources.is_markup(ECFR_STUB, declared), "sniffed, as with no header at all")
+                self.assertTrue(sources.is_interstitial(ECFR_STUB, declared))
+        self.assertEqual("text/html", sources.declared_type(" Text/HTML ; charset=utf-8"))
+        self.assertFalse(sources.is_markup(ECFR_STUB, "application/json"), "a real declared type still decides")
+
     def test_a_json_or_xml_answer_is_never_judged_by_size_or_ratio(self):
         for content_type in ("application/json", "application/xml", "text/plain", "application/pdf"):
             with self.subTest(content_type=content_type):
@@ -3568,16 +3584,81 @@ class SavePdfTest(SaveTestCase):
         self.assertEqual(VSRF_PDF, (self.work_dir / record["raw_original_path"]).read_bytes())
         self.assertEqual(VSRF_PDF_SHA256, record["raw_original_sha256"])
 
-    def test_an_empty_subtype_is_no_declared_type_on_either_side(self):
-        """The same rule on both of the save path's type checks, and on nothing else."""
+    def test_an_empty_subtype_is_no_declared_type_and_the_signature_says_what_a_pdf_is(self):
+        """Final review B: one normalisation of the declared type, and one rule for «is this a PDF».
+
+        Task 9 applied «an empty subtype declares nothing» to the save's two type checks and to
+        nothing else; it is now the one reading of `Content-Type` (`declared_type`), for the challenge
+        rules too. And a PDF is what the resolver proved on the real chain: the `%PDF-` signature in
+        the first `PDF_HEADER_WINDOW` bytes, **whatever the header says** — so a declared type no
+        longer makes a signed body a non-PDF, or a body without the signature a PDF.
+        """
         for declared in ("application/", "application/; charset=binary", " Application/ "):
             with self.subTest(declared=declared):
-                self.assertTrue(sources.save_pdf_answer(declared, VSRF_PDF))
+                self.assertEqual("", sources.declared_type(declared))
                 self.assertFalse(sources.save_text_type(declared, VSRF_PDF))
                 self.assertTrue(sources.save_text_type(declared, b"plain text"), "as with no header")
-        # A real declared type still decides, whatever the body says.
-        self.assertFalse(sources.save_pdf_answer("image/png", VSRF_PDF))
+        self.assertTrue(sources.is_pdf(VSRF_PDF))
+        self.assertTrue(sources.is_pdf(b"\xef\xbb\xbf\r\n" + VSRF_PDF), "junk before the header is allowed")
+        self.assertFalse(sources.is_pdf(b" " * sources.PDF_HEADER_WINDOW + VSRF_PDF), "but only a kilobyte")
+        self.assertFalse(sources.is_pdf(ECFR_STUB))
+        # A real declared type still decides what is *text*; it no longer decides what is a PDF.
         self.assertFalse(sources.save_text_type("image/png", b"plain text"))
+        self.assertFalse(sources.save_text_type("text/html", VSRF_PDF), "a signed body is never decoded as text")
+
+    def test_a_wall_declared_with_an_empty_subtype_is_refused_as_a_challenge(self):
+        """Final review B, the reviewer's reproduction: under `text/html` the wall was `access_stub`;
+        the same body under `application/` passed admission and was certified as text."""
+        with LocalServer(b"", routes={"/wall": (ECFR_STUB, "application/")}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/wall", layer="doctrine", title="EDPB guidance", citation="EDPB, Guidance")
+        self.assertEqual(["access_stub"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_the_real_pdf_is_saved_as_a_pdf_whatever_it_is_declared_as_like_the_resolver_reads_it(self):
+        """Final review B (Minor 2): the resolver certified `2394482.pdf` served as
+        `application/octet-stream`, and the save refused the same answer; under `text/html` the save
+        took the text path. One rule now serves both, and it is the resolver's."""
+        body = vsrf_act("2394482")
+        types = ("application/octet-stream", "text/html", "application/pdf")
+        routes = {f"/pdf/{index}": (body, declared) for index, declared in enumerate(types)}
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            for index, declared in enumerate(types):
+                with self.subTest(declared=declared):
+                    url = f"{base}/pdf/{index}"
+                    text = sources.vsrf_candidate_text(url, hosts=sources.allowlist_hosts(), timeout=5.0)
+                    self.assertIsNotNone(text, "the resolver reads it as a PDF with a text layer")
+                    result = self.save(url, citation=f"{VS_ACT_CITATION} ({declared})", id=f"act-{index}")
+                    self.assertEqual([], result.get("errors", []), result)
+                    record = self.records()[result["source_id"]]
+                    self.assertEqual(body, (self.work_dir / record["raw_original_path"]).read_bytes())
+                    self.assertEqual(state_io.sha256_bytes(body), record["raw_original_sha256"])
+                    self.assertIn("305-ЭС24-8702", self.stored(record).decode("utf-8"), "the text layer, not markup")
+
+    def test_liveness_reads_a_pdf_served_as_html_as_the_pdf_the_save_kept(self):
+        """Final review B, where the one rule meets liveness: the save now keeps a signed body served as
+        `text/html` as the PDF it is, and liveness compares the original's digest with the body as served
+        (D-201) — so the probe must not convert those bytes as markup, or judge them by the markup rules,
+        either: an unchanged PDF would be written down as `changed` in the client's appendix."""
+        with LocalServer(b"", routes={"/act": (VSRF_PDF, "text/html")}) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save(f"{base}/act")
+            self.assertEqual([], saved.get("errors", []), saved)
+            result = sources.run_liveness(argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0))
+        row = result["checked"][0]
+        self.assertEqual("ok", row["status"], row)
+        self.assertEqual("confirmed", row["provenance"])
+
+    def test_a_body_declared_pdf_without_the_signature_is_not_an_original(self):
+        """Final review B: `application/pdf` over a body that is no PDF is not a PDF — never an original."""
+        with LocalServer(b"", routes={"/fake.pdf": (RAW_TEXT.encode("utf-8"), "application/pdf")}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/fake.pdf", layer="statutes", title="GDPR Article 6", citation="GDPR, Art. 6")
+        self.assertEqual(["unsupported_media_type: application/pdf"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
 
     def test_a_pdf_whose_requisites_do_not_match_registers_nothing_at_all(self):
         with LocalServer(VSRF_PDF) as base:
@@ -5231,7 +5312,8 @@ class SudactHostTest(_FakeClockTestCase):
             self.allow(sources.url_host(base))
             result = self.save_on_sudact(base, SUDACT_ACT)
         self.assertEqual(["interstitial"], result["errors"], "Task 4's own refusal, unchanged")
-        self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "no marker was written")
+        # Final review C: the request itself is one of the channel's, so it is counted — no marker.
+        self.assertEqual({"requests": 1, "captcha": False}, self.counts(), "no marker was written")
         self.assert_nothing_written(result)
 
     def test_a_save_never_requests_the_captcha_page(self):
@@ -5282,7 +5364,218 @@ class SudactHostTest(_FakeClockTestCase):
             result = self.save_on_sudact(base, "/arbitral/")
         self.assertEqual([], result.get("errors", []), result)
         self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
-        self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "no challenge, no marker")
+        # Final review C: counted as a request of the channel, and no challenge — no marker.
+        self.assertEqual({"requests": 1, "captcha": False}, self.counts(), "no challenge, no marker")
+
+
+class SudactEveryRequestTest(_FakeClockTestCase):
+    """Final review C (Important 3 and 4): the channel is the host, whoever is asking.
+
+    With `channels.json` marking sudact closed, liveness still probed its records — HEAD and GET, to
+    the document and to the captcha page, with no marker read — and after `channel_budget_spent` the
+    prompt sends the researcher to `save --url` on sudact.ru addresses, a path that read the marker
+    but neither reserved a slot nor counted. Every request to the host — a resolver's, a save's,
+    liveness's, a fetch's, the preflight probe's — now goes through the same shutdown check, the same
+    reservation, pace and count, and the same stop before `/defence/`; a challenge any of them meets
+    writes the marker. **A captcha is never solved, never worked around, never retried.**
+    """
+
+    PAGE = (SUDACT_ACT_PAGE, "text/html; charset=utf-8")
+
+    def paths(self) -> list:
+        return [row["path"] for row in _Handler.seen]
+
+    def save_on_sudact(self, base: str, path: str = SUDACT_ACT) -> dict:
+        with mock.patch.object(sources, "SUDACT_BASE", base):
+            return self.save(
+                f"{base}{path}",
+                title=SUDACT_TITLE,
+                citation=SUDACT_CITATION,
+                expect_number=SUDACT_NUMBER,
+                expect_date=SUDACT_DATE,
+            )
+
+    def register_on_sudact(self, base: str, path: str = SUDACT_ACT, source_id: str = "a53-28950-2022") -> None:
+        result = self.register(
+            layer="case_law",
+            title=SUDACT_TITLE,
+            citation=f"{SUDACT_CITATION} {path}",
+            url=f"{base}{path}",
+            tool="casus_get_case_details",
+            source_id=source_id,
+        )
+        self.assertEqual([], result.get("errors", []), result)
+
+    def liveness(self, base: str) -> dict:
+        with mock.patch.object(sources, "SUDACT_BASE", base):
+            return sources.run_liveness(argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0))
+
+    def fetch_on_sudact(self, base: str, path: str = SUDACT_ACT) -> dict:
+        payload = {
+            "workdir": str(self.work_dir),
+            "url": f"{base}{path}",
+            "method": "GET",
+            "json_body": None,
+            "accept": None,
+            "lang": None,
+            "out": None,
+            "layer": None,
+            "timeout": 5.0,
+        }
+        with mock.patch.object(sources, "SUDACT_BASE", base):
+            return sources.run_fetch(argparse.Namespace(**payload))
+
+    # --- a plain save (Important 4) ----------------------------------------------------------
+
+    def test_plain_saves_to_the_host_reserve_wait_and_count_like_the_resolver(self):
+        """The reviewer's reproduction: three fresh-process saves made three requests, no reservation,
+        no wait, and the counter unchanged. Each is now a request of the channel."""
+        start = self.clock.now
+        self.write_entry(start, 5, False)  # another process's request of the channel went out just now
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.allow(sources.url_host(base))
+            _Handler.stamp = self.clock.time
+            for _ in range(3):
+                sources._LAST_FETCH.clear()  # a fresh process owes the host nothing of its own
+                result = self.save_on_sudact(base)
+                self.assertEqual([], result.get("errors", []), result)
+            arrivals = [row["at"] for row in _Handler.seen]
+        self.assertEqual([start + 2, start + 4, start + 6], arrivals, "paced by the shared file")
+        self.assertEqual([2.0, 2.0, 2.0], self.clock.waits)
+        self.assertEqual({"requests": 8, "captcha": False}, self.counts())
+
+    def test_a_plain_save_past_the_budget_is_refused_before_any_request(self):
+        self.write_entry(0, limits.CHANNEL_MAX_REQUESTS_PER_RUN, False)
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_on_sudact(base)
+            self.assertEqual([], _Handler.seen, "a run that spent the host's budget asks it nothing")
+        self.assertEqual(["channel_budget_spent"], result["errors"])
+        self.assertEqual(sources.RESOLVE_HINTS["channel_budget_spent"], result["hint"])
+        self.assertIn("save --url included", result["hint"], "the hint no longer sends it back to --url")
+        self.assertEqual({"requests": limits.CHANNEL_MAX_REQUESTS_PER_RUN, "captcha": False}, self.counts())
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_hop_a_plain_save_follows_on_the_host_takes_its_own_slot(self):
+        routes = {
+            SUDACT_ACT: (b"<html><body>moved</body></html>", "text/html", {"Location": "/arbitral/doc/Moved1/"}, 302),
+            "/arbitral/doc/Moved1/": self.PAGE,
+        }
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_on_sudact(base)
+            self.assertEqual([SUDACT_ACT, "/arbitral/doc/Moved1/"], self.paths())
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual({"requests": 2, "captcha": False}, self.counts())
+
+    # --- liveness (Important 3) --------------------------------------------------------------
+
+    def test_liveness_of_a_closed_host_sends_nothing_and_answers_unchecked(self):
+        """`localhost` is the same server under another host name — not the sudact host, so its record
+        is probed as it always was: the marker closes the host, not liveness."""
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.register_on_sudact(base)
+            other = base.replace("127.0.0.1", "localhost")
+            self.register(url=f"{other}/ok", layer="case_law", tool="casus_get_case_details", source_id="z-other")
+            self.write_entry(0, 3, True)
+            result = self.liveness(base)
+            self.assertEqual(["/ok"], self.paths(), "not the document, and not the captcha page")
+        rows = {row["source_id"]: row for row in result["checked"]}
+        self.assertEqual("unchecked", rows["a53-28950-2022"]["status"])
+        self.assertEqual("channel_unavailable: captcha", rows["a53-28950-2022"]["error"])
+        self.assertEqual("unchecked", self.records()["a53-28950-2022"]["liveness"]["status"])
+        self.assertEqual("ok", rows["z-other"]["status"])
+        self.assertEqual([], self.clock.waits, "a closed host costs no pause either")
+        self.assertEqual({"requests": 3, "captcha": True}, self.counts())
+
+    def test_liveness_never_follows_the_defence_redirect_and_closes_the_host(self):
+        """The reviewer's reproduction: HEAD and GET reached the captcha page. The hop is refused
+        before it is requested, the marker is written, and the next record of the host is not asked."""
+        routes = {SUDACT_ACT: SUDACT_DEFENCE, "/defence/": (ECFR_STUB, "text/html"), "/arbitral/doc/Other2/": self.PAGE}
+        with LocalServer(b"", routes=routes) as base:
+            self.register_on_sudact(base, SUDACT_ACT, "a-first")
+            self.register_on_sudact(base, "/arbitral/doc/Other2/", "b-second")
+            result = self.liveness(base)
+            self.assertEqual([SUDACT_ACT], self.paths(), "one HEAD; the captcha page is never requested")
+        rows = {row["source_id"]: row for row in result["checked"]}
+        self.assertEqual("unchecked", rows["a-first"]["status"])
+        self.assertEqual(sources.SUDACT_DEFENCE_REDIRECT, rows["a-first"]["error"])
+        self.assertEqual("unchecked", rows["b-second"]["status"])
+        self.assertEqual("channel_unavailable: captcha", rows["b-second"]["error"])
+        self.assertEqual({"requests": 1, "captcha": True}, self.counts())
+
+    def test_a_challenge_liveness_meets_closes_the_host(self):
+        throttle = (b"<html>slow down</html>", "text/html", {}, 429)
+        with LocalServer(b"", routes={SUDACT_ACT: throttle}) as base:
+            self.register_on_sudact(base)
+            result = self.liveness(base)
+        self.assertEqual("unchecked", result["checked"][0]["status"])
+        self.assertTrue(self.counts()["captcha"])
+
+    def test_liveness_requests_to_the_host_take_slots_of_the_channel(self):
+        start = self.clock.now
+        self.write_entry(start, 5, False)
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.register_on_sudact(base)
+            _Handler.stamp = self.clock.time
+            result = self.liveness(base)
+            arrivals = [row["at"] for row in _Handler.seen]
+        self.assertEqual("ok", result["checked"][0]["status"])
+        self.assertEqual([start + 2], arrivals, "the HEAD waited for its slot")
+        self.assertEqual({"requests": 6, "captcha": False}, self.counts())
+
+    def test_liveness_past_the_budget_sends_nothing(self):
+        self.write_entry(0, limits.CHANNEL_MAX_REQUESTS_PER_RUN, False)
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.register_on_sudact(base)
+            result = self.liveness(base)
+            self.assertEqual([], _Handler.seen)
+        self.assertEqual("unchecked", result["checked"][0]["status"])
+        self.assertEqual("channel_budget_spent", result["checked"][0]["error"])
+
+    # --- a fetch and the preflight probe -------------------------------------------------------
+
+    def test_a_fetch_of_the_host_follows_the_same_rules(self):
+        with LocalServer(b"", routes={SUDACT_ACT: SUDACT_DEFENCE, "/defence/": (ECFR_STUB, "text/html")}) as base:
+            self.allow(sources.url_host(base))
+            first = self.fetch_on_sudact(base)
+            self.assertEqual([SUDACT_ACT], self.paths(), "the captcha page is never requested")
+            _Handler.seen = []
+            again = self.fetch_on_sudact(base)
+            self.assertEqual([], _Handler.seen, "a closed host is not asked again")
+        self.assertEqual(sources.SUDACT_DEFENCE_REDIRECT, first["error"])
+        self.assertEqual(sources.SUDACT_DEFENCE_REDIRECT, first["challenge"])
+        self.assertEqual(["channel_unavailable: captcha"], again["errors"])
+        self.assertEqual({"requests": 1, "captcha": True}, self.counts())
+
+    def test_a_fetch_of_the_host_takes_a_slot(self):
+        start = self.clock.now
+        self.write_entry(start, 5, False)
+        with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.fetch_on_sudact(base)
+        self.assertEqual("ok", result["status"])
+        self.assertEqual([2.0], self.clock.waits)
+        self.assertEqual({"requests": 6, "captcha": False}, self.counts())
+
+    def test_the_preflight_probe_of_the_host_follows_the_same_rules(self):
+        from memoforge import preflight
+
+        routes = {"/regular/doc/": SUDACT_DEFENCE, "/defence/": (ECFR_STUB, "text/html")}
+        with LocalServer(b"", routes=routes) as base:
+            table = {"sudact.ru": f"{base}/regular/doc/"}
+            with mock.patch.object(sources, "SUDACT_BASE", base), mock.patch.dict(preflight.PREFLIGHT_URLS, table):
+                row = preflight.probe_host("sudact.ru", timeout=5.0, work_dir=self.work_dir)
+                self.assertEqual(["/regular/doc/"], self.paths(), "the captcha page is never requested")
+                _Handler.seen = []
+                again = preflight.probe_host("sudact.ru", timeout=5.0, work_dir=self.work_dir)
+                self.assertEqual([], _Handler.seen)
+        self.assertEqual("interstitial", row["status"])
+        self.assertEqual(sources.SUDACT_DEFENCE_REDIRECT, row["error"])
+        self.assertEqual("interstitial", again["status"])
+        self.assertEqual("channel_unavailable: captcha", again["error"])
+        self.assertEqual({"requests": 1, "captcha": True}, self.counts())
 
 
 class PackPdfOriginalTest(SaveTestCase):
@@ -5388,6 +5681,109 @@ class PackPdfOriginalTest(SaveTestCase):
             row.pop("raw_original_sha256", None)
         self.assertEqual([], schema.validate(pack, "source-pack"))
         self.assertIn(source_id, {row["source_id"] for row in pack["snapshot"]})
+
+
+class MergedOriginalTest(SaveTestCase):
+    """Final review D (Important 2): a duplicate merge keeps the original, and an alias is an alias.
+
+    A text-only record and a PDF-backed record with identical text were merged at the freeze into the
+    text-only one; only the canonical record got a snapshot row, so the export found no pin for the
+    alias, withheld its PDF — the only original — and told the client in `source-pack.md` that both of
+    the alias's files no longer matched the freeze, when nothing had changed. The original now
+    survives the merge under the canonical id, pinned by the freeze, and a merged alias is represented
+    by its canonical: neither exported separately nor reported as a changed file.
+    """
+
+    def text_only_then_pdf(self, pdf: bytes = VSRF_PDF) -> tuple[str, str]:
+        """A text-only record, then a PDF whose text layer is that very text; the first is canonical."""
+        layer = sources.prepare_raw(sources.extract_pdf_text(VSRF_PDF).encode("utf-8"))
+        text = self.register(
+            layer="case_law",
+            title=VSRF_PDF_TITLE,
+            citation=VSRF_PDF_CITATION + ".",  # the same act, written down a little differently
+            url="",
+            tool="ldh_search",
+            raw_file=self.raw_file(text=layer.decode("utf-8")),
+            raw_kind="excerpt",
+            source_id="a-text",
+        )
+        with LocalServer(pdf) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save(f"{base}/served.pdf", title=VSRF_PDF_TITLE, citation=VSRF_PDF_CITATION, id="b-pdf")
+        self.assertEqual([], saved.get("errors", []), saved)
+        self.assertEqual(text["raw_sha256"], saved["raw_sha256"], "the same text: the freeze merges them")
+        self.write_findings([{"source_id": "a-text"}, {"source_id": "b-pdf"}], layer="case_law")
+        return "a-text", "b-pdf"
+
+    def stage(self) -> tuple[dict, str, Path]:
+        """What `publish` delivers into `sources/`, and the `source-pack.md` written from that staging."""
+        from memoforge import finalize
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        target = root / "sources"
+        target.mkdir()
+        staged = finalize.stage_source_files(self.work_dir, target, root / "verifying")
+        return staged, finalize.source_pack_markdown(self.work_dir, omissions=staged["omissions"]), target
+
+    def test_the_only_original_is_pinned_and_delivered_once_under_the_canonical(self):
+        from memoforge import finalize
+
+        canonical, alias = self.text_only_then_pdf()
+        self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual({alias: canonical}, pack["merged_into"])
+        rows = {row["source_id"]: row for row in pack["snapshot"]}
+        self.assertEqual(VSRF_PDF_SHA256, rows[canonical]["raw_original_sha256"])
+        staged, pack_md, target = self.stage()
+        self.assertEqual(sorted([f"{canonical}.pdf", f"{canonical}.txt"]), sorted(staged["files"]))
+        self.assertEqual([], staged["omissions"], "an unchanged file is never called changed")
+        self.assertEqual(VSRF_PDF, (target / f"{canonical}.pdf").read_bytes())
+        self.assertNotIn(f"`{alias}`", pack_md, "the alias is represented by its canonical")
+        from memoforge.docx import fallback
+
+        for kind in finalize.EXPORT_MISMATCH_NOTES.values():
+            self.assertNotIn(fallback.label(kind, "en", source_id=f"`{alias}`"), pack_md)
+
+    def test_a_canonical_with_an_original_of_its_own_keeps_it(self):
+        layer = sources.prepare_raw(sources.extract_pdf_text(VSRF_PDF).encode("utf-8"))
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/served.pdf", title=VSRF_PDF_TITLE, citation=VSRF_PDF_CITATION, id="a-pdf")
+        with LocalServer(VSRF_PDF_OTHER) as base:
+            self.allow(sources.url_host(base))
+            second = self.save(
+                f"{base}/served.pdf", title=VSRF_PDF_TITLE, citation=VSRF_PDF_CITATION + ".", id="b-pdf"
+            )
+        self.assertEqual(first["raw_sha256"], second["raw_sha256"])
+        self.assertEqual(state_io.sha256_bytes(layer), first["raw_sha256"])
+        self.freeze()
+        rows = {row["source_id"]: row for row in sources.read_pack(self.work_dir)["snapshot"]}
+        self.assertEqual(VSRF_PDF_SHA256, rows["a-pdf"]["raw_original_sha256"])
+        staged, _pack_md, target = self.stage()
+        self.assertEqual(sorted(["a-pdf.pdf", "a-pdf.txt"]), sorted(staged["files"]))
+        self.assertEqual([], staged["omissions"])
+        self.assertEqual(VSRF_PDF, (target / "a-pdf.pdf").read_bytes())
+
+    def test_a_file_changed_after_the_freeze_is_still_named_under_the_canonical(self):
+        from memoforge import finalize
+
+        canonical, alias = self.text_only_then_pdf()
+        self.freeze()
+        records = self.records()
+        (self.work_dir / records[alias]["raw_original_path"]).write_bytes(VSRF_PDF + b"%edited\n")
+        (self.work_dir / records[canonical]["raw_path"]).write_text("edited", encoding="utf-8")
+        staged, pack_md, target = self.stage()
+        self.assertEqual(
+            sorted([(canonical, finalize.SOURCE_TEXT_KIND), (canonical, finalize.SOURCE_ORIGINAL_KIND)]),
+            sorted(staged["omissions"]),
+        )
+        self.assertEqual([], sorted(staged["files"]))
+        from memoforge.docx import fallback
+
+        for kind in finalize.EXPORT_MISMATCH_NOTES.values():
+            self.assertIn(fallback.label(kind, "en", source_id=f"`{canonical}`"), pack_md)
+        self.assertNotIn(f"`{alias}`", pack_md)
 
 
 class KilledSaveTest(SaveTestCase):
@@ -6832,7 +7228,8 @@ class SaveMethodLivenessTest(SaveTestCase):
         routes = {self.POST_ROUTE: (RIS_JSON, "application/json")}
         return LocalServer(ARTICLE_7_TEXT, routes=routes, post_only=(self.POST_ROUTE,))
 
-    def save_post(self, base: str) -> dict:
+    def save_post(self, base: str, public_url: str | None = None) -> dict:
+        # Final review A: a POST save names the public page of its document, the record's url.
         return self.save(
             f"{base}{self.POST_ROUTE}",
             layer="statutes",
@@ -6840,6 +7237,7 @@ class SaveMethodLivenessTest(SaveTestCase):
             citation=self.CITATION,
             method="POST",
             json_body=self.URN_BODY,
+            public_url=public_url or normattiva_article(7),
         )
 
     def liveness(self) -> dict:
@@ -6904,6 +7302,7 @@ class SaveMethodLivenessTest(SaveTestCase):
         record = self.records()[first["source_id"]]
         self.assertTrue(record["url"].endswith("/ok"), record["url"])
         self.assertNotIn("save_method", record["meta"])
+        self.assertNotIn(sources.SAVE_ENDPOINT_KEY, record["meta"], "the endpoint moves with the method")
         self.assertEqual("ok", result["checked"][0]["status"])
 
     def unmark(self, source_id: str) -> None:
@@ -6934,19 +7333,23 @@ class SaveMethodLivenessTest(SaveTestCase):
         self.assertEqual(f"{sources.LIVENESS_NOT_REPLAYABLE}: POST", result["checked"][0]["error"])
 
     def test_an_idempotent_get_save_of_the_same_address_removes_the_mark(self):
-        """The mirror: the address answered a GET with the same bytes, so a probe can replay it."""
-        routes = {self.POST_ROUTE: (RIS_JSON, "application/json")}
+        """The mirror: the address answered a GET with the same bytes, so a probe can replay it.
+
+        Final review A: the record's address of a POST save is its `--public-url`, so «the same
+        address» is that page — here one the local server also serves, with the same bytes, to a GET.
+        """
+        routes = {self.POST_ROUTE: (RIS_JSON, "application/json"), "/public": (RIS_JSON, "application/json")}
         with LocalServer(ARTICLE_7_TEXT, routes=routes) as base:
             self.allow(sources.url_host(base))
-            first = self.save_post(base)
+            first = self.save_post(base, public_url=f"{base}/public")
             self.assertEqual("POST", self.records()[first["source_id"]]["meta"][sources.SAVE_METHOD_KEY])
-            again = self.save(
-                f"{base}{self.POST_ROUTE}", layer="statutes", title=self.TITLE, citation=self.CITATION
-            )
+            again = self.save(f"{base}/public", layer="statutes", title=self.TITLE, citation=self.CITATION)
             result = self.liveness()
         self.assertEqual(first["source_id"], again["source_id"])
         self.assertTrue(again["idempotent"])
-        self.assertNotIn(sources.SAVE_METHOD_KEY, self.records()[first["source_id"]]["meta"])
+        meta = self.records()[first["source_id"]]["meta"]
+        self.assertNotIn(sources.SAVE_METHOD_KEY, meta)
+        self.assertNotIn(sources.SAVE_ENDPOINT_KEY, meta)
         self.assertEqual("ok", result["checked"][0]["status"])
 
     def test_a_save_that_reached_another_address_leaves_the_mark_of_the_record_s_own(self):
@@ -6966,8 +7369,9 @@ class SaveMethodLivenessTest(SaveTestCase):
         record = self.records()[first["source_id"]]
         self.assertEqual(first["source_id"], other["source_id"])
         self.assertFalse(other["idempotent"])
-        self.assertTrue(record["url"].endswith(self.POST_ROUTE), record["url"])
+        self.assertEqual(normattiva_article(7), record["url"], "final review A: the public page, not the endpoint")
         self.assertEqual("POST", record["meta"][sources.SAVE_METHOD_KEY])
+        self.assertEqual(f"{base}{self.POST_ROUTE}", record["meta"][sources.SAVE_ENDPOINT_KEY])
         self.assertEqual([], probes)
         self.assertEqual("unchecked", result["checked"][0]["status"])
 
@@ -6990,6 +7394,299 @@ class SaveMethodLivenessTest(SaveTestCase):
         meta = self.records()[saved["source_id"]]["meta"]
         self.assertNotIn("save_method", meta, "an agent's --meta never claims a method the save did not use")
         self.assertEqual("GDPR", meta["short_name"])
+
+
+ARTICLE_8_TEXT = (
+    "Article 8 - Conditions applicable to a child's consent\n\n"
+    + "Where point (a) of Article 6(1) applies, the processing shall be lawful only with that consent. " * 4
+    + "\n"
+).encode("utf-8")
+"""A second article of the same act, served to the same POST endpoint as `ARTICLE_7_TEXT`."""
+
+
+def normattiva_urn(number: int) -> str:
+    """The URN of one article of D.Lgs. 196/2003 as it stood on 2026-01-01 — the route's POST body."""
+    return f"urn:nir:stato:decreto.legislativo:2003-06-30;196~art{number}!vig=2026-01-01"
+
+
+def normattiva_article(number: int) -> str:
+    """The public page of that article: Normattiva's URN resolver, built from the same URN."""
+    return "https://www.normattiva.it/uri-res/N2Ls?" + normattiva_urn(number)
+
+
+class PostPublicUrlTest(SaveTestCase):
+    """Final review A (Important 1 and 7, Minor 3): a save that is not a GET names its document itself.
+
+    The Normattiva route sends different article URNs as the body of a POST to ONE endpoint. With the
+    endpoint as the record's url, identity was the endpoint: article 8 was found as article 7, under
+    article 7's id and with article 7's text, and the client's link was an API address that opens
+    nothing without its body. So a POST save carries `--public-url`, the public page of the document,
+    and that is the record's `url` — identity, duplicate search and the client's link all name one
+    document. The endpoint and the method are kept in `meta`, written by code alone.
+    """
+
+    def post(self, base: str, number: int, **overrides) -> dict:
+        payload = {
+            "layer": "statutes",
+            "title": f"D.Lgs. 196/2003, art. {number}",
+            "citation": f"D.Lgs. 30 giugno 2003, n. 196, art. {number}",
+            "method": "POST",
+            "json_body": json.dumps({"urn": normattiva_urn(number)}),
+            "public_url": normattiva_article(number),
+        }
+        payload.update(overrides)
+        return self.save(f"{base}/varying", **payload)
+
+    def articles(self) -> "LocalServer":
+        """One endpoint that answers article 7, then article 8 — the body a POST names decides."""
+        return LocalServer(b"", variants=(ARTICLE_7_TEXT, ARTICLE_8_TEXT))
+
+    def test_two_articles_posted_to_one_endpoint_are_two_records(self):
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            first = self.post(base, 7)
+            second = self.post(base, 8)
+        self.assertEqual([], first.get("errors", []), first)
+        self.assertEqual([], second.get("errors", []), second)
+        self.assertNotEqual(first["source_id"], second["source_id"])
+        records = self.records()
+        self.assertEqual(2, len(records))
+        self.assertEqual(ARTICLE_7_TEXT, self.stored(records[first["source_id"]]))
+        self.assertEqual(ARTICLE_8_TEXT, self.stored(records[second["source_id"]]))
+
+    def test_a_new_explicit_id_is_never_answered_with_the_first_article(self):
+        """The reviewer's reproduction: article 8 under a fresh `--id` came back as article 7's id."""
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            first = self.post(base, 7, id="dlgs-196-2003-art-7")
+            second = self.post(base, 8, id="dlgs-196-2003-art-8")
+        self.assertEqual("dlgs-196-2003-art-7", first["source_id"])
+        self.assertEqual("dlgs-196-2003-art-8", second["source_id"])
+        self.assertTrue(second["created"])
+        self.assertEqual(ARTICLE_8_TEXT, self.stored(self.records()["dlgs-196-2003-art-8"]))
+
+    def test_the_record_s_url_is_the_public_address_and_the_endpoint_stays_in_meta(self):
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            result = self.post(base, 7)
+        record = self.records()[result["source_id"]]
+        self.assertEqual(normattiva_article(7), record["url"])
+        self.assertEqual(normattiva_article(7), result["url"])
+        self.assertEqual("POST", record["meta"][sources.SAVE_METHOD_KEY])
+        self.assertEqual(f"{base}/varying", record["meta"][sources.SAVE_ENDPOINT_KEY])
+        self.assertEqual(f"{sources.SAVE_TOOL} 127.0.0.1", record["retrieval_tool"], "the host it was read from")
+
+    def test_a_repeat_of_the_same_post_save_is_idempotent_under_the_public_address(self):
+        with LocalServer(b"", variants=(ARTICLE_7_TEXT,)) as base:
+            self.allow(sources.url_host(base))
+            first = self.post(base, 7)
+            again = self.post(base, 7)
+        self.assertEqual(first["source_id"], again["source_id"])
+        self.assertTrue(again["idempotent"])
+        self.assertEqual([first["source_id"]], list(self.records()))
+        self.assertEqual(normattiva_article(7), self.records()[first["source_id"]]["url"])
+
+    def test_a_post_save_without_a_public_url_is_refused_before_any_request(self):
+        cases = {
+            "missing": (None, "public_url_required"),
+            "an endpoint": ("https://mcp.casus.legal/case/1?t=TESTTOKEN", "public_url_required: url_not_public"),
+            "not http": ("ftp://www.normattiva.it/x", "public_url_required: unsupported_scheme"),
+        }
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            for name, (address, error) in cases.items():
+                with self.subTest(public_url=name):
+                    result = self.post(base, 7, public_url=address)
+                    self.assertEqual([], _Handler.seen, "refused before anything left the process")
+                    self.assertEqual([error], result["errors"])
+                    self.assertIn("--public-url", result["hint"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_get_save_takes_no_public_url(self):
+        """The fetched address is the public one: a second address would be a second identity."""
+        with LocalServer(ARTICLE_7_TEXT) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(
+                f"{base}/ok",
+                layer="statutes",
+                title="GDPR Article 7",
+                citation="GDPR, Art. 7",
+                public_url=normattiva_article(7),
+            )
+            self.assertEqual([], _Handler.seen)
+        self.assertEqual(["public_url_requires_post"], result["errors"])
+        self.assertEqual({}, self.records())
+
+    def test_the_cli_takes_the_public_url(self):
+        args = cli.build_parser().parse_args(
+            [
+                "sources", "save",
+                "--workdir", str(self.work_dir),
+                "--layer", "statutes",
+                "--title", "T",
+                "--citation", "C",
+                "--url", "https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1/atto/dettaglio-atto-urn",
+                "--method", "POST",
+                "--json", json.dumps({"urn": normattiva_urn(7)}),
+                "--public-url", normattiva_article(7),
+            ]
+        )
+        self.assertEqual(normattiva_article(7), args.public_url)
+
+    def test_registering_a_new_url_clears_the_address_marker(self):
+        """Minor 3: the method and the endpoint describe the old address, not the new one."""
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            saved = self.post(base, 7)
+        self.assertEqual("excerpt:identity_unverified", saved["save_outcome"])
+        record = self.records()[saved["source_id"]]
+        raw = self.raw_file(text=self.stored(record).decode("utf-8"))
+        result = self.register(
+            layer="statutes",
+            title=record["title"],
+            citation=record["citation_form"],
+            url="https://www.garanteprivacy.it/codice-art-7",
+            raw_file=raw,
+            raw_kind="excerpt",
+            source_id=saved["source_id"],
+        )
+        self.assertEqual([], result.get("errors", []), result)
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertNotIn(sources.SAVE_METHOD_KEY, meta)
+        self.assertNotIn(sources.SAVE_ENDPOINT_KEY, meta)
+
+    def test_registering_the_same_url_keeps_the_address_marker(self):
+        with self.articles() as base:
+            self.allow(sources.url_host(base))
+            saved = self.post(base, 7)
+        record = self.records()[saved["source_id"]]
+        result = self.register(
+            layer="statutes",
+            title=record["title"],
+            citation=record["citation_form"],
+            url=normattiva_article(7) + "#",
+            raw_file=self.raw_file(text=self.stored(record).decode("utf-8")),
+            raw_kind="excerpt",
+            source_id=saved["source_id"],
+            tier="supporting",
+        )
+        self.assertEqual([], result.get("errors", []), result)
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertEqual("POST", meta[sources.SAVE_METHOD_KEY])
+        self.assertEqual(f"{base}/varying", meta[sources.SAVE_ENDPOINT_KEY])
+
+    def test_the_endpoint_is_written_by_code_only(self):
+        raw = self.raw_file()
+        result = self.register(raw_file=raw, raw_kind="excerpt", meta={"save_endpoint": "https://example.org/x"})
+        self.assertEqual(["save_endpoint_not_allowed: 'https://example.org/x'"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertTrue(raw.exists(), "a refused registration does not consume the raw file")
+        with LocalServer(ARTICLE_7_TEXT) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save(
+                f"{base}/ok",
+                layer="statutes",
+                title="GDPR Article 7",
+                citation="GDPR, Art. 7",
+                meta='{"save_endpoint": "https://example.org/x", "short_name": "GDPR"}',
+            )
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertNotIn(sources.SAVE_ENDPOINT_KEY, meta, "an agent's --meta never names an endpoint")
+        self.assertEqual("GDPR", meta["short_name"])
+
+
+OPERATIVE_ONLY_TEXT = (SOURCE_TEXT_FIXTURES / "operative-only-decision.txt").read_text(encoding="utf-8")
+"""D-203: a short act published without its reasoning — `excerpt:no_reasoning` under its requisites."""
+
+WITH_REASONING_TEXT = (
+    OPERATIVE_ONLY_TEXT + "\nМотивы решения.\n" + "Суд исследовал доказательства и доводы сторон. " * 90 + "\n"
+)
+"""The same act with a long reasoning behind it that no operative marker closes: `excerpt:not_verified`."""
+
+
+class TextOutcomeTest(SaveTestCase):
+    """Final review E (Important 6): the outcome of the text a record holds, apart from the attempt history.
+
+    `meta.save_outcome` is the last attempt (D-199) and moves on every accepted save; the appendix read
+    it as a property of the retained text. `meta.text_outcome` is written only when a text is published,
+    by code alone, and it is what the appendix reads.
+    """
+
+    def save_act(self, base: str, **overrides) -> dict:
+        payload = {
+            "title": "АС г. Москвы, решение по делу № А40-777/2025",
+            "citation": "Решение АС г. Москвы от 03.06.2025 по делу № А40-777/2025",
+            "expect_number": "А40-777/2025",
+            "expect_date": "2025-06-03",
+        }
+        payload.update(overrides)
+        return self.save(f"{base}/varying", **payload)
+
+    def test_a_retained_excerpt_keeps_the_outcome_of_the_text_it_holds(self):
+        bodies = (WITH_REASONING_TEXT.encode("utf-8"), OPERATIVE_ONLY_TEXT.encode("utf-8"))
+        with LocalServer(b"", variants=bodies) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_act(base)
+            second = self.save_act(base)
+        self.assertEqual("excerpt:not_verified", first["save_outcome"])
+        self.assertEqual("excerpt:no_reasoning", second["save_outcome"])
+        self.assertFalse(second["idempotent"])
+        record = self.records()[first["source_id"]]
+        self.assertEqual(WITH_REASONING_TEXT.encode("utf-8"), self.stored(record), "the held excerpt stays")
+        self.assertEqual("excerpt:no_reasoning", record["meta"]["save_outcome"], "the attempt history, D-199")
+        self.assertEqual("excerpt:not_verified", record["meta"][sources.TEXT_OUTCOME_KEY], "what the text is")
+
+    def test_a_published_text_records_its_outcome(self):
+        with LocalServer(b"", variants=(OPERATIVE_ONLY_TEXT.encode("utf-8"),)) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save_act(base)
+        self.assertEqual("excerpt:no_reasoning", self.records()[saved["source_id"]]["meta"][sources.TEXT_OUTCOME_KEY])
+
+    def test_a_text_the_agent_replaces_loses_the_outcome_of_code(self):
+        with LocalServer(b"", variants=(OPERATIVE_ONLY_TEXT.encode("utf-8"),)) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save_act(base)
+        record = self.records()[saved["source_id"]]
+        result = self.register(
+            layer="case_law",
+            title=record["title"],
+            citation=record["citation_form"],
+            url=record["url"],
+            raw_file=self.raw_file(text=WITH_REASONING_TEXT),
+            raw_kind="excerpt",
+        )
+        self.assertEqual(saved["source_id"], result["source_id"], result)
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertNotIn(sources.TEXT_OUTCOME_KEY, meta, "code classified a text that is gone")
+        self.assertEqual("excerpt:no_reasoning", meta["save_outcome"], "the attempt history stays")
+
+    def test_a_record_that_no_longer_holds_a_text_holds_no_outcome_of_one(self):
+        with LocalServer(b"", variants=(OPERATIVE_ONLY_TEXT.encode("utf-8"),)) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save_act(base)
+        citation = self.records()[saved["source_id"]]["citation_form"]
+        (self.work_dir / self.records()[saved["source_id"]]["raw_path"]).unlink()
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            scan = self.save(f"{base}/served.pdf", title="T", citation=citation)
+        self.assertEqual(saved["source_id"], scan["source_id"], scan)
+        record = self.records()[saved["source_id"]]
+        self.assertIsNone(record["raw_path"])
+        self.assertNotIn(sources.TEXT_OUTCOME_KEY, record["meta"])
+
+    def test_the_outcome_of_a_text_is_written_by_code_only(self):
+        raw = self.raw_file()
+        result = self.register(raw_file=raw, raw_kind="excerpt", meta={"text_outcome": "excerpt:no_reasoning"})
+        self.assertEqual(["text_outcome_not_allowed: 'excerpt:no_reasoning'"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertTrue(raw.exists(), "a refused registration does not consume the raw file")
+        with LocalServer(b"", variants=(WITH_REASONING_TEXT.encode("utf-8"),)) as base:
+            self.allow(sources.url_host(base))
+            saved = self.save_act(base, meta='{"text_outcome": "excerpt:no_reasoning", "court": "АС г. Москвы"}')
+        meta = self.records()[saved["source_id"]]["meta"]
+        self.assertEqual("excerpt:not_verified", meta[sources.TEXT_OUTCOME_KEY], "an agent's --meta never claims it")
+        self.assertEqual("АС г. Москвы", meta["court"])
 
 
 class RegisterSaveOutcomeTest(SourcesTestCase):

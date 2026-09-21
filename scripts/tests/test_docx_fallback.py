@@ -192,8 +192,8 @@ class UnverifiedRowsNoteTest(unittest.TestCase):
 
 
 RU_TEXT_NOTES: dict = {
-    "memo.labels.excerpt_note": "выдержка, сохранённая кодом, а не документ целиком",
-    "memo.labels.agent_summary_note": "текст скопирован агентом из ответа базы, кодом не сохранялся",
+    "memo.labels.excerpt_note": "выдержка, а не документ целиком",
+    "memo.labels.agent_summary_note": "текст, который код не удостоверил как сам документ",
     "memo.labels.no_reasoning_note": (
         "опубликована только резолютивная часть; мотивировки для проверки нет"
     ),
@@ -267,7 +267,8 @@ class TextKindNoteTest(unittest.TestCase):
         cases = (
             ("excerpt", None, "excerpt_note"),
             ("agent_summary", None, "agent_summary_note"),
-            ("excerpt", {"save_outcome": "excerpt:no_reasoning"}, "no_reasoning_note"),
+            # Final review E: the outcome that produced the text held, not the last attempt's.
+            ("excerpt", {"text_outcome": "excerpt:no_reasoning"}, "no_reasoning_note"),
         )
         for kind, meta, key in cases:
             for language in ("en", "ru"):
@@ -275,14 +276,30 @@ class TextKindNoteTest(unittest.TestCase):
                     self.assertEqual(
                         [fallback.label(key, language)], self.notes(text_index(kind, meta=meta), language)
                     )
+        self.assertEqual("an excerpt, not the whole document", fallback.label("excerpt_note"))
         self.assertEqual(
-            "an excerpt saved by code, not the whole document", fallback.label("excerpt_note")
+            "a text the code has not certified as the document itself", fallback.label("agent_summary_note")
         )
         self.assertEqual(RU_TEXT_NOTES["memo.labels.excerpt_note"], fallback.label("excerpt_note", "ru"))
 
     def test_a_short_act_without_reasoning_is_not_called_an_excerpt_of_a_longer_text(self):
-        notes = self.notes(text_index("excerpt", meta={"save_outcome": "excerpt:no_reasoning"}))
+        notes = self.notes(text_index("excerpt", meta={"text_outcome": "excerpt:no_reasoning"}))
         self.assertNotIn(fallback.label("excerpt_note"), notes)
+
+    def test_a_retained_excerpt_is_described_by_the_text_it_holds_not_by_the_last_attempt(self):
+        """Final review E (Important 6): an excerpt WITH reasoning was kept when an operative-only answer
+        arrived; `meta.save_outcome` — the attempt history — named the answer that published nothing,
+        and the appendix told the client there was no reasoning to check."""
+        cases = (
+            {"save_outcome": "excerpt:no_reasoning", "text_outcome": "excerpt:not_verified"},
+            # A text the agent replaced with `register --raw-file`: no outcome of code describes it.
+            {"save_outcome": "excerpt:no_reasoning"},
+        )
+        for meta in cases:
+            with self.subTest(meta=meta):
+                notes = self.notes(text_index("excerpt", meta=meta))
+                self.assertEqual([fallback.label("excerpt_note")], notes)
+                self.assertNotIn(fallback.label("no_reasoning_note"), notes)
 
     def test_a_full_text_and_a_client_file_print_no_text_note(self):
         for kind in ("full_text", "client_file"):

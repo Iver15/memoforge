@@ -117,7 +117,7 @@ PREFLIGHT_ALTERNATIVES: dict[str, str] = {
     "irishstatutebook.ie": "ldh_search on the IE sources",
     "wetten.overheid.nl": "ldh_search on the NL sources",
     "boe.es": "ldh_search on the ES sources",
-    "normattiva.it": "the OpenAPI route on api.normattiva.it: mf sources save --method POST --json",
+    "normattiva.it": "the OpenAPI route on api.normattiva.it: mf sources save --method POST --json --public-url",
     "data.bka.gv.at": "ogd.ris.bka.gv.at/Dokumente/… taken from the API answer",
     "ris.bka.gv.at": "the OGD API on data.bka.gv.at",
     "www.consultant.ru": "base.garant.ru, or ldh_search on RU/PravoGovRu",
@@ -147,8 +147,13 @@ _ERROR_STATUS: dict[str, str] = {
     "cloudflare_challenge": "cloudflare",
     "interstitial_suspected": "interstitial",
     "tls_certificate": "tls",
+    sources.SUDACT_DEFENCE_REDIRECT: "interstitial",
+    f"channel_unavailable: {sources.CHANNEL_CAPTCHA}": "interstitial",
 }
-"""`sources.probe_url` names the interstitial in `error` (D-146); the status is that name, classed."""
+"""`sources.probe_url` names the interstitial in `error` (D-146); the status is that name, classed.
+
+Final review C: the sudact host's own challenge — the refused hop into `/defence/`, or a host the run
+has already closed — is a challenge page as far as the researcher is concerned."""
 
 STATUS_LABELS: dict[str, str] = {
     "ok": i18n.t("en", "ui.preflight.status_ok"),
@@ -241,13 +246,24 @@ def classify(probe: dict) -> str:
     return _ERROR_STATUS.get(str(probe.get("error") or ""), "dead")
 
 
-def probe_host(host: str, *, timeout: float | None = None) -> dict:
-    """One row of `intake/preflight.json`; a probe error is a status, never a raised exception."""
+def probe_host(host: str, *, timeout: float | None = None, work_dir: str | os.PathLike | None = None) -> dict:
+    """One row of `intake/preflight.json`; a probe error is a status, never a raised exception.
+
+    Final review C: a probe of the sudact host is a request of its channel like any other — with the
+    work dir whose `channels.json` holds the run's pace, budget and captcha marker, it takes its slot,
+    never follows the hop into `/defence/`, and a challenge it meets closes the host for the run.
+    """
     url = PREFLIGHT_URLS[host]
     try:
         # `want_body=True`: the three false-positive 200s of analysis/38 §7.4 (eCFR stub, curia
         # shell, an act tree without article text) are only visible in the body.
-        probe = sources.probe_url(url, want_body=True, timeout=timeout)
+        if work_dir is not None and sources.sudact_address(url):
+            probe = sources.channel_probe(work_dir, url, want_body=True, timeout=timeout)
+        else:
+            probe = sources.probe_url(url, want_body=True, timeout=timeout)
+    except sources.ChannelUnavailable as exc:
+        # The channel refused before a request went out: nothing was asked of the host.
+        probe = {"status": "unchecked", "code": None, "error": sources.resolve_channel_refusal(exc)["errors"][0]}
     except Exception as exc:  # noqa: BLE001 - preflight never fails the pipeline (D-147)
         probe = {"status": "dead", "code": None, "error": sources.probe_error(exc)}
     return {
@@ -272,7 +288,9 @@ def offline_host(host: str) -> dict:
     }
 
 
-def probe_hosts(hosts: list[str], *, timeout: float | None = None) -> list[dict]:
+def probe_hosts(
+    hosts: list[str], *, timeout: float | None = None, work_dir: str | os.PathLike | None = None
+) -> list[dict]:
     """Probe each host once, with the politeness rule of `sources.run_liveness` (D-146)."""
     if offline():
         return [offline_host(host) for host in hosts]
@@ -282,7 +300,7 @@ def probe_hosts(hosts: list[str], *, timeout: float | None = None) -> list[dict]
         since = last_probe.get(host)
         if since is not None:
             sources._wait(sources.host_delay(host) - (time.monotonic() - since))
-        rows.append(probe_host(host, timeout=timeout))
+        rows.append(probe_host(host, timeout=timeout, work_dir=work_dir))
         last_probe[host] = time.monotonic()
     return rows
 
@@ -410,13 +428,15 @@ def source_access_line(work_dir: str | os.PathLike, state: dict | None = None) -
 # --- command ---------------------------------------------------------------
 
 
-def build_document(hosts: list[str], *, timeout: float | None = None) -> dict:
+def build_document(
+    hosts: list[str], *, timeout: float | None = None, work_dir: str | os.PathLike | None = None
+) -> dict:
     """`intake/preflight.json` for one plan (schema `preflight`)."""
     return {
         "schema_version": 1,
         "checked_at": events.utc_now(),
         "offline": offline(),
-        "hosts": probe_hosts(hosts, timeout=timeout),
+        "hosts": probe_hosts(hosts, timeout=timeout, work_dir=work_dir),
     }
 
 
@@ -443,7 +463,7 @@ def run_preflight(args: argparse.Namespace) -> dict:
     if not isinstance(plan, dict):
         plan = {}
 
-    document = build_document(plan_hosts(plan), timeout=args.timeout)
+    document = build_document(plan_hosts(plan), timeout=args.timeout, work_dir=work_dir)
     schema.validate_or_raise(document, "preflight")
 
     stepctx.stage_input(work_dir, args.step, args.attempt, work_dir / PLAN_PATH)

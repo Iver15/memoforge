@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 
 from .. import fallbacks, i18n, state_io
-from ..sources import RAW_KINDS, canonical_id
+from ..sources import RAW_KINDS, TEXT_OUTCOME_KEY, canonical_id
 from . import oscola
 
 SRC_TOKEN = re.compile(r"\[\[src:\s*(?P<id>[^\]\s]+)(?P<pinpoint>[^\]]*)\]\]")
@@ -121,8 +121,10 @@ whole document. `full_text` and `client_file` print nothing; `none` is said by t
 (`no_saved_text_note` / `pdf_unverified_note`)."""
 
 NO_REASONING_OUTCOME = "excerpt:no_reasoning"
-"""D-203/D-204: `meta.save_outcome` of a short act published without its reasoning — the appendix
-calls it that, never «an excerpt» of a longer text that does not exist."""
+"""D-203/D-204: the outcome of a short act published without its reasoning — the appendix calls it
+that, never «an excerpt» of a longer text that does not exist. Final review E: read from
+`meta.text_outcome` (`sources.TEXT_OUTCOME_KEY`), the outcome of the text the record holds, never
+from `meta.save_outcome`, which is the last attempt and moves when an attempt publishes nothing."""
 
 # --- the appendix is written for the client (D-113, D-191) ------------------------
 
@@ -686,7 +688,7 @@ class SourceIndex:
         if kind not in KIND_NOTES:
             return None
         meta = record.get("meta")
-        if kind == "excerpt" and isinstance(meta, dict) and meta.get("save_outcome") == NO_REASONING_OUTCOME:
+        if kind == "excerpt" and isinstance(meta, dict) and meta.get(TEXT_OUTCOME_KEY) == NO_REASONING_OUTCOME:
             return "no_reasoning_note"
         return KIND_NOTES[kind]
 
