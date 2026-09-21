@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import sys
 import tempfile
 import unittest
@@ -17,7 +18,19 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, temp_root  # noqa: E402
-from memoforge import dispatch, gates, i18n, machine, modes, preflight, routing, state_io, task  # noqa: E402
+from memoforge import (  # noqa: E402
+    cli,
+    dispatch,
+    gates,
+    i18n,
+    machine,
+    modes,
+    preflight,
+    routing,
+    sources,
+    state_io,
+    task,
+)
 
 import _i18n  # noqa: E402
 
@@ -871,6 +884,134 @@ class RoutingParameterTest(unittest.TestCase):
         text = self._routing("case_law", "US")
         self.assertIn("US: courtlistener_search", text)
         self.assertNotIn("LDH sources:", text)
+
+
+class ResearcherSaveRuleTest(unittest.TestCase):
+    """D-205: the researcher stops being the glue between fetching a page and registering it.
+
+    A web source is saved by `mf sources save`; `register --raw-file` keeps exactly three cases; and
+    every answer `save` can give is mapped to one next move — the answers Tasks 6 and 7 kept apart
+    are worth nothing unless the agent that reads them acts differently on each.
+    """
+
+    def _researchers(self) -> list[str]:
+        """Every researcher prompt of both modes, normalised exactly as the goldens are."""
+        prompts = []
+        for mode in ("brief", "full"):
+            rendered = PromptGoldenTest._render(self, mode)
+            for agent in rendered["agents"]:
+                if agent["agent"] == "legal-researcher":
+                    prompts.append(normalize(agent["prompt"], rendered["work_dir"]))
+        self.assertEqual(4, len(prompts), "statutes in Brief; statutes, case_law, doctrine in Full")
+        return prompts
+
+    @staticmethod
+    def _examples(prompt: str, command: str) -> list:
+        """Every `{MF} sources <command> …` line of a prompt, split as a shell would and parsed."""
+        parsed = []
+        for printed in re.findall(r"`(\{MF\} sources " + command + r" [^`]+)`", prompt):
+            tokens = shlex.split(printed.replace("{MF}", "mf", 1))
+            try:
+                parsed.append(cli.build_parser().parse_args(tokens[1:]))
+            except SystemExit:  # argparse reports a bad command line by exiting
+                raise AssertionError(f"the prompt shows a command the CLI refuses: {printed}") from None
+        return parsed
+
+    def test_a_web_source_is_saved_and_register_keeps_exactly_three_cases(self):
+        for prompt in self._researchers():
+            self.assertIn("A web source is saved by code", prompt)
+            self.assertIn("exactly three cases", prompt)
+            for kind in ("excerpt", "client_file", "agent_summary"):
+                self.assertIn(f"`--raw-kind {kind}`", prompt)
+            self.assertIn("`host_not_allowed`", prompt)
+            self.assertIn("raised to the full text by running `save` over the same record", prompt)
+            # The older, longer rule is gone, not softened: an agent that sees both follows it.
+            self.assertNotIn("--tier <critical|supporting> --raw-file", prompt)
+            self.assertNotIn('register that file with `--tool "mf-fetch <host>"`', prompt)
+            self.assertNotIn("register it with `--tool WebFetch <domain>`", prompt)
+
+    def test_every_save_and_register_example_is_a_command_the_cli_accepts(self):
+        """Addendum §6: an example that does not parse is worse than none."""
+        for prompt in self._researchers():
+            saves = self._examples(prompt, "save")
+            registers = self._examples(prompt, "register")
+            self.assertTrue(saves)
+            self.assertTrue(registers)
+            for args in saves:
+                self.assertIs(sources.run_save, args.func)
+                self.assertEqual("critical", args.tier)
+            for args in registers:
+                self.assertIs(sources.run_register, args.func)
+                self.assertIn(args.raw_kind, sources.AGENT_RAW_KINDS)
+                self.assertTrue(args.raw_file)
+            printed = re.findall(r"`\{MF\} sources register [^`]+`", prompt)
+            self.assertTrue(all("--raw-kind " in line for line in printed), "the default kind is never implied")
+
+    def test_every_answer_of_save_is_mapped_to_one_next_move(self):
+        # The spellings are the code's own, not the prompt's paraphrase of them.
+        for code in ("requisites_mismatch", "requisites_ambiguous", "channel_unavailable", "channel_budget_spent"):
+            self.assertIn(code, sources.RESOLVE_HINTS)
+        self.assertIn("host_not_allowed", sources.SAVE_HINTS)
+        answers = {
+            "`full_text`": "cite it",
+            "`excerpt:<reason>`": "cite it as an excerpt",
+            "`requisites_mismatch`": "look at the number and the date again",
+            "`requisites_ambiguous`": "choose one yourself and save it with `--url`",
+            "`channel_unavailable: <reason>`": "go to the fallbacks",
+            "`channel_budget_spent`": "go to the fallbacks",
+            f"`channel_unavailable: {sources.CHANNEL_CAPTCHA}`": "has no exceptions",
+            "`host_not_allowed`": "`--raw-kind agent_summary`",
+        }
+        for prompt in self._researchers():
+            block = prompt.split("act on its answer", 1)[1].split("\n\n", 1)[0]
+            for answer, move in answers.items():
+                with self.subTest(answer=answer):
+                    line = next((row for row in block.splitlines() if answer in row), "")
+                    self.assertIn(move, line)
+            self.assertIn("do not switch channels", block)
+            self.assertIn("do not retry the same address", block)
+
+    def test_a_captcha_is_never_retried_and_closes_sudact_for_the_run(self):
+        """Addendum §1 and §9: LDH `RU/Sudact` answers with sudact.ru addresses — the obvious way back in."""
+        for prompt in self._researchers():
+            line = next(row for row in prompt.splitlines() if "`channel_unavailable: captcha`" in row)
+            for words in (
+                "never try the channel again in this run",
+                "never try to get round the page",
+                "never ask the user to solve it",
+                "no exceptions",
+                "do not pass an address on sudact.ru",
+                "`--raw-kind excerpt`",
+                "another allowed host",
+            ):
+                with self.subTest(words=words):
+                    self.assertIn(words, line)
+
+    def test_the_number_goes_in_whole_and_the_date_is_the_act_s_own(self):
+        """Addendum §2: a researcher who strips the suffix would certify the wrong twin."""
+        for prompt in self._researchers():
+            self.assertIn("suffix included (`305-ЭС24-8702 (1,3)`)", prompt)
+            self.assertIn("never strip it", prompt)
+            self.assertIn("never the date a portal's listing shows", prompt)
+
+    def test_the_sufficiency_reviewer_reads_raw_kind_and_the_save_outcome(self):
+        """D-205: a critical source not saved whole goes back for `save` — unless a save was tried."""
+        rendered = PromptGoldenTest._render(self, "full")
+        prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
+        for words in (
+            "`raw_kind`",
+            "neither `full_text` nor `client_file`",
+            "`mf sources save`",
+            "no `meta.save_outcome`",
+            "`refused:",
+            "`excerpt:",
+            "is not sent back",
+            "`raw_original_path`",
+            "not checked by code",
+        ):
+            with self.subTest(words=words):
+                self.assertIn(words, prompt)
+        self.assertNotIn("A `critical` source with no saved raw text is a `missing` gap", prompt)
 
 
 class McpNamespaceFieldTest(unittest.TestCase):

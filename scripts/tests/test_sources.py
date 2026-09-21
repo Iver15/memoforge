@@ -3492,6 +3492,35 @@ class SavePdfTest(SaveTestCase):
         self.assertEqual(state_io.sha256_bytes(text.encode("utf-8")), record["raw_sha256"])
         self.assertEqual(sorted([f"{source_id}.md", f"{source_id}.pdf"]), self.raw_files())
 
+    def test_a_pdf_declared_with_an_empty_subtype_is_saved_by_its_signature(self):
+        """Task 9 correction of Task 5 (D-201, D-205): `application/` declares no type at all.
+
+        The Commission newsroom serves the WP248 guidelines — a PDF the researcher prompt names — as
+        `Content-Type: application/`. A declared type decided, and `application/` is neither a PDF nor
+        text, so the real document was refused `unsupported_media_type`. A type whose subtype is empty
+        is now read as no type, and the `%PDF-` signature decides, exactly as for an answer that sends
+        no `Content-Type` at all (`test_an_undeclared_pdf_is_saved_by_its_signature`).
+        """
+        with LocalServer(b"", routes={"/wp248": (VSRF_PDF, "application/")}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base, path="/wp248")
+        self.assertEqual([], result.get("errors", []))
+        self.assertEqual("full_text", result["save_outcome"])
+        record = self.records()[result["source_id"]]
+        self.assertEqual(VSRF_PDF, (self.work_dir / record["raw_original_path"]).read_bytes())
+        self.assertEqual(VSRF_PDF_SHA256, record["raw_original_sha256"])
+
+    def test_an_empty_subtype_is_no_declared_type_on_either_side(self):
+        """The same rule on both of the save path's type checks, and on nothing else."""
+        for declared in ("application/", "application/; charset=binary", " Application/ "):
+            with self.subTest(declared=declared):
+                self.assertTrue(sources.save_pdf_answer(declared, VSRF_PDF))
+                self.assertFalse(sources.save_text_type(declared, VSRF_PDF))
+                self.assertTrue(sources.save_text_type(declared, b"plain text"), "as with no header")
+        # A real declared type still decides, whatever the body says.
+        self.assertFalse(sources.save_pdf_answer("image/png", VSRF_PDF))
+        self.assertFalse(sources.save_text_type("image/png", b"plain text"))
+
     def test_a_pdf_whose_requisites_do_not_match_registers_nothing_at_all(self):
         with LocalServer(VSRF_PDF) as base:
             self.allow(sources.url_host(base))
@@ -6630,6 +6659,80 @@ class RawKindTest(SourcesTestCase):
         self.assertTrue(other.exists(), "a refused registration does not consume the raw file")
         stored = (self.work_dir / after["raw_path"]).read_text(encoding="utf-8")
         self.assertEqual(RAW_TEXT, stored)
+
+
+class RegisterSaveOutcomeTest(SourcesTestCase):
+    """D-205: `register --meta` may carry the refusal of a failed `save`, and nothing `save` writes itself.
+
+    The researcher registers its fallback text with `"save_outcome": "refused:<code>"` so the
+    sufficiency reviewer does not ask again for a save that already failed (the design's D-202 line:
+    `register … --raw-kind agent_summary` with `meta.save_outcome: refused:host_not_allowed`). Any
+    other value would be a claim only code may make — `full_text` says code saved a text it never
+    saw — and it would switch off the reviewer's «not attempted yet» remedy, so it is refused.
+    """
+
+    def register_with(self, outcome: object, **overrides) -> tuple[dict, Path]:
+        raw = self.raw_file()
+        payload = {"raw_file": raw, "raw_kind": "agent_summary", "meta": {"court": "X", "save_outcome": outcome}}
+        payload.update(overrides)
+        return self.register(**payload), raw
+
+    def test_the_refusal_of_a_failed_save_is_carried(self):
+        for code in ("host_not_allowed", "captcha", "unsupported_media_type", "channel_unavailable"):
+            with self.subTest(code=code):
+                result, _ = self.register_with(f"refused:{code}", url=f"https://example.org/{code}")
+                self.assertEqual([], result.get("errors", []))
+                record = sources.read_registry(self.work_dir)["sources"][result["source_id"]]
+                self.assertEqual(f"refused:{code}", record["meta"]["save_outcome"])
+                self.assertEqual("X", record["meta"]["court"])
+
+    def test_the_codes_are_the_refusals_save_can_answer(self):
+        self.assertLessEqual(set(sources.SAVE_HINTS), sources.SAVE_OUTCOME_REFUSALS)
+        self.assertIn(sources.CHANNEL_CAPTCHA, sources.SAVE_OUTCOME_REFUSALS)
+        self.assertIn("channel_budget_spent", sources.SAVE_OUTCOME_REFUSALS)
+        self.assertNotIn("requisites_ambiguous", sources.SAVE_OUTCOME_REFUSALS, "a choice, not a failure")
+
+    def test_an_outcome_only_code_writes_is_refused_and_nothing_is_written(self):
+        for outcome in ("full_text", "excerpt:not_verified", "refused:made_up", "refused:", "refused", 42, None):
+            with self.subTest(outcome=outcome):
+                result, raw = self.register_with(outcome)
+                self.assertEqual(1, len(result["errors"]))
+                self.assertTrue(result["errors"][0].startswith("save_outcome_not_allowed: "), result["errors"])
+                self.assertIn("mf sources save", result["hint"])
+                self.assertIn("refused:host_not_allowed", result["hint"])
+                self.assertEqual({}, sources.read_registry(self.work_dir)["sources"])
+                self.assertTrue(raw.exists(), "a refused registration does not consume the raw file")
+                self.assertFalse((self.work_dir / "research" / "raw" / "statutes").is_dir() and any(
+                    (self.work_dir / "research" / "raw" / "statutes").iterdir()
+                ))
+
+    def test_a_refused_outcome_leaves_an_existing_record_as_it_was(self):
+        import json
+
+        first = self.register(raw_file=self.raw_file(), raw_kind="excerpt")
+        before = json.dumps(sources.read_registry(self.work_dir)["sources"][first["source_id"]], sort_keys=True)
+        result, _ = self.register_with("full_text", raw_kind="excerpt")
+        self.assertTrue(result["errors"][0].startswith("save_outcome_not_allowed: "))
+        after = json.dumps(sources.read_registry(self.work_dir)["sources"][first["source_id"]], sort_keys=True)
+        self.assertEqual(before, after)
+
+    def test_the_cli_answers_the_same_refusal(self):
+        raw = self.raw_file()
+        args = cli.build_parser().parse_args(
+            [
+                "sources", "register",
+                "--workdir", str(self.work_dir),
+                "--layer", "statutes",
+                "--title", "T",
+                "--citation", "C",
+                "--raw-file", str(raw),
+                "--raw-kind", "excerpt",
+                "--meta", '{"save_outcome": "full_text"}',
+            ]
+        )
+        result = sources.run_register(args)
+        self.assertEqual(["save_outcome_not_allowed: 'full_text'"], result["errors"])
+        self.assertTrue(raw.exists())
 
 
 class PackRawKindIntegrityTest(SourcesTestCase):

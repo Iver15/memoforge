@@ -116,6 +116,27 @@ class PermissionsTest(unittest.TestCase):
             self.assertNotIn(PLUGIN_ROOT.as_posix(), text)
             self.assertNotIn(str(PLUGIN_ROOT), text)
 
+    def test_the_block_allows_garant_ru_for_the_plenum_rulings(self):
+        """D-205: Plenum rulings are indexed on garant.ru itself, not only on base.garant.ru."""
+        for text in (docs_render.render_permissions(PLUGIN_ROOT), _committed_permissions()):
+            self.assertIn('"WebFetch(domain:garant.ru)"', text)
+            self.assertIn('"WebFetch(domain:*.garant.ru)"', text)
+
+    def test_the_readme_block_carries_exactly_the_generated_rules(self):
+        """D-47 keeps a compact copy of `docs/permissions.md` in the README, and no command writes it.
+
+        It fell behind once already — D-185's seven RU hosts never reached it and its count stayed at
+        211 — so the copy is pinned here: the same rules in the same order, and the count they add up to.
+        """
+        rule = re.compile(r'"((?:WebFetch|mcp__|Bash)[^"]*)"')
+        generated = rule.findall(docs_render.render_permissions(PLUGIN_ROOT))
+        readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8-sig")
+        block = readme.split("<summary><b>Permission block — ", 1)[1]
+        count = int(block.split(" rules</b>", 1)[0])
+        body = block.split("```json", 1)[1].split("```", 1)[0]
+        self.assertEqual(generated, rule.findall(body))
+        self.assertEqual(len(generated), count)
+
     def test_comments_and_blanks_are_stripped_from_the_allowlist(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

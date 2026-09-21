@@ -868,6 +868,33 @@ def read_raw_text(work_dir: str | os.PathLike, record: dict) -> str | None:
 # --- register -------------------------------------------------------------
 
 
+def meta_save_outcome_refusal(meta: dict | None) -> dict | None:
+    """Why a `register --meta` `save_outcome` may not be written, or None when it may (D-205).
+
+    `meta.save_outcome` is the record of an attempt of `mf sources save`, and the sufficiency reviewer
+    reads it: with none, a critical source that is not whole goes back for a save; with one, it was
+    tried already. `register` may carry exactly one kind of value there — the refusal of a save that
+    failed, `refused:<code>` with a code from `SAVE_OUTCOME_REFUSALS` — so the researcher's fallback
+    text is not sent round again for a save that cannot succeed (the design's D-202 line). Anything
+    else is a claim only code may make: `full_text` would say code saved a text it never saw, and it
+    would switch off the reviewer's «not attempted yet» remedy.
+    """
+    if not meta or "save_outcome" not in meta:
+        return None
+    value = meta["save_outcome"]
+    kind, _, code = value.partition(":") if isinstance(value, str) else ("", "", "")
+    if kind == "refused" and code in SAVE_OUTCOME_REFUSALS:
+        return None
+    return {
+        "errors": [f"save_outcome_not_allowed: {value!r}"],
+        "hint": (
+            "meta.save_outcome is written by `mf sources save`; register carries only the refusal of a save "
+            "that failed — refused:<code>, e.g. refused:host_not_allowed, the code one of: "
+            + ", ".join(sorted(SAVE_OUTCOME_REFUSALS))
+        ),
+    }
+
+
 def register_source(
     work_dir: str | os.PathLike,
     *,
@@ -894,6 +921,10 @@ def register_source(
         raise ValueError("empty_citation_form")
     if not str(url).strip() and not str(citation).strip():
         raise ValueError("url_or_citation_required")
+    refusal = meta_save_outcome_refusal(meta)
+    if refusal is not None:
+        # D-205: refused before anything is read or written — the raw file stays where it was.
+        return refusal
 
     # D-192: from here on `url` means the address a client may be given. An endpoint address never
     # becomes one — it is kept in `retrieved_from` and answered for with a warning. The citation
@@ -2729,15 +2760,28 @@ SAVE_HINTS: dict[str, str] = {
 """One line of advice per refusal; `meta.save_outcome` records `refused:<key>` (D-199)."""
 
 
+def save_declared_type(content_type: object) -> str:
+    """The media type an answer declares, for the save path's two type checks; `""` when none is.
+
+    Task 9 correction of Task 5 (D-201, D-205): a type with an empty subtype declares nothing. The
+    Commission newsroom serves the WP248 guidelines as `Content-Type: application/`, and while a
+    declared type decided, that real PDF was refused `unsupported_media_type`. Read as no type at
+    all, it takes the path of an answer without the header: the `%PDF-` signature decides.
+    """
+    kind = str(content_type or "").split(";")[0].strip().lower()
+    return "" if kind.endswith("/") else kind
+
+
 def save_pdf_answer(content_type: object, payload: bytes = b"") -> bool:
     """True when the answer is a PDF, by its declared type or — with none declared — its signature.
 
     D-201: a declared type decides, the way it decides everywhere else in this module. With none
     declared, `%PDF-` is the one signature that really is served that way and really is not text;
     Task 4 refused those bytes rather than decode them into mojibake, and this is where they go
-    instead. One signature, not a type sniffer.
+    instead. One signature, not a type sniffer. «None declared» includes an empty subtype
+    (`save_declared_type`).
     """
-    kind = str(content_type or "").split(";")[0].strip().lower()
+    kind = save_declared_type(content_type)
     if kind:
         return kind == SAVE_PDF_TYPE
     return payload.startswith(PDF_SIGNATURE)
@@ -2770,9 +2814,10 @@ def save_text_type(content_type: object, payload: bytes = b"") -> bool:
     A declared type decides. With none declared the body is admitted as text — many portals send
     no header — except for the one signature that really is served that way and really is not
     text: `%PDF-`, which takes the PDF path of D-201 instead of being decoded with replacement
-    characters and exported to the client as a `.txt` of mojibake.
+    characters and exported to the client as a `.txt` of mojibake. An empty subtype is no declared
+    type either (`save_declared_type`).
     """
-    kind = str(content_type or "").split(";")[0].strip().lower()
+    kind = save_declared_type(content_type)
     if not kind:
         return not payload.startswith(PDF_SIGNATURE)
     return kind.startswith("text/") or kind in SAVE_TEXT_TYPES
@@ -3009,6 +3054,19 @@ read and the answer can hand the researcher the addresses it read. It is also th
 index named no act at all — `candidates` is then empty, and the number is what to look at again.
 `channel_unavailable` is kept for the other fact: the index did not arrive. `captcha` is the advice
 of `channel_unavailable: captcha`, and `channel_budget_spent` the answer of a spent budget (sudact).
+"""
+
+SAVE_OUTCOME_REFUSALS: frozenset = frozenset(SAVE_HINTS) | {
+    CHANNEL_CAPTCHA,
+    "channel_unavailable",
+    "channel_budget_spent",
+}
+"""D-205: the codes a `register --meta` `save_outcome` may name — `refused:<code>`, nothing else.
+
+The refusals `save` stamps itself (`SAVE_HINTS`, and `captcha` for a closed host) plus the two
+answers of a resolver's channel, which stamp nothing because the resolver stops before the save
+transaction begins. `requisites_ambiguous` is not among them: it asks for a choice, not a
+fallback. A `full_text` or `excerpt:*` outcome is written by `save` alone.
 """
 
 

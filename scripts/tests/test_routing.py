@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import re
 import shlex
 import sys
 import unittest
@@ -13,6 +15,22 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 from memoforge import cli, limits, routing, schema, sources  # noqa: E402
+
+
+def note_commands(note: str) -> list[argparse.Namespace]:
+    """Every `` `mf …` `` command of a routing note, split as a shell would and parsed by the real CLI.
+
+    A note that names a flag the command does not have, or leaves out a required one, fails here —
+    the words are never read for themselves (D-151, D-205).
+    """
+    parsed = []
+    for printed in re.findall(r"`(mf [^`]+)`", note):
+        tokens = shlex.split(printed)
+        try:
+            parsed.append(cli.build_parser().parse_args(tokens[1:]))
+        except SystemExit:  # argparse reports a bad command line by exiting
+            raise AssertionError(f"the note prints a command the CLI refuses: {printed}") from None
+    return parsed
 
 
 class JurisdictionTest(unittest.TestCase):
@@ -165,34 +183,69 @@ class MemberStateTest(unittest.TestCase):
         self.assertIn("~artN!vig=YYYY-MM-DD", note)
         self.assertIn("CC BY 4.0", note)
         self.assertNotIn("not reachable statelessly", note)
-        self.assertIn("mf sources fetch (D-149)", note)
+        # D-205: the article is the source, so it is saved by code, not fetched and registered.
+        self.assertIn("mf sources save", note)
+        self.assertNotIn("mf sources fetch", note)
 
     def test_the_italian_note_shows_the_command_that_executes_the_post(self):
-        """D-151: the note prescribed a POST that `mf sources fetch` could not make (GET only).
+        """D-151, D-205: the POST the note prescribes is a command the real CLI accepts.
 
         The command is not read for its words: it is split and handed to the real CLI parser, so a
-        note that names a flag the command does not have fails here.
+        note that names a flag the command does not have fails here. Since D-205 it is `save`, which
+        shares `--method POST --json` with `fetch` (D-199), because the article it reads is the source.
         """
-        note = routing.route("statutes", "IT")["note"]
-        printed = note[note.index("mf sources fetch --workdir") :].split(", where")[0]
-        self.assertIn("/atto/dettaglio-atto-urn", printed)
-        tokens = shlex.split(printed)
-        self.assertEqual(["mf", "sources", "fetch"], tokens[:3])
-        args = cli.build_parser().parse_args(tokens[1:])
-        self.assertIs(sources.run_fetch, args.func)
-        self.assertEqual("POST", args.method)
+        posts = [args for args in note_commands(routing.route("statutes", "IT")["note"]) if args.method == "POST"]
+        self.assertEqual(1, len(posts))
+        args = posts[0]
+        self.assertIs(sources.run_save, args.func)
         self.assertEqual("statutes", args.layer)
         self.assertTrue(args.url.startswith("https://api.normattiva.it/"), args.url)
+        self.assertIn("/atto/dettaglio-atto-urn", args.url)
         self.assertEqual(
             {"urn": "urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01"},
             json.loads(args.json_body),
         )
 
-    def test_the_official_api_notes_send_a_header_bearing_call_through_sources_fetch(self):
-        # D-148: WebFetch takes no headers, so every Accept-bound channel names the command.
+    def test_the_official_api_notes_save_the_text_with_the_header_options(self):
+        """D-148 / D-205: WebFetch takes no headers, and the text those channels serve is a source.
+
+        So it is saved by `mf sources save` with the transport options it shares with `fetch`; `fetch`
+        stays only where a body is read and never registered — the NL manifest and SRU search.
+        """
         for code in ("IT", "ES", "NL"):
             with self.subTest(jurisdiction=code):
-                self.assertIn("mf sources fetch (D-149)", routing.route("statutes", code)["note"])
+                self.assertIn("mf sources save", routing.route("statutes", code)["note"])
+        self.assertIn("--accept application/xml", routing.route("statutes", "ES")["note"])
+        nl = routing.route("statutes", "NL")["note"]
+        self.assertIn("--accept application/xml", nl)
+        self.assertIn("only read, through mf sources fetch (D-149)", nl)
+
+    def test_no_note_fetches_a_source_s_text_and_registers_it_itself(self):
+        """D-205: an agent that sees two rules follows the older one, so the old one is nowhere.
+
+        `mf sources fetch` survives in exactly two notes, and in both only for a body that is read and
+        never registered: the Federal Register search API (US) and the BWB manifest with its SRU
+        search (NL). No note registers a text under `--tool WebFetch` or `mf-fetch`.
+        """
+        readers = set()
+        for layer in routing.LAYERS:
+            for code in list(routing.ROUTING[layer]) + list(routing.MEMBER_STATES) + ["CH", "RU"]:
+                note = routing.route(layer, code)["note"]
+                with self.subTest(layer=layer, jurisdiction=code):
+                    self.assertNotIn("--tool WebFetch", note)
+                    self.assertNotIn("mf-fetch", note)
+                    if "mf sources fetch" in note:
+                        readers.add((layer, code))
+        self.assertEqual({("statutes", "US"), ("statutes", "NL")}, readers)
+
+    def test_every_command_line_of_every_note_parses(self):
+        """D-205: every `` `mf …` `` a note prints is a command the real CLI accepts."""
+        printed = 0
+        for layer in routing.LAYERS:
+            for code in list(routing.ROUTING[layer]) + list(routing.MEMBER_STATES) + ["CH", "RU"]:
+                with self.subTest(layer=layer, jurisdiction=code):
+                    printed += len(note_commands(routing.route(layer, code)["note"]))
+        self.assertGreaterEqual(printed, 6, "IT's POST, the RU statute, three RU case-law saves, the LDH line")
 
     def test_spanish_statutes_name_the_boe_block_endpoint_and_its_accept_header(self):
         note = routing.route("statutes", "ES")["note"]
@@ -398,7 +451,9 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertEqual(["RU/PravoGovRu"], row["ldh_sources"])
         self.assertEqual(["www.consultant.ru", "base.garant.ru"], row["domains"])
         self.assertIn("RU/PravoGovRu", row["note"])
-        self.assertIn("--raw-file", row["note"])
+        # D-205: the article is saved by code; «Register with --raw-file» is gone, not softened.
+        self.assertIn("mf sources save", row["note"])
+        self.assertNotIn("Register with --raw-file", row["note"])
 
     def test_the_russian_statute_note_names_the_free_sections_and_the_pinpoint_form(self):
         note = routing.route("statutes", "RU")["note"]
@@ -441,6 +496,59 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertIn("endpoint address, not a page", note)
         self.assertIn("do not pass it as `--url`", note)
         self.assertIn("vsrf.ru", note)
+
+    @staticmethod
+    def commands(note: str) -> list[argparse.Namespace]:
+        return note_commands(note)
+
+    def test_every_command_line_of_the_two_russian_notes_parses(self):
+        """D-205: the notes show commands, and every one of them is a command `mf` accepts."""
+        for layer in ("statutes", "case_law"):
+            with self.subTest(layer=layer):
+                self.assertTrue(self.commands(routing.route(layer, "RU")["note"]), layer)
+
+    def test_the_statute_note_saves_one_article_of_consultant_with_its_edition(self):
+        """D-205: the article page → `save --url … --expect-article <N>`, the edition line in `--meta`."""
+        saves = [
+            args
+            for args in self.commands(routing.route("statutes", "RU")["note"])
+            if args.func is sources.run_save
+        ]
+        self.assertEqual(1, len(saves))
+        args = saves[0]
+        self.assertEqual("statutes", args.layer)
+        self.assertTrue(args.url.startswith("https://www.consultant.ru/document/cons_doc_LAW_"), args.url)
+        self.assertEqual("152", args.expect_article)
+        self.assertIn("edition", json.loads(args.meta))
+
+    def test_the_case_law_note_names_both_resolvers_and_the_plenum_url(self):
+        """D-205: `save --resolve vsrf`, `save --resolve sudact`, and `save --url` for a Plenum act."""
+        commands = self.commands(routing.route("case_law", "RU")["note"])
+        saves = {args.resolve or "url": args for args in commands if args.func is sources.run_save}
+        self.assertEqual({"vsrf", "sudact", "url"}, set(saves))
+        for name, args in saves.items():
+            with self.subTest(route=name):
+                self.assertEqual("case_law", args.layer)
+                self.assertTrue(args.expect_number, "a Russian act is certified by its number …")
+                self.assertRegex(args.expect_date, r"^\d{4}-\d{2}-\d{2}$", "… and by its own date")
+        # The ruling of the addendum: the number goes in whole, its bracketed suffix included.
+        self.assertEqual("305-ЭС24-8702 (1,3)", saves["vsrf"].expect_number)
+        self.assertTrue(saves["url"].url.startswith("https://base.garant.ru/"), saves["url"].url)
+
+    def test_the_case_law_note_registers_ldh_as_an_excerpt_once_sudact_is_closed(self):
+        """Addendum §9: after a captcha, LDH's sudact.ru address is not fetched; its answer is kept."""
+        note = routing.route("case_law", "RU")["note"]
+        registers = [args for args in self.commands(note) if args.func is sources.run_register]
+        self.assertEqual(1, len(registers))
+        self.assertEqual("excerpt", registers[0].raw_kind)
+        self.assertTrue(registers[0].raw_file)
+        self.assertIn("channel_unavailable: captcha", note)
+        self.assertIn("closed for the run", note)
+
+    def test_the_russian_notes_pass_the_number_whole_and_the_act_s_own_date(self):
+        note = routing.route("case_law", "RU")["note"]
+        self.assertIn("suffix included", note)
+        self.assertIn("a day early", note)
 
     def test_every_russian_note_sends_a_moved_tool_name_to_the_host_tool_list(self):
         """D-187a: the probe records namespaces and status, never tool names — so it is not the

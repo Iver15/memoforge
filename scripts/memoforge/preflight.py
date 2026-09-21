@@ -117,7 +117,7 @@ PREFLIGHT_ALTERNATIVES: dict[str, str] = {
     "irishstatutebook.ie": "ldh_search on the IE sources",
     "wetten.overheid.nl": "ldh_search on the NL sources",
     "boe.es": "ldh_search on the ES sources",
-    "normattiva.it": "the OpenAPI route on api.normattiva.it: mf sources fetch --method POST --json",
+    "normattiva.it": "the OpenAPI route on api.normattiva.it: mf sources save --method POST --json",
     "data.bka.gv.at": "ogd.ris.bka.gv.at/Dokumente/… taken from the API answer",
     "ris.bka.gv.at": "the OGD API on data.bka.gv.at",
     "www.consultant.ru": "base.garant.ru, or ldh_search on RU/PravoGovRu",
@@ -135,7 +135,8 @@ PREFLIGHT_ALTERNATIVES: dict[str, str] = {
 """Where the researcher goes when the host of the same key did not answer — the routing note, short.
 
 D-151: every line names something the routing table knows — a routed domain, a tool of a routing
-row, a bundled MCP server, or `mf sources fetch`. `test_preflight` asserts it, so an alternative
+row, a bundled MCP server, `mf sources fetch` or `mf sources save` (D-205: the IT article is a
+source, so its route saves it). `test_preflight` asserts it, so an alternative
 can no longer drift away from the note it is supposed to summarise (the IT line used to say a
 pinpoint «needs a session, considered_excluded» long after D-148 routed it through the official
 OpenAPI).

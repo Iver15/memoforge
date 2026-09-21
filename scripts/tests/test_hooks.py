@@ -262,8 +262,9 @@ class AllowlistFileTest(unittest.TestCase):
         # `data.bka.gv.at` in, `api.legalviz.eu` out, `ecfr.gov`/`federalregister.gov` to
         # `optional`; D-148 adds the nine-host `legislature-api` group, 90 + 9 = 99;
         # D-162 returns the two US regulation API hosts to the active set, 99 + 2 = 101;
-        # D-185 adds the seven-host `ru` group, 101 + 7 = 108.
-        self.assertEqual(len(hosts), 108)
+        # D-185 adds the seven-host `ru` group, 101 + 7 = 108;
+        # D-205 adds `garant.ru` to the `ru` group, 108 + 1 = 109.
+        self.assertEqual(len(hosts), 109)
         self.assertIn("europa.eu", hosts)
         self.assertNotIn("justia.com", hosts)
 
@@ -327,12 +328,14 @@ class AllowlistFileTest(unittest.TestCase):
 
     def test_the_russian_portals_the_routing_table_points_at_are_allowlisted(self):
         # D-185: the RU rows fetch consultant.ru, base.garant.ru, sudact.ru, zakon.ru,
-        # cyberleninka.ru and cite the Supreme Court's own portal.
+        # cyberleninka.ru and cite the Supreme Court's own portal. D-205: Plenum rulings are
+        # indexed on the parent host, so `mf sources save --url` needs garant.ru itself.
         hosts = permission_gate.load_allowlist(PLUGIN_ROOT)
         for host in (
             "consultant.ru",
             "www.consultant.ru",
             "base.garant.ru",
+            "garant.ru",
             "sudact.ru",
             "zakon.ru",
             "cyberleninka.ru",

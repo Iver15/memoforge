@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -11,7 +12,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import dispatch  # noqa: E402
+from memoforge import cli, dispatch  # noqa: E402
 
 AGENTS = PLUGIN_ROOT / "agents"
 PROMPTS = PLUGIN_ROOT / "scripts" / "memoforge" / "prompts"
@@ -209,6 +210,52 @@ class QuestionInstructionTest(unittest.TestCase):
         text = read(PROMPTS / "memo-writer.md")
         self.assertIn("`Question:`", text)
         self.assertIn("the header already states", text)
+
+
+class SourceSavingTest(unittest.TestCase):
+    """D-205: the agent bodies and the shared tooling block say what the dispatch prompt says."""
+
+    def test_the_researcher_saves_a_web_source_and_registers_three_cases_only(self):
+        rules = read(AGENTS / "legal-researcher.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("`<mf> sources save`", rules)
+        self.assertIn("three cases", rules)
+        for kind in ("excerpt", "client_file", "agent_summary"):
+            self.assertIn(f"`--raw-kind {kind}`", rules)
+        self.assertIn("no exceptions", rules)
+        self.assertIn("never ask the user to solve it", rules)
+        # The older, longer rule is gone, not softened.
+        self.assertNotIn("goes through `<mf> sources register …` with `--raw-file`", rules)
+
+    def test_the_researcher_body_prints_no_command_the_cli_would_refuse(self):
+        """Addendum §6: a `<mf> sources save|register` line with arguments is a whole command.
+
+        The bare name of the command is prose; a line with arguments is an example, and an example
+        with `…` in place of a required flag is one the CLI would refuse.
+        """
+        body = read(AGENTS / "legal-researcher.md")
+        for printed in re.findall(r"`(<mf> sources (?:save|register) [^`]+)`", body):
+            with self.subTest(printed=printed):
+                tokens = shlex.split(printed.replace("<mf>", "mf", 1))
+                try:
+                    cli.build_parser().parse_args(tokens[1:])
+                except SystemExit:
+                    self.fail(f"the body shows a command the CLI refuses: {printed}")
+
+    def test_the_sufficiency_reviewer_reads_raw_kind_and_the_save_outcome(self):
+        rules = read(AGENTS / "research-sufficiency-reviewer.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for words in ("`raw_kind`", "`meta.save_outcome`", "`mf sources save`", "`raw_original_path`"):
+            with self.subTest(words=words):
+                self.assertIn(words, rules)
+        self.assertNotIn("A `critical` source registered without saved raw text is a `missing` gap", rules)
+
+    def test_the_shared_tooling_block_no_longer_registers_a_fetched_file(self):
+        text = read(PLUGIN_ROOT / "lib" / "agent-core" / "tooling-core.md")
+        self.assertNotIn('register the file with `--tool "mf-fetch <host>"`', text)
+        self.assertIn("`mf sources save`", text)
+        # A captcha that `save` reports is never handed to the user (addendum §1).
+        self.assertIn("`channel_unavailable: captcha`", text)
+        # `save` writes the registry too, so a step whose declared input it is leaves it alone.
+        self.assertIn("`mf sources save`, `mf sources verify`", text)
 
 
 class PlaceholderTest(unittest.TestCase):

@@ -63,6 +63,8 @@ A plugin cannot ship permission rules, so paste this block into `~/.claude/setti
   "WebFetch(domain:*.www.consultant.ru)",
   "WebFetch(domain:base.garant.ru)",
   "WebFetch(domain:*.base.garant.ru)",
+  "WebFetch(domain:garant.ru)",
+  "WebFetch(domain:*.garant.ru)",
   "WebFetch(domain:sudact.ru)",
   "WebFetch(domain:*.sudact.ru)",
   "WebFetch(domain:zakon.ru)",

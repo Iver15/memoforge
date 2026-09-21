@@ -210,7 +210,7 @@ class UrlTableTest(unittest.TestCase):
         the article through the official OpenAPI, and that sentence reached the user in the gate
         digest and in `${source_access}`.
         """
-        known: set = {"mf sources fetch", "WebFetch", "WebSearch"}
+        known: set = {"mf sources fetch", "mf sources save", "WebFetch", "WebSearch"}
         for layer in routing.LAYERS:
             for code in list(routing.ROUTING[layer]) + list(routing.MEMBER_STATES) + ["CH", "RU"]:
                 row = routing.route(layer, code)
@@ -228,7 +228,8 @@ class UrlTableTest(unittest.TestCase):
     def test_the_italian_alternative_is_the_open_data_route_of_the_routing_note(self):
         alternative = preflight.PREFLIGHT_ALTERNATIVES["normattiva.it"]
         self.assertIn("api.normattiva.it", alternative)
-        self.assertIn("mf sources fetch --method POST --json", alternative)
+        # D-205: the article is the source, so the route saves it — the note and its summary agree.
+        self.assertIn("mf sources save --method POST --json", alternative)
         self.assertNotIn("considered_excluded", alternative)
         note = routing.route("statutes", "IT")["note"]
         self.assertIn("api.normattiva.it", note)

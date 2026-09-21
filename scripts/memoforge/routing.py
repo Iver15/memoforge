@@ -337,10 +337,11 @@ ROUTING: dict[str, dict[str, dict]] = {
                 "fedregs_regulations_get_document reads one by its FR document number; register those at "
                 "https://www.federalregister.gov/d/<FR number>. ecfr.gov and federalregister.gov pages "
                 "answer HTTP 200 with a 10 KB «Request Access» stub to any non-browser client, so a "
-                "WebFetch of them is never a source; their open APIs "
-                "(federalregister.gov/api/v1/documents.json, and the eCFR API, which needs a compressed "
-                "Accept-Encoding) are the fallback through mf sources fetch (Accept-Encoding gzip is sent "
-                "for you) when the server is down."
+                "WebFetch of them is never a source. When the server is down their open APIs are the "
+                "fallback, and the plugin sends the compressed Accept-Encoding they need: "
+                "federalregister.gov/api/v1/documents.json is only read, through mf sources fetch, to "
+                "find the rule, and the text of a section from the eCFR API is saved with "
+                "mf sources save --url."
             ),
         },
     },
@@ -461,8 +462,9 @@ _MEMBER_STATE_DPAS: dict[str, tuple[str, ...]] = {
 
 _MEMBER_STATE_STATUTE_NOTE = (
     "LegalViz reads Union law only, so a member state starts at its own official statute portal "
-    "through WebFetch and uses ldh_search for what the portal will not serve. Register the "
-    "provision under the portal URL with --tool WebFetch <domain>."
+    "and uses ldh_search for what the portal will not serve. The provision is saved from its "
+    "portal page with mf sources save --url (a portal off the allowlist is the host_not_allowed "
+    "case); what ldh_search answers is registered as it is, --raw-kind excerpt."
 )
 
 _MEMBER_STATE_STATUTE_BASE: dict[str, str] = {
@@ -521,27 +523,32 @@ _MEMBER_STATE_STATUTE_EXTRA: dict[str, str] = {
         "— OpenAPI 3.0.1 with no authorisation: POST /atto/dettaglio-atto-urn with an URN of the "
         "form urn:nir:stato:decreto.legislativo:2003-06-30;196~artN!vig=YYYY-MM-DD returns that one "
         "article as it stood on that date, under CC BY 4.0. The call needs a request body and a "
-        "Content-Type, so it goes through mf sources fetch (D-149), not WebFetch — exactly this "
-        "command (D-151): mf sources fetch --workdir <task> --url "
+        "Content-Type, so the article is saved by mf sources save, not WebFetch — exactly this "
+        "command (D-151, D-205): `mf sources save --workdir <task> --layer statutes "
+        "--title \"D.Lgs. 196/2003, art. 7\" --citation \"D.Lgs. 30 giugno 2003, n. 196, art. 7\" "
+        "--tier critical --url "
         "https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1/atto/dettaglio-atto-urn "
         "--method POST --json "
-        "'{\"urn\": \"urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01\"}' "
-        "--layer statutes, where the date after !vig= is the version date asked for. Register the "
-        "act landing page, uri-res/N2Ls?urn:nir:…, or the article URN."
+        "'{\"urn\": \"urn:nir:stato:decreto.legislativo:2003-06-30;196~art7!vig=2026-01-01\"}'`, "
+        "where the date after !vig= is the version date asked for. save keeps the API address it "
+        "read as the record's url, not the act landing page (uri-res/N2Ls?urn:nir:…), so the "
+        "article URN belongs in --citation, where it identifies the article to a reader."
     ),
     "ES": (
         " the consolidated text comes from the BOE open-data API, "
         "boe.es/datosabiertos/api/legislacion-consolidada/id/{id}/texto/bloque/{aN}, one block per "
         "article. It refuses a request without an Accept header (400 «No soportado ningún mime "
-        "type») and that endpoint answers only to Accept: application/xml, so it goes through "
-        "mf sources fetch (D-149), not WebFetch."
+        "type») and that endpoint answers only to Accept: application/xml, so the block is saved "
+        "by mf sources save with --accept application/xml, not by WebFetch."
     ),
     "NL": (
         " wetten.overheid.nl/xml.php no longer exists (404). The BWB text is reached through "
         "repository.officiele-overheidspublicaties.nl/bwb/{BWBID}/_manifest.xml, whose _latestItem "
         "names the current toestand XML with one <artikel> per article; the SRU endpoint at "
-        "zoekservice.overheid.nl is the search front for it. Both need Accept: application/xml, so "
-        "they go through mf sources fetch (D-149), not WebFetch."
+        "zoekservice.overheid.nl is the search front for it. All of them need Accept: "
+        "application/xml, which WebFetch cannot send: the manifest and the SRU search are only read, "
+        "through mf sources fetch (D-149), and the toestand XML the manifest names is the text, "
+        "saved by mf sources save --url with --accept application/xml."
     ),
     "IE": (
         " irishstatutebook.ie serves a section as HTML (/eli/<year>/act/<n>/section/<s>/enacted/"
@@ -640,6 +647,47 @@ The RU rows used to send it to `intake/mcp-probe.json` for the name itself, whic
 has never carried (`namespaces` and `status` only, and its schema is closed).
 """
 
+_RU_STATUTE_SAVE = (
+    "mf sources save --workdir <work_dir> --layer statutes --title \"ГК РФ, ст. 152\" "
+    "--citation \"Гражданский кодекс РФ (часть первая), ст. 152\" --tier critical "
+    "--url https://www.consultant.ru/document/cons_doc_LAW_5142/<hash>/ --expect-article 152 "
+    "--meta '{\"edition\": \"<the «ред. от …» line of the page>\"}'"
+)
+_RU_VSRF_SAVE = (
+    "mf sources save --workdir <work_dir> --layer case_law "
+    "--title \"ВС РФ, определение № 305-ЭС24-8702 (1,3) от 14.08.2024\" "
+    "--citation \"Определение ВС РФ от 14.08.2024 № 305-ЭС24-8702 (1,3)\" --tier critical "
+    "--resolve vsrf --expect-number \"305-ЭС24-8702 (1,3)\" --expect-date 2024-08-14"
+)
+_RU_SUDACT_SAVE = (
+    "mf sources save --workdir <work_dir> --layer case_law "
+    "--title \"АС Северо-Кавказского округа, постановление по делу № А53-28950/2022\" "
+    "--citation \"Постановление АС Северо-Кавказского округа от 27.10.2025 по делу № А53-28950/2022\" "
+    "--tier critical --resolve sudact --expect-number А53-28950/2022 --expect-date 2025-10-27"
+)
+_RU_PLENUM_SAVE = (
+    "mf sources save --workdir <work_dir> --layer case_law --title \"Постановление Пленума ВС РФ № 25\" "
+    "--citation \"Постановление Пленума ВС РФ от 23.06.2015 № 25\" --tier critical "
+    "--url https://base.garant.ru/<id>/ --expect-number 25 --expect-date 2015-06-23"
+)
+_RU_LDH_EXCERPT = (
+    "mf sources register --workdir <work_dir> --layer case_law --title \"…\" --citation \"…\" "
+    "--tier critical --tool ldh_search --raw-kind excerpt "
+    "--raw-file \"<a file holding the answer as LDH returned it>\" "
+    "--meta '{\"save_outcome\": \"refused:captcha\"}'"
+)
+"""D-205: the commands the two RU notes print, each one a line `mf` accepts (`test_routing` splits
+them as a shell would and hands them to the real parser, so a misspelt flag fails there).
+
+The requisites are real ones the resolvers were measured on: the chamber ruling of 14.08.2024 in
+the `305-ЭС24-8702` chain, whose bracketed suffix is passed whole because it alone tells the twins
+of the chain apart (D-202, Task 6), and the cassation ruling of 27.10.2025 in А53-28950/2022, which
+sudact's listing dates a day early (Task 7). The LDH line is the fallback of the addendum's §9: once
+a captcha has closed sudact.ru, LDH's own answer is kept instead of its sudact.ru address being
+fetched, and the refusal travels in `--meta` so the sufficiency reviewer does not ask for the save
+again.
+"""
+
 EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
     "statutes": {
         "RU": {
@@ -648,13 +696,17 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
             "domains": ["www.consultant.ru", "base.garant.ru"],
             "note": (
                 "LDH's RU/PravoGovRu corpus carries the official pravo.gov.ru texts with date "
-                "filters — the first stop; pravo.gov.ru itself does not answer WebFetch — never "
-                "fetch it. consultant.ru's free section serves article pages "
+                "filters — the first stop for finding the act and the wording in force on a date; "
+                "pravo.gov.ru itself does not answer WebFetch — never fetch it. The source is one "
+                "article, saved by code from its page in consultant.ru's free section "
                 "(www.consultant.ru/document/cons_doc_LAW_<id>/<hash>/ — the current wording with "
-                "the amendment history inside the document), base.garant.ru is the second copy "
-                "for verification; Plenum rulings and practice reviews of the Supreme Court are "
-                "indexed there as ordinary documents (vsrf.ru has no stable document ids). "
-                "Register with --raw-file. " + _RU_TOOL_NAMES_NOTE + " Write the pinpoint exactly "
+                "the amendment history inside the document), with the edition line the page prints "
+                "in --meta: `" + _RU_STATUTE_SAVE + "`. base.garant.ru is the second copy, saved the "
+                "same way when consultant.ru does not serve the article; Plenum rulings and practice "
+                "reviews of the Supreme Court are indexed there and on garant.ru as ordinary "
+                "documents (vsrf.ru has no stable document ids). LDH's own answer is registered as "
+                "it is (--raw-kind excerpt) only when no allowed page carries the article. "
+                + _RU_TOOL_NAMES_NOTE + " Write the pinpoint exactly "
                 "as the source numbers it — ст. 152, "
                 "п. 2 ст. 152, ч. 1 ст. 14.3, абз. 2 п. 1 ст. 10 (Cyrillic labels ст, п, пп, ч, "
                 "абз, each with its number) — never art 152(2); the statute's registered citation "
@@ -715,13 +767,31 @@ EXTRA_JURISDICTION_ROWS: dict[str, dict[str, dict]] = {
                 "with other users) is for advertising, unfair-competition and antimonopoly "
                 "questions only: search_fas_cases (semantic, filters year/region/article), "
                 "get_case_details, get_filter_options first to learn the filter values; cite a "
-                "decision by the office, date and case number. LDH's RU/Sudact covers "
-                "general-jurisdiction and arbitration courts 2021–2026; sudact.ru pages for a "
-                "decision by case number; kad.arbitr.ru is captcha-gated — not a source. The "
-                "address a Casus or FAS tool returns is an endpoint address, not a page — do not "
-                "pass it as `--url`; pass the public page when you found one (sudact.ru, vsrf.ru), "
-                "else no URL at all: the citation form identifies the decision. Register "
-                "the decision's citation form in Russian (Определение СКЭС ВС РФ от 12.03.2024 "
+                "decision by the office, date and case number. Casus and FAS give the requisites — "
+                "the number and the date — and the text of a court act is then saved by code: a "
+                "ruling of a judicial chamber of the Supreme Court by `" + _RU_VSRF_SAVE + "`, an "
+                "act of an arbitration court or a court of general jurisdiction by `"
+                + _RU_SUDACT_SAVE + "`, and a Plenum or Presidium document with --url from its "
+                "published page, which base.garant.ru and garant.ru index as an ordinary document: `"
+                + _RU_PLENUM_SAVE + "`. The number goes in whole, suffix included — the resolver "
+                "strips it for the portal's search by itself, and the suffix is what tells the twins "
+                "of one chain apart; the date is the act's own, never the date a listing shows "
+                "(sudact's listing is a day early). A FAS decision is no court act and no resolver "
+                "reaches it: register the answer of get_case_details as it is (--raw-kind excerpt). "
+                "When a resolver answers channel_unavailable or channel_budget_spent, the fallbacks "
+                "are LDH's RU/Sudact (general-jurisdiction and arbitration courts 2021–2026) and a "
+                "web search: the address they give goes to save --url with the same --expect-number "
+                "and --expect-date. Once any save has answered `channel_unavailable: captcha`, "
+                "sudact.ru is closed for the run, save --url included, and LDH answers with sudact.ru "
+                "addresses: pass none of them to save — register LDH's own answer as it is, `"
+                + _RU_LDH_EXCERPT + "`, and cite it as an excerpt; a copy of the act a web search "
+                "finds on another allowed host is still saved with save --url. kad.arbitr.ru is "
+                "captcha-gated — not a source. The address a Casus or FAS tool returns is an "
+                "endpoint address, not a page — do not pass it as `--url`, to save or to register: "
+                "the public page (sudact.ru, vsrf.ru, garant.ru) is what save --url takes, and an "
+                "answer registered as it is carries that page or no URL at all: the citation form "
+                "identifies the decision. Pass "
+                "the decision's citation form in Russian as --citation (Определение СКЭС ВС РФ от 12.03.2024 "
                 "№ 305-ЭС23-12345 по делу № А40-…; Постановление Пленума ВС РФ от … № …) and "
                 "pinpoint by п. N (пункт мотивировочной части) where the text is numbered, else "
                 "no pinpoint; a FAS decision is cited by the office, date and case number."

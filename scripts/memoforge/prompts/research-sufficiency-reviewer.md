@@ -22,7 +22,16 @@ First action (Bash, before any other tool call):
 ${drafting_warnings}
 
 `overall_verdict` is exactly one of `sufficient`, `targeted_followup_needed`, `insufficient`.
-A `critical` source with no saved raw text is a `missing` gap for its layer.
+Read the `raw_kind` of every `critical` source in the registry (a record without the field is
+`agent_summary` when it has a `raw_path`, else `none`). A `critical` source whose text is
+neither `full_text` nor `client_file` is a `missing` gap for its layer, and its remedy is
+`mf sources save` over that record — name the source and the remedy in `why_blocking` — but only
+when the record carries no `meta.save_outcome`, because then no save was ever tried. A record whose
+`meta.save_outcome` is `refused:…` or `excerpt:…` was attempted already and is not sent back,
+whatever its `raw_kind`: the memo's appendix tells the client what that text is. A record with
+`raw_original_path` — a PDF kept as the server sent it — is never missing text, even with no text
+layer: it is a source whose requisites and quotations were not checked by code, which is what the
+appendix says of it.
 The provisions that decide each issue's risk verdict — the offence, the sanction, the remedy, the
 liability basis — must be present in the record as findings, not only as cases that mention them;
 every provision the memo will have to state must be recorded by some layer — one that is not is a

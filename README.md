@@ -135,7 +135,7 @@ mf config unset writer_model
 A plugin cannot ship permission rules, so research prompts for approval unless you allow the hosts yourself. Paste the block below into `~/.claude/settings.json`; it is generated from the plugin allowlist by `mf docs render permissions`, and [`docs/permissions.md`](docs/permissions.md) is the canonical copy. Replace `${CLAUDE_PLUGIN_ROOT}` with your install path. `Agent(memoforge:*)` is deliberately absent: globs for `Agent` are not confirmed.
 
 <details>
-<summary><b>Permission block — 211 rules</b></summary>
+<summary><b>Permission block — 229 rules</b></summary>
 
 ```json
 {"permissions": {"allow": [
@@ -154,7 +154,11 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
   "WebFetch(domain:*.zoekservice.overheid.nl)", "WebFetch(domain:code.travail.gouv.fr)", "WebFetch(domain:*.code.travail.gouv.fr)",
   "WebFetch(domain:rechtsinformationen.bund.de)", "WebFetch(domain:*.rechtsinformationen.bund.de)", "WebFetch(domain:courdecassation.fr)",
   "WebFetch(domain:*.courdecassation.fr)", "WebFetch(domain:fedlex.admin.ch)", "WebFetch(domain:*.fedlex.admin.ch)", "WebFetch(domain:bger.ch)",
-  "WebFetch(domain:*.bger.ch)", "WebFetch(domain:aepd.es)", "WebFetch(domain:*.aepd.es)", "WebFetch(domain:aki.ee)", "WebFetch(domain:*.aki.ee)",
+  "WebFetch(domain:*.bger.ch)", "WebFetch(domain:consultant.ru)", "WebFetch(domain:*.consultant.ru)", "WebFetch(domain:www.consultant.ru)",
+  "WebFetch(domain:*.www.consultant.ru)", "WebFetch(domain:base.garant.ru)", "WebFetch(domain:*.base.garant.ru)", "WebFetch(domain:garant.ru)",
+  "WebFetch(domain:*.garant.ru)", "WebFetch(domain:sudact.ru)", "WebFetch(domain:*.sudact.ru)", "WebFetch(domain:zakon.ru)",
+  "WebFetch(domain:*.zakon.ru)", "WebFetch(domain:cyberleninka.ru)", "WebFetch(domain:*.cyberleninka.ru)", "WebFetch(domain:vsrf.ru)",
+  "WebFetch(domain:*.vsrf.ru)", "WebFetch(domain:aepd.es)", "WebFetch(domain:*.aepd.es)", "WebFetch(domain:aki.ee)", "WebFetch(domain:*.aki.ee)",
   "WebFetch(domain:autoriteprotectiondonnees.be)", "WebFetch(domain:*.autoriteprotectiondonnees.be)",
   "WebFetch(domain:autoriteitpersoonsgegevens.nl)", "WebFetch(domain:*.autoriteitpersoonsgegevens.nl)", "WebFetch(domain:azop.hr)",
   "WebFetch(domain:*.azop.hr)", "WebFetch(domain:baylda.de)", "WebFetch(domain:*.baylda.de)", "WebFetch(domain:bfdi.bund.de)",

@@ -70,6 +70,7 @@ bger.ch
 consultant.ru
 www.consultant.ru
 base.garant.ru
+garant.ru  # Plenum rulings and practice reviews are indexed on the parent host (D-205)
 sudact.ru
 zakon.ru
 cyberleninka.ru
