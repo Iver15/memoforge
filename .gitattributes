@@ -9,6 +9,13 @@
 *.yml text eol=lf
 *.toml text eol=lf
 
+# Binary fixtures: never touched by the line-ending policy above. A PDF without a NUL byte
+# in its first 8000 (a small one-page file is easily such) is detected as TEXT by `text=auto`,
+# and a checkout with core.autocrlf=true then rewrites its bytes and its digest.
+*.pdf binary
+*.docx binary
+*.png binary
+
 # cmd.exe needs CRLF batch files.
 *.cmd text eol=crlf
 
