@@ -1311,6 +1311,16 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
         raise ContradictoryDuplicates(contradictory)
     kept = [source_id for source_id in sorted(sources) if source_id not in merged]
     for canonical in sorted(set(merged.values())):
+        aliases = sorted(alias for alias, target in merged.items() if target == canonical)
+        # Final review round 2 (D34-04): a merge never lowers what a member was worth. The canonical
+        # takes the highest tier of its group, here in the data the freeze writes — so the export, C-08
+        # and the appendix all see it. A `background` text record that happened to win canonicality
+        # over a `supporting` PDF of the same text used to take the original below and then be dropped
+        # by the export for its tier, and the client lost the only original again.
+        tiers = [sources[member].get("tier") for member in [canonical, *aliases]]
+        ranked = [tier for tier in tiers if tier in TIERS]
+        if ranked:
+            sources[canonical]["tier"] = min(ranked, key=TIERS.index)
         # Final review D (D-201 × D34-04): the original a merged member carries survives the merge.
         # Only the canonical id gets a snapshot row, so an original left on an alias was pinned by
         # nothing and never reached the client — a text-only record merged with a PDF-backed one of
@@ -1319,7 +1329,7 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
         # on disk), and the row below pins the digest the integrity pass already took of that file.
         if sources[canonical].get("raw_original_path"):
             continue
-        donors = sorted(alias for alias, target in merged.items() if target == canonical and originals.get(alias))
+        donors = [alias for alias in aliases if originals.get(alias)]
         if donors:
             donor = canonical_of(sources, donors)
             sources[canonical]["raw_original_path"] = sources[donor]["raw_original_path"]
@@ -2390,14 +2400,19 @@ LIVENESS_NOT_REPLAYABLE = "method_not_replayable"
 saved by a method (the Normattiva `POST`) that a HEAD/GET probe cannot replay."""
 
 
-def not_probed(record: dict, source_id: str, error: str) -> dict:
-    """A record liveness leaves `unchecked` without a request: its reason, nothing sent, nothing promoted.
+LIVENESS_STALE = "record_changed_during_probe"
+"""Final review round 2 (N1): why a liveness row carries no result — the record changed, or was gone,
+between the read and the write-back, and a result about the record as it was is not written over it."""
+
+
+def not_probed(record: dict, source_id: str, error: str) -> tuple[dict, dict]:
+    """`(liveness, row)` of a record liveness leaves `unchecked` without a request: nothing sent, nothing promoted.
 
     D-205 fix round 1 (a method a probe cannot replay) and final review C (a sudact host the run has
     closed, or whose budget is spent): the record says it was not checked, and the row says why.
     """
-    record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
-    return {
+    liveness = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
+    return liveness, {
         "source_id": source_id,
         "status": "unchecked",
         "code": None,
@@ -2406,8 +2421,42 @@ def not_probed(record: dict, source_id: str, error: str) -> dict:
     }
 
 
+def _record_seen(record: object) -> str:
+    """One record as liveness read it — what the write-back compares the record on disk with."""
+    return json.dumps(record, sort_keys=True, ensure_ascii=False)
+
+
+def liveness_write_back(work_dir: Path, source_id: str, seen: str, liveness: dict, confirmed: bool) -> bool:
+    """Write one liveness result under a brief `sources.lock`; False when the record moved meanwhile.
+
+    Final review round 2 (N1): the record is read again first. Changed since the probe began — another
+    process registered over it, saved over it, froze it — or gone, it is left exactly as it is: the
+    result describes the record as it was, and a stale result is never written over a newer record.
+    """
+    with sources_lock(work_dir):
+        registry = read_registry(work_dir)
+        record = registry["sources"].get(source_id)
+        if record is None or _record_seen(record) != seen:
+            return False
+        record["liveness"] = liveness
+        if confirmed:
+            record["provenance"] = "confirmed"
+        write_registry(work_dir, registry)
+    return True
+
+
 def run_liveness(args: argparse.Namespace) -> dict:
-    """`mf sources liveness` — stdlib HEAD/GET, 10 s, best effort; sha match promotes provenance (M5)."""
+    """`mf sources liveness` — stdlib HEAD/GET, 10 s, best effort; sha match promotes provenance (M5).
+
+    Final review round 2 (N1): three phases, the ones the rest of this plan already uses — nobody
+    waits, and nobody does network work, while holding `sources.lock`. (1) The registry is read under
+    the lock, and each record is kept as it was read. (2) With the lock released: the politeness pause,
+    the sudact channel's reservation and wait (`channel_probe`), the requests. (3) Each result is
+    written back under a brief lock of its own (`liveness_write_back`), the record read again first
+    and skipped if it changed or disappeared meanwhile. The whole loop used to run inside the lock, so
+    a 32-second wait for a sudact slot — or an ordinary 10-second network timeout — shut out every
+    other `mf` command that needs the registry, whose lock timeout is 30 seconds.
+    """
     work_dir = Path(args.workdir)
     args_key = f"sources liveness --source={getattr(args, 'source', None) or ''}"
     saved = begin_step(work_dir, args, args_key)
@@ -2415,92 +2464,89 @@ def run_liveness(args: argparse.Namespace) -> dict:
         return saved
     checked: list[dict] = []
     last_probe: dict[str, float] = {}
+    # (1) Read, under the lock, and nothing else.
     with sources_lock(work_dir):
         registry = read_registry(work_dir)
-        wanted = [args.source] if args.source else sorted(registry["sources"])
-        for source_id in wanted:
-            record = registry["sources"].get(source_id)
-            if record is None:
-                checked.append({"source_id": source_id, "status": "unchecked", "error": "unknown_source"})
-                continue
-            url = str(record.get("url") or "")
-            # D34-08: only a body that came from this url by this tool may be compared with the sha.
-            # D-201: a record that kept an original is identified by those bytes — the text layer
-            # is a convenience, and nothing here extracts one: the body as served is what the
-            # server sends again, so the digest of the original is what may be compared with it.
-            comparable = body_comparable(record)
-            original_sha = record.get("raw_original_sha256") if comparable else None
-            expected = original_sha or (record.get("raw_sha256") if comparable else None)
-            if not url:
-                record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
-                checked.append({"source_id": source_id, "status": "unchecked", "error": "no_url"})
-                continue
-            method = str((record.get("meta") or {}).get(SAVE_METHOD_KEY) or "GET").upper()
-            if method != "GET":
-                # D-205 fix round 1: the address answers only the method `save` used (the Normattiva
-                # API refuses HEAD and GET), so a probe would write a correctly saved article down as
-                # `dead`. Liveness says it could not check instead of guessing, and promotes nothing.
-                # Final review A: the url is now the public page of the document, which is not the
-                # body that was saved either — comparing them would only produce a false `changed`.
-                checked.append(not_probed(record, source_id, f"{LIVENESS_NOT_REPLAYABLE}: {method}"))
-                continue
-            on_sudact = sudact_address(url)
-            if on_sudact:
-                # Final review C: the channel is the host, whoever is asking. A host the run has closed
-                # (the captcha marker) is asked nothing — not even after a politeness pause.
-                try:
-                    channel_check_open(work_dir, SUDACT_CHANNEL)
-                except ChannelUnavailable as exc:
-                    checked.append(not_probed(record, source_id, resolve_channel_refusal(exc)["errors"][0]))
-                    continue
-            # D-146: one loop over the registry is one crawler as far as the host is concerned.
-            # D-151: the host is the one `probe_url` will really call, or `""` for a url it refuses.
-            host = request_host(url)
-            since = last_probe.get(host)
-            if host and since is not None:
-                _wait(host_delay(host) - (time.monotonic() - since))
+    wanted = [args.source] if args.source else sorted(registry["sources"])
+    for source_id in wanted:
+        record = registry["sources"].get(source_id)
+        if record is None:
+            checked.append({"source_id": source_id, "status": "unchecked", "error": "unknown_source"})
+            continue
+        seen = _record_seen(record)
+        confirmed = False
+        # (2) The decision and the network, with the lock released.
+        url = str(record.get("url") or "")
+        # D34-08: only a body that came from this url by this tool may be compared with the sha.
+        # D-201: a record that kept an original is identified by those bytes — the text layer
+        # is a convenience, and nothing here extracts one: the body as served is what the
+        # server sends again, so the digest of the original is what may be compared with it.
+        comparable = body_comparable(record)
+        original_sha = record.get("raw_original_sha256") if comparable else None
+        expected = original_sha or (record.get("raw_sha256") if comparable else None)
+        method = str((record.get("meta") or {}).get(SAVE_METHOD_KEY) or "GET").upper()
+        on_sudact = bool(url) and sudact_address(url)
+        if not url:
+            liveness = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
+            row = {"source_id": source_id, "status": "unchecked", "error": "no_url"}
+        elif method != "GET":
+            # D-205 fix round 1: the address answers only the method `save` used (the Normattiva
+            # API refuses HEAD and GET), so a probe would write a correctly saved article down as
+            # `dead`. Liveness says it could not check instead of guessing, and promotes nothing.
+            # Final review A: the url is now the public page of the document, which is not the
+            # body that was saved either — comparing them would only produce a false `changed`.
+            liveness, row = not_probed(record, source_id, f"{LIVENESS_NOT_REPLAYABLE}: {method}")
+        else:
             try:
+                if on_sudact:
+                    # Final review C: the channel is the host, whoever is asking. A host the run has
+                    # closed (the captcha marker) is asked nothing — not even after a politeness pause.
+                    channel_check_open(work_dir, SUDACT_CHANNEL)
+                # D-146: one loop over the registry is one crawler as far as the host is concerned.
+                # D-151: the host is the one `probe_url` will really call, or `""` for a url it refuses.
+                host = request_host(url)
+                since = last_probe.get(host)
+                if host and since is not None:
+                    _wait(host_delay(host) - (time.monotonic() - since))
                 if on_sudact:
                     # Final review C: its slot, pace and count, the stop before `/defence/`, and the
                     # marker for any challenge the probe meets (`channel_probe`).
                     probe = channel_probe(work_dir, url, want_body=bool(expected), timeout=args.timeout)
                 else:
                     probe = probe_url(url, want_body=bool(expected), timeout=args.timeout)
+                if host:
+                    last_probe[host] = time.monotonic()
             except ChannelUnavailable as exc:
-                # The channel refused before a request went out (a spent budget, a marker another
-                # process wrote while this one waited): nothing was asked, nothing is known.
-                checked.append(not_probed(record, source_id, resolve_channel_refusal(exc)["errors"][0]))
-                continue
-            if host:
-                last_probe[host] = time.monotonic()
-            status = probe["status"]
-            # A7: the registry holds the sha of the scrubbed text; a record written before D-193
-            # holds the sha of the body as served. Either equality is the same page.
-            # D-201 fix round 3: that licence is for *text* only. An original has no normalised
-            # form — it is bytes — so a PDF whose new body differs but scrubs to the same value is
-            # `changed`, and is never promoted to `confirmed` on the strength of a normalisation
-            # that was never applied to the file on disk.
-            offered = (probe["sha256"],) if original_sha else (probe["sha256"], probe.get("sha256_normalised"))
-            digests = {value for value in offered if value}
-            if expected and digests and expected not in digests:
-                status = "changed"
-            record["liveness"] = {
-                "status": status,
-                "code": probe["code"],
-                "checked_at": events.utc_now(),
-            }
-            if expected and expected in digests:
-                record["provenance"] = "confirmed"
-            checked.append(
-                {
+                # The channel refused before a request went out (a closed host, a spent budget, a
+                # marker another process wrote while this one waited): nothing was asked, nothing known.
+                probe = None
+                liveness, row = not_probed(record, source_id, resolve_channel_refusal(exc)["errors"][0])
+            if probe is not None:
+                status = probe["status"]
+                # A7: the registry holds the sha of the scrubbed text; a record written before D-193
+                # holds the sha of the body as served. Either equality is the same page.
+                # D-201 fix round 3: that licence is for *text* only. An original has no normalised
+                # form — it is bytes — so a PDF whose new body differs but scrubs to the same value is
+                # `changed`, and is never promoted to `confirmed` on the strength of a normalisation
+                # that was never applied to the file on disk.
+                offered = (probe["sha256"],) if original_sha else (probe["sha256"], probe.get("sha256_normalised"))
+                digests = {value for value in offered if value}
+                if expected and digests and expected not in digests:
+                    status = "changed"
+                liveness = {"status": status, "code": probe["code"], "checked_at": events.utc_now()}
+                confirmed = bool(expected) and expected in digests
+                row = {
                     "source_id": source_id,
                     "status": status,
                     "code": probe["code"],
-                    "provenance": record["provenance"],
+                    "provenance": "confirmed" if confirmed else record.get("provenance"),
                     "error": probe["error"],
                 }
-            )
-        write_registry(work_dir, registry)
+        # (3) The write-back, under a brief lock of its own — and never over a record that moved.
+        if liveness_write_back(work_dir, source_id, seen, liveness, confirmed):
+            checked.append(row)
+        else:
+            checked.append({"source_id": source_id, "status": "unchecked", "code": None, "error": LIVENESS_STALE})
     by_status: dict[str, int] = {}
     for row in checked:
         by_status[row["status"]] = by_status.get(row["status"], 0) + 1

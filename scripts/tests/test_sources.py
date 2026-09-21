@@ -5525,6 +5525,55 @@ class SudactEveryRequestTest(_FakeClockTestCase):
         self.assertEqual([start + 2], arrivals, "the HEAD waited for its slot")
         self.assertEqual({"requests": 6, "captcha": False}, self.counts())
 
+    def test_liveness_waits_for_a_sudact_slot_with_the_lock_released(self):
+        """Round 2 (N1): the channel's own rule — nobody waits, and nobody does network work, while
+        holding `sources.lock`. Liveness used to wait for its slot inside the lock it held for the whole
+        loop; with a reservation 30 s ahead the wait is 32 s, and a second `mf next` replaying the step, or
+        any standalone source command, timed out on the 30 s lock. Another process now takes the lock
+        while liveness waits; the results are still written; and a record changed while it was probed is
+        not overwritten with the stale result."""
+        start = self.clock.now
+        self.write_entry(start, 5, False)
+        free: list = []
+
+        def wait(seconds: float) -> None:
+            free.append(sources_lock_is_free(self.work_dir))
+            if len(free) == 1:
+                # Another process edits the record whose slot liveness is waiting for.
+                with sources.sources_lock(self.work_dir):
+                    registry = sources.read_registry(self.work_dir)
+                    registry["sources"]["a-first"]["title"] = "retitled meanwhile"
+                    sources.write_registry(self.work_dir, registry)
+            self.clock.wait(seconds)
+
+        routes = {SUDACT_ACT: self.PAGE, "/arbitral/doc/Other2/": self.PAGE}
+        with LocalServer(b"", routes=routes) as base:
+            self.register_on_sudact(base, SUDACT_ACT, "a-first")
+            self.register_on_sudact(base, "/arbitral/doc/Other2/", "b-second")
+            with mock.patch.object(sources, "_wait", wait):
+                result = self.liveness(base)
+        self.assertTrue(free, "liveness waited for its slots")
+        self.assertTrue(all(free), f"the lock was held through a wait: {free}")
+        rows = {row["source_id"]: row for row in result["checked"]}
+        changed = self.records()["a-first"]
+        self.assertEqual("retitled meanwhile", changed["title"], "the other process's change survives")
+        self.assertIsNone(changed["liveness"]["checked_at"], "and no stale result is written over it")
+        self.assertEqual(sources.LIVENESS_STALE, rows["a-first"]["error"])
+        self.assertEqual("ok", rows["b-second"]["status"])
+        self.assertEqual("ok", self.records()["b-second"]["liveness"]["status"], "the other result is written")
+
+    def test_liveness_probes_an_ordinary_host_with_the_lock_released(self):
+        """Round 2 (N1): the older form of the same hazard — the lock held through a 10 s network timeout."""
+        with LocalServer(LIVE_TEXT.encode("utf-8")) as base:
+            self.register(url=f"{base}/ok", layer="case_law", tool="casus_get_case_details", source_id="plain")
+            _Handler.stamp = lambda: sources_lock_is_free(self.work_dir)
+            result = sources.run_liveness(argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0))
+            free = [row["at"] for row in _Handler.seen]
+        self.assertEqual("ok", result["checked"][0]["status"])
+        self.assertTrue(free)
+        self.assertTrue(all(free), "the request reached the server while the lock was held")
+        self.assertEqual("ok", self.records()["plain"]["liveness"]["status"])
+
     def test_liveness_past_the_budget_sends_nothing(self):
         self.write_entry(0, limits.CHANNEL_MAX_REQUESTS_PER_RUN, False)
         with LocalServer(b"", routes={SUDACT_ACT: self.PAGE}) as base:
@@ -5694,7 +5743,9 @@ class MergedOriginalTest(SaveTestCase):
     by its canonical: neither exported separately nor reported as a changed file.
     """
 
-    def text_only_then_pdf(self, pdf: bytes = VSRF_PDF) -> tuple[str, str]:
+    def text_only_then_pdf(
+        self, pdf: bytes = VSRF_PDF, *, text_tier: str = "critical", pdf_tier: str = "critical"
+    ) -> tuple[str, str]:
         """A text-only record, then a PDF whose text layer is that very text; the first is canonical."""
         layer = sources.prepare_raw(sources.extract_pdf_text(VSRF_PDF).encode("utf-8"))
         text = self.register(
@@ -5706,10 +5757,13 @@ class MergedOriginalTest(SaveTestCase):
             raw_file=self.raw_file(text=layer.decode("utf-8")),
             raw_kind="excerpt",
             source_id="a-text",
+            tier=text_tier,
         )
         with LocalServer(pdf) as base:
             self.allow(sources.url_host(base))
-            saved = self.save(f"{base}/served.pdf", title=VSRF_PDF_TITLE, citation=VSRF_PDF_CITATION, id="b-pdf")
+            saved = self.save(
+                f"{base}/served.pdf", title=VSRF_PDF_TITLE, citation=VSRF_PDF_CITATION, id="b-pdf", tier=pdf_tier
+            )
         self.assertEqual([], saved.get("errors", []), saved)
         self.assertEqual(text["raw_sha256"], saved["raw_sha256"], "the same text: the freeze merges them")
         self.write_findings([{"source_id": "a-text"}, {"source_id": "b-pdf"}], layer="case_law")
@@ -5744,6 +5798,32 @@ class MergedOriginalTest(SaveTestCase):
 
         for kind in finalize.EXPORT_MISMATCH_NOTES.values():
             self.assertNotIn(fallback.label(kind, "en", source_id=f"`{alias}`"), pack_md)
+
+    def assert_the_merge_keeps_the_worth_of_the_alias(self, alias_tier: str) -> None:
+        """Round 2, item 1: a `background` text canonical and an alias the researcher ranked higher."""
+        from memoforge import finalize
+        from memoforge.docx import fallback
+
+        canonical, alias = self.text_only_then_pdf(text_tier="background", pdf_tier=alias_tier)
+        self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        self.assertEqual({alias: canonical}, pack["merged_into"])
+        self.assertEqual(alias_tier, self.records()[canonical]["tier"], "the canonical takes the group's highest tier")
+        entries = {entry["source_id"]: entry for entry in pack["entries"]}
+        self.assertEqual(alias_tier, entries[canonical]["tier"], "C-08 and the appendix read the pack entry")
+        staged, pack_md, target = self.stage()
+        self.assertEqual(sorted([f"{canonical}.pdf", f"{canonical}.txt"]), sorted(staged["files"]))
+        self.assertEqual([], staged["omissions"])
+        self.assertEqual(VSRF_PDF, (target / f"{canonical}.pdf").read_bytes())
+        for kind in finalize.EXPORT_MISMATCH_NOTES.values():
+            for source_id in (canonical, alias):
+                self.assertNotIn(fallback.label(kind, "en", source_id=f"`{source_id}`"), pack_md)
+
+    def test_a_merge_never_lowers_a_supporting_member_to_background(self):
+        self.assert_the_merge_keeps_the_worth_of_the_alias("supporting")
+
+    def test_a_merge_never_lowers_a_critical_member_to_background(self):
+        self.assert_the_merge_keeps_the_worth_of_the_alias("critical")
 
     def test_a_canonical_with_an_original_of_its_own_keeps_it(self):
         layer = sources.prepare_raw(sources.extract_pdf_text(VSRF_PDF).encode("utf-8"))
