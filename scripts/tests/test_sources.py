@@ -413,6 +413,17 @@ instance (listed 16.04.2025) and an earlier appeal (listed 26.06.2024)."""
 SUDACT_DEFENCE = (b"", "", {"Location": "/defence/?next=/arbitral/"}, 302)
 """A challenge as the portal answers one: a redirect to its captcha at `/defence/`."""
 
+SUDACT_WAF_CUT_SHORT = (
+    b"<html><body>Checking",
+    "text/html",
+    {"x-amzn-waf-action": "challenge", "Content-Length": "4096"},
+    202,
+)
+"""An explicit transport challenge whose body is cut short of its `Content-Length` (task 7, round 3).
+
+The status and the header name the challenge without reading a byte of the body, so the truncation
+must not hide it: the gate reproduced two saves walking into it one after the other."""
+
 
 def sudact_finished(*paths: str, title: str = "Постановление от 26 октября 2025 г. по делу № А53-28950/2022") -> bytes:
     """`finished`, with the HTML list of documents the portal's own script renders (D-202).
@@ -523,6 +534,38 @@ def sources_lock_is_free(work_dir: Path) -> bool:
     thread.start()
     thread.join(10)
     return outcome == [True]
+
+
+class _DrainingBody:
+    """A redirect's body as urllib drains it; `during` runs once, as the drain begins (task 7, round 3)."""
+
+    def __init__(self, fp, during) -> None:
+        self._fp = fp
+        self._during = during
+
+    def read(self, *args):
+        during, self._during = self._during, None
+        if during is not None:
+            during()
+        return self._fp.read(*args)
+
+    def __getattr__(self, name):
+        return getattr(self._fp, name)
+
+
+def while_a_redirect_body_drains(during):
+    """Run `during()` while urllib drains a redirect's body — between deciding to follow and dispatching.
+
+    A deterministic stand-in for a slow body: `HTTPRedirectHandler.http_error_302` calls
+    `redirect_request`, then `fp.read()`, then opens the next request. Whatever `during` does — close
+    the channel, move the injected clock — happens exactly where a slow body would make it happen.
+    """
+    original = urllib.request.HTTPRedirectHandler.http_error_302
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        return original(self, req, _DrainingBody(fp, during), code, msg, headers)
+
+    return mock.patch.object(urllib.request.HTTPRedirectHandler, "http_error_302", http_error_302)
 
 
 def save_namespace(work_dir: str, url: str, **overrides) -> dict:
@@ -821,6 +864,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     seen: list = []
     """Every request the server received, so a test can assert on the headers `probe_url` sent."""
 
+    stamp = None
+    """D-202 (task 7, round 3): when set, a callable whose value is recorded as `at` on every request
+    the server receives — a test passes its injected clock, so the server itself says *when* each
+    request arrived, and the pace is asserted on what reached the server, not on bookkeeping."""
+
     posted: list = []
     """D-151: the bodies of the POSTs, so a test can assert on the `--json` document that was sent."""
 
@@ -882,9 +930,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return 404, b"missing"
 
     def _respond(self, with_body: bool) -> None:
-        type(self).seen.append(
-            {"path": self.path, "headers": {name.lower(): value for name, value in self.headers.items()}}
-        )
+        received = {"path": self.path, "headers": {name.lower(): value for name, value in self.headers.items()}}
+        if type(self).stamp is not None:
+            received["at"] = type(self).stamp()
+        type(self).seen.append(received)
         route = self._route()
         code, payload = self._payload(route)
         self.send_response(code)
@@ -952,6 +1001,7 @@ class LocalServer:
         _Handler.length_suffix = length_suffix
         _Handler.routes = dict(routes or {})
         _Handler.route_hits = {}
+        _Handler.stamp = None
         self.server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
         # `poll_interval` is what `shutdown()` waits for: the default 0.5 s was half a second of
         # sleep per server, and nearly every test in this file starts one.
@@ -4690,6 +4740,7 @@ class ResolveSudactTest(_FakeClockTestCase):
         cases = (
             ("a wall", (ECFR_STUB, "text/html"), "access_stub", "refused:access_stub"),
             ("a throttle", throttle, "unchecked: http_429", "refused:unchecked"),
+            ("a WAF challenge cut short", SUDACT_WAF_CUT_SHORT, "unchecked: aws_waf_challenge", "refused:unchecked"),
             ("a redirect to the captcha", SUDACT_DEFENCE, "channel_unavailable: captcha", "refused:captcha"),
             ("not the act", not_the_act, "requisites_mismatch: number, date", "refused:requisites_mismatch"),
         )
@@ -4901,6 +4952,61 @@ class ResolveSudactTest(_FakeClockTestCase):
         self.assertEqual({"requests": limits.CHANNEL_MAX_REQUESTS_PER_RUN, "captcha": False}, self.counts())
         self.assert_nothing_written(result)
 
+    def redirecting_portal(self) -> LocalServer:
+        """The section page answers `302 → /landing/` with a body of its own, which urllib drains."""
+        routes = sudact_routes([sudact_finished()], {})
+        moved = b"<html><body>moved to /landing/</body></html>"
+        routes["/arbitral/"] = (moved, "text/html", {"Location": "/landing/"}, 302)
+        routes["/landing/"] = (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")
+        return LocalServer(b"", routes=routes)
+
+    def test_a_marker_set_while_a_redirect_body_drains_stops_the_hop(self):
+        """Round 3, item 1: urllib drains a redirect's body after deciding to follow it and before
+        dispatching the hop. A slow body there is a network wait, so the hop's reread must come after it."""
+        with self.redirecting_portal() as base:
+            self.allow(sources.url_host(base))
+            with while_a_redirect_body_drains(lambda: sources.channel_mark_captcha(self.work_dir, "sudact")):
+                result = self.resolve(base)
+            self.assertEqual(["/arbitral/"], self.paths(), "the hop is never dispatched to the closed host")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("marker", result["challenge"])
+        self.assert_nothing_written(result)
+
+    def test_the_hop_is_charged_at_dispatch_on_https_as_on_http(self):
+        """sudact.ru is served over https, and the `LocalServer` speaks http: this pins that the guard
+        is the opener's request pre-processor for both schemes, and charges only a marked hop."""
+        charged: list = []
+        guard = sources.RedirectGuard(hop=charged.append)
+        opener = urllib.request.build_opener(guard)
+        for scheme in ("http", "https"):
+            with self.subTest(scheme=scheme):
+                self.assertIn(guard, opener.process_request[scheme])
+                first = urllib.request.Request(f"{scheme}://sudact.ru/arbitral/")
+                hop = urllib.request.Request(f"{scheme}://sudact.ru/landing/")
+                setattr(hop, sources.RedirectGuard.HOP_MARK, True)
+                getattr(guard, f"{scheme}_request")(first)
+                getattr(guard, f"{scheme}_request")(hop)
+        self.assertEqual(["http://sudact.ru/landing/", "https://sudact.ru/landing/"], charged)
+
+    def test_time_passing_while_a_redirect_body_drains_keeps_the_interval(self):
+        """Round 3, item 1: the hop's slot is taken after the drain, so a body that took five seconds
+        cannot make the hop and the next request reach the server at the same instant."""
+
+        def slow_body() -> None:
+            self.clock.now += 5.0
+
+        with self.redirecting_portal() as base:
+            self.allow(sources.url_host(base))
+            _Handler.stamp = self.clock.time
+            with while_a_redirect_body_drains(slow_body):
+                listed = self.resolve_directly(base)
+            arrivals = [(row["path"], row["at"]) for row in _Handler.seen]
+        self.assertEqual([], listed)
+        self.assertEqual(["/arbitral/", "/landing/", sudact_search_path()], [path for path, _ in arrivals])
+        gaps = [later - earlier for (_, earlier), (_, later) in zip(arrivals, arrivals[1:])]
+        self.assertTrue(all(gap >= limits.CHANNEL_MIN_INTERVAL_S for gap in gaps), arrivals)
+        self.assertEqual({"requests": 3, "captcha": False}, self.counts())
+
     def test_a_page_cut_short_is_truncated_and_never_a_captcha(self):
         """Round 2, item 3: a body shorter than its `Content-Length` proves nothing about a challenge.
 
@@ -5056,6 +5162,36 @@ class SudactHostTest(_FakeClockTestCase):
         self.assertEqual("marker", result["challenge"])
         self.assertEqual({"requests": 3, "captcha": True}, self.counts(), "the file is read, never rewritten")
         self.assert_nothing_written(result)
+
+    def test_a_marker_set_while_a_plain_saves_redirect_body_drains_stops_the_hop(self):
+        """Round 3, item 1, on the save path: the hop's reread comes after urllib drained the body."""
+        routes = {
+            SUDACT_ACT: (b"<html><body>moved</body></html>", "text/html", {"Location": "/arbitral/doc/Moved1/"}, 302),
+            "/arbitral/doc/Moved1/": (SUDACT_ACT_PAGE, "text/html; charset=utf-8"),
+        }
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            with while_a_redirect_body_drains(lambda: sources.channel_mark_captcha(self.work_dir, "sudact")):
+                result = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([SUDACT_ACT], self.paths(), "the hop is never dispatched to the closed host")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("marker", result["challenge"])
+        self.assert_nothing_written(result)
+
+    def test_an_explicit_challenge_closes_the_host_even_when_its_body_is_cut_short(self):
+        """Round 3, item 2: a status and a header that name the challenge need no body — truncation
+        hides only what is judged on the body. The gate saw two saves walk into the same wall."""
+        with LocalServer(b"", routes={SUDACT_ACT: SUDACT_WAF_CUT_SHORT}) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([SUDACT_ACT], self.paths())
+            _Handler.seen = []
+            second = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([], _Handler.seen, "the second save does not walk into the same wall")
+        self.assertEqual(["unchecked: aws_waf_challenge"], first["errors"])
+        self.assertTrue(self.state()["channels"]["sudact"]["captcha"])
+        self.assertEqual(["channel_unavailable: captcha"], second["errors"])
+        self.assert_nothing_written(first)
 
     def test_a_marker_set_during_a_plain_saves_wait_stops_it_before_dispatch(self):
         """Round 2, item 1: the window between the step-1 check and the politeness pause of

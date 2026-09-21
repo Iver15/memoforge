@@ -1758,12 +1758,26 @@ class RedirectGuard(urllib.request.HTTPRedirectHandler):
 
     D-202: `stop` is a caller's own rule for a hop it will not follow — `stop(newurl)` names the
     reason, or returns None. The sudact channel refuses the hop to its portal's captcha this way, so
-    the captcha page is never even requested. `hop` is called for every hop that **will** be
-    followed, after every refusal rule and before the new request is built — so no followed hop can
-    bypass it: urllib follows a redirect only through `redirect_request`. The sudact channel reserves
-    a slot there, waits for it and rereads the shared state, exactly as for a first request, and a
-    `ChannelUnavailable` it raises stops the chain (`fetch_body` lets it through).
+    the captcha page is never even requested.
+
+    `hop(url)` is what the caller does before a followed hop **goes out**, and it runs at dispatch,
+    not at the decision (task 7, round 3). urllib's `http_error_302` decides through
+    `redirect_request`, then **drains the previous response's body** with `fp.read()` — a network
+    wait, as long as the body is slow — and only then opens the new request. A hop charged at the
+    decision would be charged before that wait: a channel closed during it would still receive the
+    hop, and a body that took five seconds would put the hop and the next request at the same
+    instant. So `redirect_request` only marks the request it builds, and this class is also the
+    opener's request pre-processor (`http_request`/`https_request`): `OpenerDirector.open` runs every
+    request it dispatches through its pre-processors, immediately before sending it, and a redirect
+    is followed only through `self.parent.open(new)` — so no followed hop can skip `hop`, and none
+    is charged before the drain. The sudact channel reserves a slot there, waits for it and rereads
+    the shared state, exactly as for a first request; a `ChannelUnavailable` it raises stops the
+    chain (`fetch_body` lets it through). The allowlist, the hop cap and `stop` stay at the decision:
+    a refused hop is refused before anything else happens.
     """
+
+    HOP_MARK = "_mf_redirect_hop"
+    """The attribute `redirect_request` sets on the request it builds, so only a hop pays `hop`."""
 
     max_repeats = MAX_REDIRECT_HOPS + 1
     max_redirections = MAX_REDIRECT_HOPS + 1
@@ -1789,9 +1803,18 @@ class RedirectGuard(urllib.request.HTTPRedirectHandler):
         refused = self.stop(newurl) if self.stop is not None else None
         if refused:
             raise RedirectRefused(refused)
-        if self.hop is not None:
-            self.hop(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and self.hop is not None:
+            # Charged at dispatch, after urllib has drained this response's body (`http_request`).
+            setattr(new, self.HOP_MARK, True)
+        return new
+
+    def http_request(self, req):  # noqa: D102 - urllib pre-processor contract
+        if self.hop is not None and getattr(req, self.HOP_MARK, False):
+            self.hop(req.full_url)
+        return req
+
+    https_request = http_request
 
 
 def _open(
@@ -3011,13 +3034,22 @@ SUDACT_NOT_RESOLVED = "not_resolved"
 SUDACT_DEFENCE_REDIRECT = "defence_redirect"
 """What a hop to the portal's captcha at `/defence/` is reported as; the hop itself is never followed."""
 
-SUDACT_SAVE_CHALLENGES: frozenset = frozenset({"interstitial", "access_stub", "unchecked", "host_not_allowed"})
+SUDACT_SAVE_CHALLENGES: frozenset = frozenset({"unchecked", "host_not_allowed"})
+SUDACT_SAVE_BODY_CHALLENGES: frozenset = frozenset({"interstitial", "access_stub"})
 """D-202: the admission refusals of a save to the sudact host that mean the portal would not serve us.
 
-A challenge page (`interstitial`, `access_stub`), an anti-bot or throttle answer (`unchecked`), or a
-redirect hop off the allowlist (`host_not_allowed` — at admission the address itself has already
-passed the allowlist). Each writes the captcha marker, exactly as on the resolver's own requests,
-for a resolved save and a plain `--url` alike: the wall is the host's, whoever meets it first.
+Each writes the captcha marker, exactly as on the resolver's own requests, for a resolved save and
+a plain `--url` alike: the wall is the host's, whoever meets it first. They are two kinds, in the
+order `sudact_refusal` already judges them (task 7, round 3):
+
+- `SUDACT_SAVE_CHALLENGES` are named **without the body** — an anti-bot or throttle status and the
+  WAF and Cloudflare headers among them (`unchecked`), a redirect hop off the allowlist
+  (`host_not_allowed`: at admission the address itself has already passed it). They close the host
+  **whatever the body's length**: a 202 with `x-amzn-waf-action` cut short of its `Content-Length`
+  is a challenge all the same.
+- `SUDACT_SAVE_BODY_CHALLENGES` are judged **on the body** (`interstitial`, `access_stub`), and a
+  body cut short of its `Content-Length` proves nothing about a challenge — Task 4's admission still
+  refuses it, but it closes nothing.
 """
 
 CHANNEL_STATE_FILENAME = "channels.json"
@@ -3812,7 +3844,8 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     address on the sudact host (`sudact_address`) is closed once the captcha marker is set — the
     save refuses before any request — its redirect into `/defence/` is refused before it is followed
     and closes the host, and so does any other challenge the save meets there
-    (`SUDACT_SAVE_CHALLENGES`): the wall is the host's, not the search endpoint's.
+    (`SUDACT_SAVE_CHALLENGES` whatever the body's length, `SUDACT_SAVE_BODY_CHALLENGES` only on a whole
+    body): the wall is the host's, not the search endpoint's.
     """
     resolver = str(getattr(args, "resolve", "") or "").strip()
     if resolver in SAVE_RESOLVERS:
@@ -3917,10 +3950,13 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     admission = save_admission(answer, payload)
     if admission is not None:
         reason, detail = admission
-        if on_sudact and reason in SUDACT_SAVE_CHALLENGES and not answer["truncated"]:
+        named_without_the_body = reason in SUDACT_SAVE_CHALLENGES
+        judged_on_a_whole_body = reason in SUDACT_SAVE_BODY_CHALLENGES and not answer["truncated"]
+        if on_sudact and (named_without_the_body or judged_on_a_whole_body):
             # D-202: the wall is the host's, whoever meets it first — the resolver or a plain `--url`.
-            # A body cut short proves nothing about a challenge (round 2, item 3): Task 4's admission
-            # still refuses it, but it closes nothing.
+            # A status or a header names a challenge whatever the body's length; only what is judged
+            # on the body is set aside when the body was cut short (task 7, round 3) — the order
+            # `sudact_refusal` uses.
             channel_mark_captcha(work_dir, SUDACT_CHANNEL)
         errors = [f"{reason}: {detail}" if detail else reason]
         return refuse(reason, {"errors": errors, "hint": SAVE_HINTS[reason], **transport})
