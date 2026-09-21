@@ -312,6 +312,15 @@ VSRF_CHAIN_BODIES: dict = {vsrf_path(act): vsrf_act(act) for act in VSRF_CHAIN}
 """`<path>: <bytes>` of the whole chain, read once — what the `LocalServer` serves as the portal."""
 
 
+VSRF_LISTING_SCRIPTS = "<script>self.__next_f=self.__next_f||[];self.__next_f.push([1])</script>" * 36
+"""The weight of a React page: script, no visible text (D-202).
+
+It keeps a hand-written listing above `LIVENESS_MIN_BODY_BYTES` and, like the real page, far under
+`LIVENESS_MIN_TEXT_RATIO` — so every test on a hand-written listing also proves that the ratio rule
+is the one set aside, and the size rule is not.
+"""
+
+
 def vsrf_listing(*paths: str, repeat: int = 1) -> bytes:
     """A hand-written listing page carrying exactly `paths`, in that order (D-202).
 
@@ -321,8 +330,16 @@ def vsrf_listing(*paths: str, repeat: int = 1) -> bytes:
     links = "".join(f'<a href="{path}" target="_blank">Определение</a>' * repeat for path in paths)
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Электронная справочная</title>'
-        "</head><body>" + links + "</body></html>"
+        + VSRF_LISTING_SCRIPTS
+        + "</head><body>"
+        + links
+        + "</body></html>"
     ).encode("utf-8")
+
+
+def with_act_link(page: bytes, path: str) -> bytes:
+    """`page` with one act link planted in it, so a resolver that read past it would fetch the act."""
+    return page.replace(b"</body>", f'<a href="{path}">Определение</a></body>'.encode("utf-8"), 1)
 
 
 def vsrf_routes(listing: bytes, bodies: dict) -> dict:
@@ -3666,6 +3683,18 @@ class ResolveVsrfTest(SaveTestCase):
         self.assertEqual({}, self.records())
         self.assertEqual([], self.raw_files())
 
+    def test_each_requisite_in_a_different_act_is_a_mismatch_that_says_so(self):
+        """`(1,3)` of 11.07 carries the number, `(2,4)` of 14.08 the date — no single act carries both."""
+        bodies = {path: VSRF_CHAIN_BODIES[path] for path in (vsrf_path("2383940"), vsrf_path("2394388"))}
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual(["requisites_mismatch: no candidate carries both"], result["errors"])
+        self.assertEqual({"number": True, "date": True}, result["found"])
+        self.assertEqual(2, len(result["candidates"]))
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
     def test_a_chain_with_no_text_layer_anywhere_lists_its_candidates(self):
         """A candidate that cannot be certified is skipped, never refused on; the addresses remain."""
         bodies = {path: SCAN_PDF for path in (vsrf_path("2394482"), vsrf_path("2394462"))}
@@ -3679,13 +3708,151 @@ class ResolveVsrfTest(SaveTestCase):
         self.assertEqual({}, self.records())
         self.assertEqual([], self.raw_files())
 
-    def test_an_unreadable_candidate_is_skipped_and_the_readable_one_still_wins(self):
+    def test_a_genuine_scan_among_the_candidates_is_skipped_and_the_resolution_completes(self):
+        """A PDF that arrived whole with no text layer is a scan, not a challenge: skipped, not stopped."""
         bodies = {vsrf_path("2394370"): SCAN_PDF, vsrf_path("2394482"): vsrf_act("2394482")}
         with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
             self.allow(sources.url_host(base))
             result = self.resolve(base)
         self.assertEqual("full_text", result["save_outcome"])
         self.assertEqual(f"{base}{vsrf_path('2394482')}", result["url"])
+        self.assertEqual(
+            [vsrf_path("2394370"), vsrf_path("2394482"), vsrf_path("2394482")],
+            self.paths()[1:],
+            "the scan was fetched, the next candidate too, and then the save",
+        )
+
+    # --- a challenge stops the channel: never solved, never worked around, never retried --------
+
+    def test_a_challenge_served_as_the_listing_stops_the_channel(self):
+        """Only the text-ratio rule is set aside for the listing; the size, redirect and wall rules are not.
+
+        Each page carries a planted act link, so a resolver that read past the challenge would have
+        fetched it: the server recording a single request is what proves it did not.
+        """
+        act = vsrf_path("2394482")
+        tiny = b'<html><body><a href="/lk/practice/stor_pdf_ec/2394482">x</a></body></html>'
+        cases = (
+            ("wall", with_act_link(ECFR_STUB, act), "access_stub"),
+            ("redirect", with_act_link(REDIRECT_SHELL, act), "interstitial"),
+            ("shell", tiny, "interstitial"),
+        )
+        for name, page, reason in cases:
+            with self.subTest(listing=name):
+                routes = {sources.VSRF_LISTING_PATH: (page, "text/html"), act: (vsrf_act("2394482"), "application/pdf")}
+                with LocalServer(b"", routes=routes) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual(1, len(_Handler.seen), "no candidate is fetched behind a challenge")
+                self.assertEqual([f"channel_unavailable: {reason}"], result["errors"])
+                self.assertEqual([], result["candidates"])
+                self.assertEqual({}, self.records())
+                self.assertEqual([], self.raw_files())
+
+    def test_a_challenge_in_place_of_the_first_candidate_stops_the_channel_at_once(self):
+        """The next fetch would be the retry the rule forbids: nothing after the challenge is asked.
+
+        The reason printed is `not_a_pdf`, not `access_stub`: for a candidate the signature alone
+        judges the body, in both directions, and a wall carries none.
+        """
+        paths = (vsrf_path("2394482"), vsrf_path("2394462"))
+        routes = vsrf_routes(vsrf_listing(*paths), {path: VSRF_CHAIN_BODIES[path] for path in paths})
+        routes[paths[0]] = (ECFR_STUB, "text/html")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual([paths[0]], self.paths()[1:], "no request for any later candidate")
+        self.assertEqual(["channel_unavailable: not_a_pdf"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_candidate_that_is_not_a_pdf_stops_the_channel_at_once(self):
+        """A challenge served as 200 is not a scan: `stor_pdf_ec` is a PDF store, and this is not a PDF.
+
+        The body here is an ordinary document page that passes every interstitial rule, so only
+        «not a PDF at all» can stop it — and it does, even after a candidate that had certified.
+        """
+        paths = (vsrf_path("2394482"), vsrf_path("2394388"), vsrf_path("2394462"))
+        routes = vsrf_routes(vsrf_listing(*paths), {path: VSRF_CHAIN_BODIES[path] for path in paths})
+        routes[paths[1]] = (VS_ACT_PAGE, "text/html; charset=utf-8")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(list(paths[:2]), self.paths()[1:], "the third candidate is never asked")
+        self.assertEqual(["channel_unavailable: not_a_pdf"], result["errors"])
+        self.assertEqual({}, self.records(), "no partial answer from the candidate that did certify")
+        self.assertEqual([], self.raw_files())
+
+    def test_a_challenge_that_declares_application_pdf_stops_the_channel_at_once(self):
+        """The header is not trusted for this question: a PDF is a body with the `%PDF-` signature.
+
+        Declared `application/pdf`, the wall is not markup to `is_interstitial`, so no transport rule
+        sees it; `pypdf` would find no text layer in it and it used to be skipped as a scan — and the
+        next candidate fetched, which is the retry.
+        """
+        paths = (vsrf_path("2394482"), vsrf_path("2394462"))
+        routes = vsrf_routes(vsrf_listing(*paths), {path: VSRF_CHAIN_BODIES[path] for path in paths})
+        routes[paths[0]] = (ECFR_STUB, "application/pdf")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual([paths[0]], self.paths()[1:], "no request for any later candidate")
+        self.assertEqual(["channel_unavailable: not_a_pdf"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_the_pdf_signature_may_stand_anywhere_in_the_first_kilobyte(self):
+        """The PDF specification allows leading junk before the header, and real servers emit it."""
+        # The refusal first: it writes nothing, so the save of the second case starts from a clean tree.
+        cases = (
+            (b" " * 1024, ["2394370"], "channel_unavailable: not_a_pdf"),
+            (b" " * 1000, ["2394370", "2394482", "2394482"], None),
+        )
+        for junk, asked, refusal in cases:
+            with self.subTest(leading=len(junk)):
+                bodies = {vsrf_path("2394370"): junk + SCAN_PDF, vsrf_path("2394482"): vsrf_act("2394482")}
+                with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual([vsrf_path(act) for act in asked], self.paths()[1:])
+                if refusal is None:
+                    self.assertEqual("full_text", result["save_outcome"], "a scan within the window is skipped")
+                else:
+                    self.assertEqual([refusal], result["errors"])
+                    self.assertEqual([], self.raw_files())
+
+    def test_a_signed_scan_served_as_text_html_is_still_a_scan(self):
+        """The signature decides in both directions: a signed body is a PDF whatever its header says.
+
+        Served as `text/html`, the 632-byte scan is markup under the 2 KB floor to `is_interstitial`,
+        which calls it `interstitial_suspected`; it is a PDF all the same, so it is skipped as the
+        textless scan it is and the resolution completes.
+        """
+        self.assertLess(len(SCAN_PDF), limits.LIVENESS_MIN_BODY_BYTES)
+        paths = (vsrf_path("2394370"), vsrf_path("2394482"))
+        routes = vsrf_routes(vsrf_listing(*paths), {paths[1]: vsrf_act("2394482")})
+        routes[paths[0]] = (SCAN_PDF, "text/html")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual([paths[0], paths[1], paths[1]], self.paths()[1:], "the scan, the act, the save")
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{paths[1]}", result["url"])
+
+    def test_a_candidate_that_is_not_served_stops_the_channel_at_once(self):
+        """A partial chain is no chain: the act that did not arrive may be the one looked for."""
+        missing = vsrf_path("9999999")
+        bodies = {vsrf_path("2394482"): vsrf_act("2394482")}
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(missing, *bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual([missing], self.paths()[1:])
+        self.assertEqual(["channel_unavailable: http_404"], result["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
 
     def test_a_number_that_lists_nothing_is_a_mismatch_and_not_a_broken_channel(self):
         """The two send the researcher to different places: look at the number, or use a fallback."""

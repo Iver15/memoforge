@@ -2817,6 +2817,13 @@ match across, and it is stripped **here**, where the vsrf query is built, and in
 another jurisdiction puts other things in brackets.
 """
 
+PDF_HEADER_WINDOW = 1024
+"""D-202: how far into a body the `%PDF-` signature may stand and the body still be a PDF.
+
+The PDF specification allows leading junk before the header; readers look for it in the first
+kilobyte, and real servers do prepend whitespace or a byte-order mark.
+"""
+
 VSRF_ACT_PATH_RE = re.compile(rb"/lk/practice/stor_pdf(?:_ec)?/\d+")
 """D-202: the two shapes of a link to an act's own PDF, matched on the bytes of the listing.
 
@@ -2880,22 +2887,42 @@ def vsrf_candidates(payload: bytes, listing_url: str) -> list[str]:
     return list(seen)[: limits.RESOLVE_MAX_CANDIDATES]
 
 
+def challenge_name(payload: bytes) -> str:
+    """The name a refused challenge body is reported under — the vocabulary `save_admission` uses."""
+    return "access_stub" if is_access_stub(payload) else "interstitial"
+
+
+def vsrf_listing_refusal(payload: bytes, content_type: str) -> str | None:
+    """Why this body is not the portal's index: `is_interstitial` with the text-ratio rule set aside.
+
+    The ratio rule is the one that cannot be applied: the real index is a React shell whose visible
+    text is 0.029 of its bytes — under `LIVENESS_MIN_TEXT_RATIO`. That rule measures *heaviness*,
+    and a listing is heavy by construction. The other three measure something a listing never is,
+    so they stay: a markup body
+    under `LIVENESS_MIN_BODY_BYTES` is a shell (the portal's own «nothing found» is 195 457 bytes),
+    `is_redirect_shell` is a page whose only content is a redirect, and `is_access_stub` is a bot
+    wall saying so in its own words. Setting those aside too would read a captcha as «a page with no
+    act links» and send the researcher to re-check a number when the channel was in fact blocked.
+    """
+    if not is_markup(payload, content_type):
+        return None
+    if len(payload) < limits.LIVENESS_MIN_BODY_BYTES or is_redirect_shell(payload) or is_access_stub(payload):
+        return challenge_name(payload)
+    return None
+
+
 def resolve_vsrf(number: str, *, base: str, timeout: float) -> list[str]:
     """Addresses of the acts the Supreme Court portal lists for `number`, in page order (D-202).
 
     One GET of the practice index, through the same client as everything else: the allowlist on the
     address and on every redirect hop, the politeness pause, the liveness headers.
 
-    A listing is **not** a document and is never judged as one. It is a React shell whose visible
-    text is 0.029 of its bytes — under `LIVENESS_MIN_TEXT_RATIO` — so the interstitial rule answers
-    «not the document» for the real portal, and a resolver that believed it would refuse every
-    search. `interstitial_suspected` is therefore the one error this function reads past: the body
-    is there, and the links in it are what it came for.
-
-    Every other transport failure raises `ChannelUnavailable` — the address was refused, the
-    request did not complete, the server answered with something that is not the index, or the body
-    was cut at the ceiling (a chain cut short may be missing exactly the act being looked for).
-    An empty list means the opposite: the index arrived whole and named no act at all.
+    A listing is **not** a document and is not judged as one: of the four interstitial rules, the
+    text-ratio rule is set aside and the other three are not (`vsrf_listing_refusal`). A challenge,
+    and every transport failure, raises `ChannelUnavailable` — the address was refused, the request
+    did not complete, the server answered with something that is not the index, the body is a
+    challenge, or it was cut at the ceiling (a chain cut short may be missing exactly the act being
+    looked for). An empty list means the opposite: the index arrived whole and named no act at all.
     """
     hosts = allowlist_hosts()
     url = vsrf_listing_url(number, base)
@@ -2909,6 +2936,10 @@ def resolve_vsrf(number: str, *, base: str, timeout: float) -> list[str]:
         raise ChannelUnavailable(error)
     if answer["truncated"]:
         raise ChannelUnavailable("truncated")
+    # `interstitial_suspected` is judged again, with the ratio rule set aside and nothing else.
+    challenge = vsrf_listing_refusal(payload, answer["content_type"])
+    if challenge is not None:
+        raise ChannelUnavailable(challenge)
     return vsrf_candidates(payload, url)
 
 
@@ -2931,18 +2962,53 @@ def certify_candidates(candidates: list, *, number: str, date: str, timeout: flo
     Each is fetched under the same politeness pause and the same allowlist as any other request,
     and certified on its text layer alone: `source_text` must find the number as a whole token in
     the number zone (the bracketed suffix is what tells the twins apart) and the date in the date
-    zone. A candidate with no text layer — a scan, a file `pypdf` cannot parse, a body that is not
-    a PDF at all, no `pypdf` in the environment — cannot be certified and is **skipped**, not
-    refused on: the caller lists the addresses instead, and the researcher decides with `--url`.
+    zone.
+
+    **A captcha is never solved, never worked around and never retried**, and the next fetch after a
+    challenge *is* the retry. So a candidate that did not arrive as a whole PDF stops the channel at
+    once and no later candidate is asked: a refused address, a request that did not complete, a
+    non-2xx or challenge answer, a truncated body, or a body that is **not a PDF at all** — no
+    `%PDF-` signature in its first `PDF_HEADER_WINDOW` bytes, **whatever `Content-Type` says**. That
+    last rule is what catches a challenge served as 200 in place of the document — declared
+    `application/pdf` included — without a list of challenge vendors to keep: `stor_pdf_ec/<id>` is
+    a PDF store, and anything else in its place is not an act. It is also the honest answer to a
+    partial chain — the act that did not arrive may be exactly the one looked for. The signature
+    decides in **both** directions: a signed body is a PDF even when it is served as `text/html` and
+    the transport's interstitial rules suspect it, so the body is never judged by those rules here.
+
+    A PDF that arrived whole and has no text layer — a scan, a file `pypdf` cannot parse, no
+    `pypdf` in the environment — is a different thing: it cannot be certified, so it is **skipped**,
+    and the caller lists the addresses for the researcher to decide with `--url`.
     """
     hosts = allowlist_hosts()
     found = {"number": False, "date": False}
     distinct: dict[str, str] = {}
     for url in candidates:
-        if fetch_refusal(url, hosts) is not None:
-            continue
+        refused = fetch_refusal(url, hosts)
+        if refused is not None:
+            raise ChannelUnavailable(refused[0])
         answer = fetch_allowed(url, hosts, timeout=timeout)
-        text = extract_pdf_text(answer.pop("payload"))
+        payload = answer.pop("payload")
+        # The failures that are not about the body stop the channel before the body is judged.
+        # `interstitial_suspected` is left out on purpose: it is a verdict *about the body*, and for
+        # a candidate the body is judged by its signature alone, in both directions — so that
+        # verdict has nothing left to decide here and is not consulted at all.
+        error = answer["error"]
+        if error is not None and error != "interstitial_suspected":
+            raise ChannelUnavailable(error)
+        if answer["truncated"]:
+            raise ChannelUnavailable("truncated")
+        # A PDF is a body carrying the `%PDF-` signature, whatever `Content-Type` says, and the
+        # signature decides both ways. Without it the body is not an act, whatever it declares: a
+        # challenge that declares `application/pdf` is not markup to `is_interstitial`, and `pypdf`
+        # would only find it has no text layer and skip it as a scan — the next fetch being the
+        # retry. With it the body is a PDF, whatever it declares: a signed scan served as `text/html`
+        # is markup under the size floor to `is_interstitial`, yet it is not a challenge. The
+        # signature may stand anywhere in the first `PDF_HEADER_WINDOW` bytes, because the PDF
+        # specification allows leading junk before the header and real servers do emit it.
+        if PDF_SIGNATURE not in payload[:PDF_HEADER_WINDOW]:
+            raise ChannelUnavailable("not_a_pdf")
+        text = extract_pdf_text(payload)
         if text is None:
             continue
         carries_number = source_text.has_number(text, number, source_text.number_zone(text))
@@ -3000,15 +3066,17 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
     timeout = float(getattr(args, "timeout", None) or limits.LIVENESS_TIMEOUT_SECONDS)
     try:
         candidates = resolve_vsrf(number, base=VSRF_BASE, timeout=timeout)
+        # An index that arrived and named no act is not a broken channel: it is a number that lists
+        # nothing, and it falls through to `requisites_mismatch` with no candidate and nothing found.
+        answer = certify_candidates(candidates, number=number, date=date, timeout=timeout)
     except ChannelUnavailable as exc:
+        # No candidate is handed out either: the addresses sit behind the same blocked channel, and
+        # pointing the researcher at them would be the retry by other hands.
         return {
             "errors": [f"channel_unavailable: {exc}"],
             "hint": RESOLVE_HINTS["channel_unavailable"],
             "candidates": [],
         }
-    # An index that arrived and named no act is not a broken channel: it is a number that lists
-    # nothing, and it falls through to `requisites_mismatch` with no candidate and nothing found.
-    answer = certify_candidates(candidates, number=number, date=date, timeout=timeout)
     distinct = answer["distinct"]
     if len(distinct) > 1:
         # Two documents that are not the same document carry the same requisites: the code cannot
@@ -3020,9 +3088,10 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
             "found": answer["found"],
         }
     if not distinct:
+        # Each requisite may have been seen — just never in the same act. The detail is never empty.
         absent = ", ".join(name for name in ("number", "date") if not answer["found"][name])
         return {
-            "errors": [f"requisites_mismatch: {absent}"],
+            "errors": [f"requisites_mismatch: {absent or 'no candidate carries both'}"],
             "hint": RESOLVE_HINTS["requisites_mismatch"],
             "candidates": candidates,
             "found": answer["found"],
