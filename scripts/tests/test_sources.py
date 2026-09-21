@@ -177,7 +177,12 @@ def act_page(*names: str) -> bytes:
     `<pre>` keeps the line structure `source_text` reads, and the declared charset is what
     `markup_to_text` decodes with — the conversion is part of what `save` has to get right.
     """
-    body = "\n".join((SOURCE_TEXT_FIXTURES / (name + ".txt")).read_text(encoding="utf-8") for name in names)
+    texts = ((SOURCE_TEXT_FIXTURES / (name + ".txt")).read_text(encoding="utf-8") for name in names)
+    return portal_page("\n".join(texts))
+
+
+def portal_page(body: str) -> bytes:
+    """`act_page` for a text already in hand — the same wrapping, so the same conversion (D-202)."""
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Портал</title></head><body><pre>'
         + body
@@ -347,6 +352,177 @@ def vsrf_routes(listing: bytes, bodies: dict) -> dict:
     routes = {sources.VSRF_LISTING_PATH: (listing, "text/html; charset=utf-8")}
     routes.update({path: (body, "application/pdf") for path, body in bodies.items()})
     return routes
+
+
+SUDACT_ACT_TEXT = (SOURCE_TEXT_FIXTURES / "sudact-cassation-a53-28950-2022.txt").read_text(encoding="utf-8")
+"""D-202: the real cassation ruling in case А53-28950/2022 as sudact.ru served it (Task 3's fixture).
+
+The portal heading above the act says «Постановление от 26 октября 2025 г.» — sudact's own metadata,
+a day early and inherited by LDH — while the act is of 27 October, printed in letter spacing.
+"""
+
+SUDACT_ACT_PAGE = act_page("sudact-cassation-a53-28950-2022")
+SUDACT_NUMBER = "А53-28950/2022"
+SUDACT_DATE = "2025-10-27"
+SUDACT_PORTAL_DATE = "2025-10-26"
+"""The date sudact's listing and the portal heading give that act: a day early, never to be trusted."""
+
+SUDACT_TITLE = "АС Северо-Кавказского округа, постановление по делу № А53-28950/2022"
+SUDACT_CITATION = "Постановление АС Северо-Кавказского округа от 27.10.2025 по делу № А53-28950/2022"
+
+SUDACT_ACT = "/arbitral/doc/VLaG5lHDfBoJ/"
+"""The portal's address of that act — the id sudact's own search and LDH `RU/Sudact` both give."""
+
+SUDACT_COOKIE = "sessionid=TESTSESSION"
+"""A cookie a portal *may* set — a placeholder, never a real one. The real section page set none."""
+
+SUDACT_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sudact"
+"""D-202: three real answers of sudact.ru, captured by the controller on 2026-09-21, byte for byte.
+
+Three polite requests 2.5-3 s apart, stopped at the first sign of a challenge — there was none.
+"""
+
+SUDACT_SECTION_PAGE = (SUDACT_FIXTURES / "section-arbitral.html").read_bytes()
+"""`GET /arbitral/` — 200 `text/html`, 82 681 bytes, visible-text ratio 0.526: no interstitial.
+
+**It set no cookie**, and the search that followed worked all the same: the session jar carries
+whatever the portal sets and requires nothing. It is no court act either (`is_russian_act` is
+False), which is what makes it the wall in the tests of the resolved save.
+"""
+
+SUDACT_NEW = (SUDACT_FIXTURES / "doc-ajax-a53-28950-2022-new.json").read_bytes()
+"""The first answer of the search for А53-28950/2022 — 200 `application/json`, 41 bytes: `new`."""
+
+SUDACT_FINISHED = (SUDACT_FIXTURES / "doc-ajax-a53-28950-2022-finished.json").read_bytes()
+"""The same search 3 s later — 200 `application/json`, 5 856 bytes, `status: finished`.
+
+`content` is the HTML list with four `/arbitral/doc/<id>/` links; `total_found` is **not a
+number** but an HTML fragment («Найдено 4 документа»), and it is never read as a count.
+"""
+
+SUDACT_LISTED: tuple[str, ...] = (
+    "/arbitral/doc/VLaG5lHDfBoJ/",
+    "/arbitral/doc/jX0PqHjyDV5Y/",
+    "/arbitral/doc/QlLbj6Wn1AA/",
+    "/arbitral/doc/fOQWwXJVAwL9/",
+)
+"""The four acts of А53-28950/2022 in the real listing's order, which the listing dates a day early:
+the cassation ruling (listed 26.10.2025, of 27.10.2025), the appeal (listed 18.06.2025), the first
+instance (listed 16.04.2025) and an earlier appeal (listed 26.06.2024)."""
+
+SUDACT_DEFENCE = (b"", "", {"Location": "/defence/?next=/arbitral/"}, 302)
+"""A challenge as the portal answers one: a redirect to its captcha at `/defence/`."""
+
+
+def sudact_finished(*paths: str, title: str = "Постановление от 26 октября 2025 г. по делу № А53-28950/2022") -> bytes:
+    """`finished`, with the HTML list of documents the portal's own script renders (D-202).
+
+    Every entry carries the listing's own date — a day early, as sudact's metadata always is — so a
+    resolver that took the date from anywhere but the document's text would be caught by it.
+    """
+    items = "".join(f'<li><a href="{path}?snippet_pos=1#snippet">{title}</a></li>' for path in paths)
+    content = f'<ul class="results">{items}</ul>'
+    return json.dumps({"status": "finished", "content": content}, ensure_ascii=False).encode("utf-8")
+
+
+def sudact_routes(search: list, documents: dict, section: str = "arbitral") -> dict:
+    """`_Handler.routes` for the portal: the section page, its search, `/defence/` and the documents.
+
+    `search` is what the search answers, one body per request, the last one repeating; a document
+    is its page, or a whole route when a test needs a status code or a sequence of its own.
+    `/defence/` is served, so a client that followed the challenge would be seen fetching it. The
+    section page is the real one, and like the real one it sets no cookie.
+    """
+    routes = {
+        f"/{section}/": (SUDACT_SECTION_PAGE, "text/html; charset=utf-8"),
+        f"/{section}/doc_ajax/": [body if isinstance(body, tuple) else (body, "application/json") for body in search],
+        "/defence/": (ECFR_STUB, "text/html"),
+    }
+    for path, body in documents.items():
+        routes[path] = body if isinstance(body, (tuple, list)) else (body, "text/html; charset=utf-8")
+    return routes
+
+
+def sudact_search_path(number: str = SUDACT_NUMBER, section: str = "arbitral") -> str:
+    """The address of the portal's search for `number`, as the server records it."""
+    return f"/{section}/doc_ajax/?{section}-case_doc={urllib.parse.quote(number, safe='')}&page=1"
+
+
+def sudact_model(date: str, portal_date: str) -> bytes:
+    """A labelled MODEL of another act of case А53-28950/2022: the real page with its own dates moved.
+
+    Not court text of its own. Four dates of the header change and nothing else — the act's date
+    line (in the letter spacing the real page prints it in), the day the operative part was
+    announced, the day the full text was made, and the portal heading a day earlier — because that
+    is exactly where, for the resolver, the acts of one case differ from each other.
+    """
+    day, month, year = date.split()
+    text = SUDACT_ACT_TEXT
+    for old, new in (
+        ("2 7 о к т я б р я 2025", " ".join(day + month) + f" {year}"),
+        ("объявлена 23 октября 2025", f"объявлена {date}"),
+        ("изготовлено 27 октября 2025", f"изготовлено {date}"),
+        ("Постановление от 26 октября 2025 г.", f"Постановление от {portal_date} г."),
+    ):
+        if old not in text:
+            raise AssertionError(f"the real page no longer carries {old!r}")
+        text = text.replace(old, new, 1)
+    return portal_page(text)
+
+
+SUDACT_CASE: dict = {
+    SUDACT_LISTED[0]: SUDACT_ACT_PAGE,
+    SUDACT_LISTED[1]: sudact_model("19 июня 2025", "18 июня 2025"),
+    SUDACT_LISTED[2]: sudact_model("17 апреля 2025", "16 апреля 2025"),
+    SUDACT_LISTED[3]: sudact_model("27 июня 2024", "26 июня 2024"),
+}
+"""The four acts the real listing names, under its real ids and in its order (`SUDACT_LISTED`).
+
+The first is the real cassation ruling. The other three pages were not captured, so they are the
+labelled models of `sudact_model`, dated as the real listing dates them plus the day sudact's
+metadata takes off (the appeal of 19.06.2025 and the first instance of 17.04.2025 are also the
+dates the real ruling itself cites). Each carries the same number: only the date in the document's
+own text tells the four apart.
+"""
+
+
+class FakeClock:
+    """The channel's clock in a test: it moves only when the code waits (D-202).
+
+    No test sleeps and no test reads a real clock. The pace is computed from `now`; every wait the
+    code asks for is recorded and then added to `now`, as if it had been slept.
+    """
+
+    def __init__(self, now: float = 1_000_000.0) -> None:
+        self.now = now
+        self.waits: list = []
+
+    def time(self) -> float:
+        return self.now
+
+    def wait(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.now += seconds
+
+
+def sources_lock_is_free(work_dir: Path) -> bool:
+    """Whether another thread could take `sources.lock` at this very moment — asked once, never waited.
+
+    The lock stack is per thread, so the probe runs in a thread of its own and really asks the OS.
+    """
+    outcome: list = []
+
+    def probe() -> None:
+        try:
+            with state_io.FileLock(state_io.lock_path(work_dir, "sources"), timeout=0):
+                outcome.append(True)
+        except state_io.LockTimeout:
+            outcome.append(False)
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join(10)
+    return outcome == [True]
 
 
 def save_namespace(work_dir: str, url: str, **overrides) -> dict:
@@ -568,6 +744,27 @@ def worker_save_killed_between_publications(work_dir: str, url: str, paused, res
     Path(result).write_text(json.dumps(outcome), encoding="utf-8")
 
 
+def worker_reserve(work_dir: str, count: int, barrier, result: str) -> None:
+    """Child process: `count` slots of the sudact channel, reserved on a clock that never moves (D-202).
+
+    Every child reads the same fixed time, so the only thing that can keep two of them off the same
+    slot is the reservation made under `sources.lock` in `channels.json` — which is what is tested.
+    The barrier releases the children together: no sleep and no real clock.
+    """
+    sys.path.insert(0, str(Path(work_dir).parents[1] / "scripts"))
+    from memoforge import sources as child_sources
+
+    child_sources._channel_clock = lambda: 1000.0
+    outcome: dict = {"error": None, "slots": []}
+    try:
+        barrier.wait(timeout=120)
+        for _ in range(count):
+            outcome["slots"].append(1000.0 + child_sources.channel_reserve(work_dir, "sudact"))
+    except BaseException as exc:  # noqa: BLE001 - reported to the parent
+        outcome["error"] = repr(exc)
+    Path(result).write_text(json.dumps(outcome), encoding="utf-8")
+
+
 def spawn(target, args):
     return multiprocessing.get_context("spawn").Process(target=target, args=args)
 
@@ -637,16 +834,32 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     whose query carries the case number, and the acts of the chain at `/lk/practice/stor_pdf_ec/<id>`.
     The fixed `pages`/`types` tables cannot express that, and a path this table does not name falls
     through to them unchanged.
+
+    Task 7 (sudact): a route may carry a third item, the extra headers of the answer, and a fourth,
+    its status code — the section page sets the session cookie, a challenge answers `302` to
+    `/defence/`. A **list** of routes is served one per request, the last one repeating, because the
+    portal's search answers `new` first and `finished` later on the very same address.
     """
 
-    def _route(self) -> tuple | None:
-        """The `routes` entry of this request; the query is the resolver's, not the address's."""
-        return type(self).routes.get(self.path.split("?")[0])
+    route_hits: dict = {}
+    """D-202: how many requests each list-valued route has answered so far."""
 
-    def _payload(self) -> tuple[int, bytes]:
-        route = self._route()
+    def _route(self) -> tuple | None:
+        """The `routes` entry of this request; the query is the resolver's, not the address's.
+
+        Called once per request: a list-valued route advances by one on every call.
+        """
+        path = self.path.split("?")[0]
+        route = type(self).routes.get(path)
+        if isinstance(route, list):
+            served = type(self).route_hits.get(path, 0)
+            type(self).route_hits[path] = served + 1
+            route = route[min(served, len(route) - 1)]
+        return route
+
+    def _payload(self, route: tuple | None) -> tuple[int, bytes]:
         if route is not None:
-            return 200, route[0]
+            return (route[3] if len(route) > 3 else 200), route[0]
         if self.path in ("/ok", "/short", "/served.pdf"):
             # D-199: `/short` declares this whole length and then sends two thirds of it.
             return 200, type(self).body
@@ -672,20 +885,26 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         type(self).seen.append(
             {"path": self.path, "headers": {name.lower(): value for name, value in self.headers.items()}}
         )
-        code, payload = self._payload()
+        route = self._route()
+        code, payload = self._payload(route)
         self.send_response(code)
-        if code == 302:
+        if code == 302 and route is None:
             # `localhost` is the same socket under another host name: an off-allowlist hop (D-151).
             offsite = f"http://localhost:{self.server.server_address[1]}/ok"
             self.send_header("Location", offsite if self.path == "/offsite" else self.locations[self.path])
         for name, value in self.challenges.get(self.path, (None, {}))[1].items():
             self.send_header(name, value)
-        route = self._route()
+        extra = route[2] if route is not None and len(route) > 2 else {}
         if route is not None:
-            self.send_header("Content-Type", route[1])
+            if route[1]:
+                self.send_header("Content-Type", route[1])
+            for name, value in extra.items():
+                self.send_header(name, value)
         elif self.path in self.types:
             self.send_header("Content-Type", self.types[self.path])
-        self.send_header("Content-Length", str(len(payload)) + type(self).length_suffix)
+        if "Content-Length" not in extra:
+            # A route may promise more than it sends (task 7, round 2): a page cut short on the wire.
+            self.send_header("Content-Length", str(len(payload)) + type(self).length_suffix)
         self.end_headers()
         if with_body:
             if self.path == "/short":
@@ -732,6 +951,7 @@ class LocalServer:
         _Handler.short_bytes = short_bytes
         _Handler.length_suffix = length_suffix
         _Handler.routes = dict(routes or {})
+        _Handler.route_hits = {}
         self.server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
         # `poll_interval` is what `shutdown()` waits for: the default 0.5 s was half a second of
         # sleep per server, and nearly every test in this file starts one.
@@ -2912,10 +3132,12 @@ class SaveTest(SaveTestCase):
         self.assertEqual("refused:url_error", result["save_outcome"])
         self.assertEqual({}, self.records())
 
-    def test_a_resolver_is_declared_but_not_available_yet(self):
-        """D-202: `vsrf` landed with task 6; `sudact` is the one still waiting for its own task."""
-        result = self.save("", resolve="sudact")
-        self.assertEqual(["resolver_not_available: sudact"], result["errors"])
+    def test_a_resolver_that_is_not_declared_is_not_available(self):
+        """D-202: both declared resolvers have landed (task 6 `vsrf`, task 7 `sudact`); the parser
+        admits no other name, and a caller that builds the namespace itself is still refused."""
+        self.assertEqual(("vsrf", "sudact"), sources.SAVE_RESOLVERS)
+        result = self.save("", resolve="casus")
+        self.assertEqual(["resolver_not_available: casus"], result["errors"])
         self.assertEqual({}, self.records())
 
     # --- the freeze ---------------------------------------------------------
@@ -3842,6 +4064,63 @@ class ResolveVsrfTest(SaveTestCase):
         self.assertEqual("full_text", result["save_outcome"])
         self.assertEqual(f"{base}{paths[1]}", result["url"])
 
+    def test_a_save_whose_own_fetch_is_not_the_certified_act_refuses_and_writes_nothing(self):
+        """Task 7 finding 1: the resolver proved the act carries both requisites, so the save's own
+        fetch must find both too, or refuse.
+
+        Before, a second body that `source_text` did not read as a Russian act fell under the
+        non-Russian rule and was stored as an excerpt: an HTML page served as 200 in place of the
+        PDF (here the real sudact section page — any page that is not the act), or a PDF with no
+        text layer (stored as `excerpt:pdf_text_unavailable`). The resolved save now refuses both.
+        """
+        act = vsrf_path("2394482")
+        cases = (
+            ("a page that is not the act", (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")),
+            ("a pdf with no text layer", (SCAN_PDF, "application/pdf")),
+        )
+        for name, second in cases:
+            with self.subTest(second=name):
+                routes = vsrf_routes(vsrf_listing(act), {})
+                routes[act] = [(vsrf_act("2394482"), "application/pdf"), second]
+                with LocalServer(b"", routes=routes) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual([act, act], self.paths()[1:], "certified once, fetched again by the save")
+                self.assertEqual(["requisites_mismatch: number, date"], result["errors"])
+                self.assertEqual("refused:requisites_mismatch", result["save_outcome"])
+                self.assertEqual({"number": False, "date": False}, {k: result["found"][k] for k in ("number", "date")})
+                self.assertEqual({}, self.records())
+                self.assertEqual([], self.raw_files())
+
+    def test_a_failed_second_fetch_leaves_an_existing_record_untouched(self):
+        """Task 7: on the resolved path **no** refusal of the save writes anything, not even `meta.save_outcome`.
+
+        An earlier resolve saved the chamber's ruling whole; a later resolve whose own second fetch
+        comes back as something else — a page that is not the act, or an access wall — must not
+        rewrite that record's history. The same rule for every refusal, not a list of codes.
+        """
+        act = vsrf_path("2394482")
+        layer_dir = self.work_dir / sources.RAW_DIR / "case_law"
+        cases = (
+            ("a page that is not the act", (SUDACT_SECTION_PAGE, "text/html; charset=utf-8"), "requisites_mismatch"),
+            ("an access wall", (ECFR_STUB, "text/html"), "access_stub"),
+        )
+        for name, second_body, reason in cases:
+            with self.subTest(second=name):
+                routes = vsrf_routes(vsrf_listing(act), {})
+                routes[act] = [(vsrf_act("2394482"), "application/pdf")] * 3 + [second_body]
+                with LocalServer(b"", routes=routes) as base:
+                    self.allow(sources.url_host(base))
+                    first = self.resolve(base)
+                    self.assertEqual("full_text", first["save_outcome"])
+                    record_before = self.snapshot(first["source_id"])
+                    files_before = {name: (layer_dir / name).read_bytes() for name in self.raw_files()}
+                    second = self.resolve(base)
+                self.assertEqual(reason, second["errors"][0].split(":")[0])
+                self.assertEqual(f"refused:{reason}", second["save_outcome"], "the answer still carries the outcome")
+                self.assertEqual(record_before, self.snapshot(first["source_id"]), "record and meta untouched")
+                self.assertEqual(files_before, {name: (layer_dir / name).read_bytes() for name in self.raw_files()})
+
     def test_a_candidate_that_is_not_served_stops_the_channel_at_once(self):
         """A partial chain is no chain: the act that did not arrive may be the one looked for."""
         missing = vsrf_path("9999999")
@@ -3940,6 +4219,897 @@ class ResolveVsrfTest(SaveTestCase):
             with self.assertRaises(SystemExit):
                 parser.parse_args(base + ["--url", "https://www.vsrf.ru/x", "--resolve", "vsrf"])
         self.assertEqual("vsrf", parser.parse_args(base + ["--resolve", "vsrf"]).resolve)
+
+
+class _FakeClockTestCase(SaveTestCase):
+    """A `SaveTestCase` whose channel clock is a `FakeClock`, and whose waits advance it (D-202)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.clock = FakeClock()
+        for name, value in (("_channel_clock", self.clock.time), ("_wait", self.clock.wait)):
+            patcher = mock.patch.object(sources, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def state(self) -> dict:
+        return json.loads(sources.channel_state_path(self.work_dir).read_text(encoding="utf-8"))
+
+    def write_state(self, payload) -> None:
+        document = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+        sources.channel_state_path(self.work_dir).write_bytes(document)
+
+    def write_entry(self, last_request: float, requests: int, captcha: bool) -> None:
+        """A well-formed `channels.json` holding this state of the sudact channel."""
+        entry = {"last_request": last_request, "requests": requests, "captcha": captcha}
+        self.write_state({"schema_version": 1, "channels": {"sudact": entry}})
+
+    def counts(self) -> dict:
+        """The requests counted and the marker, without the time of the last slot."""
+        entry = self.state()["channels"]["sudact"]
+        return {"requests": entry["requests"], "captcha": entry["captcha"]}
+
+
+class ChannelStateTest(_FakeClockTestCase):
+    """D-202: `channels.json` — the pace, the budget and the captcha marker every researcher shares.
+
+    It is read and updated briefly under `sources.lock`: the next slot is reserved by writing its
+    time, and the waiting happens outside the lock, because three researcher processes must never
+    queue on a held lock. No test here sleeps and none reads a real clock.
+    """
+
+    def test_the_file_lives_beside_research_and_outside_its_globs(self):
+        path = sources.channel_state_path(self.work_dir)
+        self.assertEqual(Path(self.work_dir) / "channels.json", path)
+        self.assertFalse(path.match("research/*.json"))
+
+    def test_the_freeze_never_stages_channels_json(self):
+        """The pace of a portal is no input of the memo: the freeze stages `research/*.json` only."""
+        sources.channel_slot(self.work_dir, "sudact")
+        self.assertTrue(sources.channel_state_path(self.work_dir).is_file())
+        self.register()
+        self.write_findings([{"source_id": "gdpr-article-6"}])
+        result = self.freeze()
+        self.assertNotIn("errors", result)
+        inputs = self.work_dir / "steps" / "s-010" / "a1" / "cli" / "inputs"
+        staged = sorted(path.name for path in inputs.iterdir())
+        self.assertIn("sources.json", staged, "the freeze did stage its inputs")
+        self.assertIn("statutes.json", staged)
+        self.assertNotIn("channels.json", staged)
+
+    def test_the_first_slot_is_now_and_every_next_one_two_seconds_later(self):
+        start = self.clock.now
+        for _ in range(3):
+            sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual(2, limits.CHANNEL_MIN_INTERVAL_S)
+        self.assertEqual([2.0, 2.0], self.clock.waits)
+        self.assertEqual(
+            {"schema_version": 1, "channels": {"sudact": {"last_request": start + 4, "requests": 3, "captcha": False}}},
+            self.state(),
+        )
+
+    def test_the_slot_is_reserved_under_the_lock_and_waited_for_outside_it(self):
+        """By the time a process waits, its slot is in the file and the lock is free for the others."""
+        observed: list = []
+
+        def wait(seconds: float) -> None:
+            reserved = self.state()["channels"]["sudact"]["last_request"]
+            observed.append((seconds, sources_lock_is_free(self.work_dir), reserved))
+            self.clock.wait(seconds)
+
+        with sources.sources_lock(self.work_dir):
+            self.assertFalse(sources_lock_is_free(self.work_dir), "the probe does see a held lock")
+        start = self.clock.now
+        with mock.patch.object(sources, "_wait", wait):
+            sources.channel_slot(self.work_dir, "sudact")
+            sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual([(2, True, start + 2)], observed)
+
+    def test_three_processes_never_reserve_the_same_slot(self):
+        """Three real processes on one frozen clock: only the reservation under the lock keeps them apart."""
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(3)
+        results = [str(self.root / f"slots-{index}.json") for index in range(3)]
+        processes = [
+            context.Process(target=worker_reserve, args=(str(self.work_dir), 5, barrier, results[index]))
+            for index in range(3)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=120)
+            self.assertEqual(0, process.exitcode, "a child crashed")
+        outcomes = [json.loads(Path(path).read_text(encoding="utf-8")) for path in results]
+        self.assertEqual([None, None, None], [row["error"] for row in outcomes])
+        slots = sorted(slot for row in outcomes for slot in row["slots"])
+        self.assertEqual([1000.0 + 2 * index for index in range(15)], slots, "fifteen slots, none taken twice")
+        self.assertEqual({"last_request": 1028.0, "requests": 15, "captcha": False}, self.state()["channels"]["sudact"])
+
+    def test_a_corrupt_file_is_treated_as_absent_and_rewritten(self):
+        """A corrupt pace file must not stop a researcher from working: it is never raised on."""
+
+        def document(**fields) -> dict:
+            entry = {"last_request": 0, "requests": 0, "captcha": False, **fields}
+            return {"schema_version": 1, "channels": {"sudact": entry}}
+
+        cases = {
+            "cut short": b'{"schema_version": 1, "chan',
+            "not utf-8": b"\xff\xfe\x00\x81",
+            "a list": b"[]",
+            "another version": {"schema_version": 2, "channels": {}},
+            "no channels": {"schema_version": 1},
+            "a counter that is text": document(requests="7"),
+            "a counter that is a flag": document(requests=True),
+            "a negative counter": document(requests=-1),
+            "a marker that is not a flag": document(captcha="yes"),
+            "a time that is not a number": document(last_request="soon"),
+            "a time that is not finite": b'{"schema_version": 1, "channels": {"sudact": '
+            b'{"last_request": NaN, "requests": 0, "captcha": false}}}',
+        }
+        for name, payload in cases.items():
+            with self.subTest(file=name):
+                self.write_state(payload)
+                sources.channel_slot(self.work_dir, "sudact")
+                self.assertEqual([], self.clock.waits, "nothing is owed to a file that could not be read")
+                fresh = {"last_request": self.clock.now, "requests": 1, "captcha": False}
+                self.assertEqual({"schema_version": 1, "channels": {"sudact": fresh}}, self.state())
+
+    def test_a_slot_no_run_could_have_reserved_is_refused_never_sent_never_waited(self):
+        """Round 2, item 4: a reservation further ahead than a whole budget queued at once
+        (`CHANNEL_MAX_REQUESTS_PER_RUN × CHANNEL_MIN_INTERVAL_S`) is not a state this code could have
+        written honestly — a clock stepped back, or an edited file. It is neither permission to send
+        (the old reset) nor a reason to wait until then (a hang): `channel_unavailable: clock`, no
+        marker, the file untouched. A slot within the horizon is still honoured to the second.
+        """
+        horizon = limits.CHANNEL_MAX_REQUESTS_PER_RUN * limits.CHANNEL_MIN_INTERVAL_S
+        now = self.clock.now
+        self.write_entry(now + 3600, 5, False)
+        with self.assertRaises(sources.ChannelUnavailable) as caught:
+            sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual("clock", str(caught.exception))
+        self.assertEqual([], self.clock.waits)
+        untouched = {"last_request": now + 3600, "requests": 5, "captcha": False}
+        self.assertEqual(untouched, self.state()["channels"]["sudact"], "nothing counted, no marker")
+        self.write_entry(now + horizon - limits.CHANNEL_MIN_INTERVAL_S, 5, False)
+        sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual([horizon], self.clock.waits)
+
+    def test_the_state_is_reread_after_the_wait_before_the_request_goes_out(self):
+        """Round 2, item 1: the slot was reserved, then another process closed the channel during
+        the wait — the reread after the wait refuses. The slot stays counted: it was reserved."""
+
+        def wait(seconds: float) -> None:
+            sources.channel_mark_captcha(self.work_dir, "sudact")
+            self.clock.wait(seconds)
+
+        sources.channel_slot(self.work_dir, "sudact")
+        with mock.patch.object(sources, "_wait", wait):
+            with self.assertRaises(sources.ChannelUnavailable) as caught:
+                sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual("captcha", str(caught.exception))
+        self.assertEqual("marker", caught.exception.seen)
+        self.assertEqual({"requests": 2, "captcha": True}, self.counts())
+
+    def test_the_marker_refuses_before_any_slot_is_taken(self):
+        self.write_entry(0, 7, True)
+        with self.assertRaises(sources.ChannelUnavailable) as caught:
+            sources.channel_slot(self.work_dir, "sudact")
+        self.assertEqual("captcha", str(caught.exception))
+        self.assertEqual({"last_request": 0, "requests": 7, "captcha": True}, self.state()["channels"]["sudact"])
+
+
+class ResolveSudactTest(_FakeClockTestCase):
+    """D-202: `--resolve sudact` — the portal's ordinary search, its session cookie, its asynchronous
+    answer, its captcha, and a pace every researcher process shares through `channels.json`.
+
+    **A captcha is never solved, never worked around and never retried.** Every test runs against a
+    `LocalServer` with the base address injected. The one real document is Task 3's
+    `sudact-cassation-a53-28950-2022` page; the other acts of its case are labelled models of it
+    (`sudact_model`). Request counts are asserted on `_Handler.seen`, what the server received.
+    """
+
+    def resolve(self, base: str, **overrides) -> dict:
+        """`mf sources save --resolve sudact` against the `LocalServer` standing in for the portal."""
+        payload = {
+            "title": SUDACT_TITLE,
+            "citation": SUDACT_CITATION,
+            "expect_number": SUDACT_NUMBER,
+            "expect_date": SUDACT_DATE,
+            "resolve": "sudact",
+        }
+        payload.update(overrides)
+        with mock.patch.object(sources, "SUDACT_BASE", base):
+            return self.save("", **payload)
+
+    def resolve_directly(self, base: str) -> list:
+        """`sources.resolve_sudact` itself, with the signature the plan pins plus the work dir."""
+        return sources.resolve_sudact(SUDACT_NUMBER, section="arbitral", base=base, timeout=5.0, work_dir=self.work_dir)
+
+    def portal(self, search: list, documents: dict, section: str = "arbitral") -> LocalServer:
+        return LocalServer(b"", routes=sudact_routes(search, documents, section))
+
+    def paths(self) -> list:
+        return [row["path"] for row in _Handler.seen]
+
+    def channel(self) -> dict:
+        return self.state()["channels"]["sudact"]
+
+    def forget_the_channel(self) -> None:
+        """A fresh run's `channels.json`, for a subtest that must not inherit the previous marker."""
+        sources.channel_state_path(self.work_dir).unlink(missing_ok=True)
+
+    def assert_nothing_written(self, result: dict) -> None:
+        self.assertEqual({}, self.records(), result)
+        self.assertEqual([], self.raw_files())
+
+    # --- the section, the query ------------------------------------------------
+
+    def test_the_section_is_decided_by_the_shape_of_the_number(self):
+        """One naming rule: `А`/`A`, digits, `-`, digits, `/`, a year asks `arbitral`; anything else `regular`."""
+        cases = {
+            "А53-28950/2022": "arbitral",
+            "A53-28950/2022": "arbitral",
+            " А53-28950/2022 ": "arbitral",
+            "А40-630/25-100-1": "arbitral",
+            "2-1456/2025": "regular",
+            "33-4567/2025": "regular",
+            "5-КГ25-14-К2": "regular",
+            "305-ЭС24-8702 (1,3)": "regular",
+            "А53-28950": "regular",
+            "А53-28950/202": "regular",
+        }
+        for number, section in cases.items():
+            with self.subTest(number=number):
+                self.assertEqual(section, sources.sudact_section(number))
+
+    def test_each_section_is_asked_where_its_number_sends_it(self):
+        for number, section in (("А53-28950/2022", "arbitral"), ("2-1456/2025", "regular")):
+            with self.subTest(section=section):
+                self.forget_the_channel()
+                with self.portal([sudact_finished()], {}, section=section) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base, expect_number=number)
+                    self.assertEqual([f"/{section}/", sudact_search_path(number, section)], self.paths())
+                self.assertEqual(["requisites_mismatch: number, date"], result["errors"])
+
+    def test_the_query_carries_the_number_the_vsrf_resolver_asks(self):
+        """The two resolvers never disagree about what «the number» is: one helper, Task 6's."""
+        self.assertEqual("305-ЭС24-8702", sources.resolve_query_number("305-ЭС24-8702 (1,3)"))
+        for number in ("305-ЭС24-8702 (1,3)", "А53-28950/2022", "(1,3)"):
+            with self.subTest(number=number):
+                asked = urllib.parse.quote(sources.resolve_query_number(number), safe="")
+                sudact = sources.sudact_search_url(number, "regular", "https://sudact.ru")
+                self.assertEqual(f"https://sudact.ru/regular/doc_ajax/?regular-case_doc={asked}&page=1", sudact)
+                self.assertTrue(sources.vsrf_listing_url(number, "https://www.vsrf.ru").endswith(f"&number={asked}"))
+
+    def test_the_real_finished_answer_lists_its_four_acts_in_page_order(self):
+        """The captured `finished` answer: the links of `content`, and never the count in `total_found`."""
+        search = "https://sudact.ru" + sudact_search_path()
+        document = json.loads(SUDACT_FINISHED.decode("utf-8"))
+        self.assertEqual("\n\n\nНайдено 4 документа", document["total_found"], "an HTML fragment, not a number")
+        listed = sources.sudact_candidates(document, "arbitral", search)
+        self.assertEqual(["https://sudact.ru" + path for path in SUDACT_LISTED], listed)
+
+    def test_only_document_addresses_of_the_asked_section_in_content_are_candidates(self):
+        """`/doc/save/<id>/` is a real trap — it leads to another document entirely — each act is asked
+        once, and only `content` is the list: nothing else in the answer is read."""
+        search = "https://sudact.ru/arbitral/doc_ajax/?arbitral-case_doc=x&page=1"
+        document = {
+            "status": "finished",
+            "content": (
+                '<a href="/arbitral/doc/save/455AVcwC6HrR/">сохранить</a>'
+                '<a href="/arbitral/doc/AbC123/?snippet_pos=1#snippet">акт</a>'
+                '<a href="/arbitral/doc/AbC123/">он же</a>'
+                '<a href="/regular/doc/Zz9/">другой раздел</a>'
+                '<a href="https://sudact.ru/arbitral/doc/Next7/">ещё акт</a>'
+            ),
+            "total_found": '<a href="/arbitral/doc/NotAList1/">Найдено 3 документа</a>',
+        }
+        self.assertEqual(
+            ["https://sudact.ru/arbitral/doc/AbC123/", "https://sudact.ru/arbitral/doc/Next7/"],
+            sources.sudact_candidates(document, "arbitral", search),
+        )
+        many = {"status": "finished", "content": "".join(f'<a href="/arbitral/doc/Act{i}/">a</a>' for i in range(12))}
+        self.assertEqual(limits.RESOLVE_MAX_CANDIDATES, len(sources.sudact_candidates(many, "arbitral", search)))
+
+    # --- the session, the search, the polls -------------------------------------
+
+    def test_a_cookie_the_section_page_sets_is_sent_with_the_search(self):
+        """Whatever the portal sets is carried to the search; the real page happened to set nothing."""
+        routes = sudact_routes([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE})
+        sets_cookie = {"Set-Cookie": f"{SUDACT_COOKIE}; Path=/"}
+        routes["/arbitral/"] = (SUDACT_SECTION_PAGE, "text/html; charset=utf-8", sets_cookie)
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            self.resolve(base)
+        first, second = _Handler.seen[0], _Handler.seen[1]
+        self.assertEqual("/arbitral/", first["path"], "a plain GET of the section page comes first")
+        self.assertNotIn("cookie", first["headers"])
+        self.assertEqual(sudact_search_path(), second["path"])
+        self.assertEqual(SUDACT_COOKIE, second["headers"].get("cookie"))
+        self.assertEqual("XMLHttpRequest", second["headers"].get("x-requested-with"))
+        self.assertEqual(f"{base}/arbitral/", second["headers"].get("referer"))
+        self.assertEqual(sources.LIVENESS_USER_AGENT, second["headers"].get("user-agent"), "the honest agent")
+
+    def test_a_section_page_that_sets_no_cookie_does_not_stop_the_search(self):
+        """Measured: the real section page set no cookie and the search worked. A missing cookie is
+        never a refusal — nobody may later «fix» it into one."""
+        with self.portal([SUDACT_NEW, SUDACT_FINISHED], SUDACT_CASE) as base:
+            self.allow(sources.url_host(base))
+            listed = self.resolve_directly(base)
+        self.assertNotIn("cookie", _Handler.seen[1]["headers"], "no cookie was set, so none is sent")
+        self.assertEqual("XMLHttpRequest", _Handler.seen[1]["headers"].get("x-requested-with"))
+        self.assertEqual([f"{base}{path}" for path in SUDACT_LISTED], listed)
+        self.assertFalse(self.channel()["captcha"])
+
+    def test_new_then_finished_within_the_cap_saves_the_act(self):
+        search = sudact_search_path()
+        with self.portal([SUDACT_NEW, SUDACT_NEW, sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            paths = self.paths()
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertTrue(result["created"])
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{SUDACT_ACT}", result["url"])
+        self.assertEqual(f"mf-save {sources.url_host(base)}", self.records()[result["source_id"]]["retrieval_tool"])
+        self.assertEqual(["/arbitral/", search, search, search, SUDACT_ACT, SUDACT_ACT], paths)
+        self.assertEqual([2.0] * 5, self.clock.waits, "every request after the first waited: polls and the save too")
+        self.assertEqual(6, self.channel()["requests"], "every request the channel made is counted")
+        self.assertFalse(self.channel()["captcha"])
+
+    def test_a_search_that_never_finishes_is_not_resolved_and_nothing_raises(self):
+        search = sudact_search_path()
+        with self.portal([SUDACT_NEW], {}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            paths = self.paths()
+        self.assertEqual(5, limits.SUDACT_POLL_MAX)
+        self.assertEqual(["/arbitral/"] + [search] * (1 + limits.SUDACT_POLL_MAX), paths, "the search and five polls")
+        self.assertEqual(["channel_unavailable: not_resolved"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertFalse(self.channel()["captcha"], "an unfinished search is not a challenge")
+        self.assert_nothing_written(result)
+
+    def test_the_search_answer_is_never_judged_by_the_markup_rules(self):
+        """JSON declared `text/html` and far under the 2 KB floor is still the search's own answer."""
+        self.assertLess(len(SUDACT_NEW), limits.LIVENESS_MIN_BODY_BYTES)
+        answers = [(SUDACT_NEW, "text/html"), (sudact_finished(SUDACT_ACT), "text/html")]
+        with self.portal(answers, {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertFalse(self.channel()["captcha"])
+
+    # --- a challenge: never solved, never worked around, never retried ---------
+
+    def test_a_defence_redirect_closes_the_channel_for_the_whole_run(self):
+        search = sudact_search_path()
+        with self.portal([SUDACT_DEFENCE], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", search], self.paths(), "the captcha page itself is never requested")
+            _Handler.seen = []
+            with self.assertRaises(sources.ChannelUnavailable) as caught:
+                self.resolve_directly(base)
+            self.assertEqual([], _Handler.seen, "a second resolve_sudact of the run refuses without a request")
+        self.assertEqual("captcha", str(caught.exception))
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("defence_redirect", result["challenge"])
+        self.assertEqual([], result["candidates"], "no address behind a blocked channel")
+        self.assertEqual({"requests": 2, "captcha": True}, self.counts())
+        self.assert_nothing_written(result)
+
+    def test_a_challenge_on_any_request_stops_the_channel_and_marks_it(self):
+        """The section page, the search, a poll, a document: nothing after the challenge is asked,
+        in this call or in any later call of the run."""
+        search = sudact_search_path()
+        other = SUDACT_LISTED[1]
+        slow_down =(b"<html><body>slow down</body></html>", "text/html", {}, 429)
+        listed = [sudact_finished(other, SUDACT_ACT)]
+        wall = (ECFR_STUB, "text/html")
+        cases = (
+            ("the section page", {"/arbitral/": SUDACT_DEFENCE}, [SUDACT_NEW], ["/arbitral/"], "defence_redirect"),
+            ("the search", {}, [wall], ["/arbitral/", search], "not_json"),
+            ("a poll", {}, [SUDACT_NEW, slow_down], ["/arbitral/", search, search], "http_429"),
+            ("a document", {other: SUDACT_DEFENCE}, listed, ["/arbitral/", search, other], "defence_redirect"),
+            ("a document page", {other: wall}, listed, ["/arbitral/", search, other], "access_stub"),
+        )
+        for name, overrides, answers, asked, seen in cases:
+            with self.subTest(request=name):
+                self.forget_the_channel()
+                routes = sudact_routes(answers, {SUDACT_ACT: SUDACT_ACT_PAGE})
+                routes.update(overrides)
+                with LocalServer(b"", routes=routes) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual(asked, self.paths(), "nothing is asked after the challenge")
+                    _Handler.seen = []
+                    again = self.resolve(base)
+                    self.assertEqual([], _Handler.seen, "nor in any later call of the run")
+                self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+                self.assertEqual(seen, result["challenge"])
+                self.assertEqual([], result["candidates"])
+                self.assertEqual(["channel_unavailable: captcha"], again["errors"])
+                self.assertTrue(self.channel()["captcha"])
+                self.assert_nothing_written(result)
+
+    def test_a_redirect_the_channel_will_not_follow_is_a_challenge(self):
+        """A hop off the allowlist is refused before it is requested — and the portal that sent it is closed."""
+        with self.portal([SUDACT_NEW], {}) as base:
+            offsite = f"http://localhost:{urllib.parse.urlsplit(base).port}/elsewhere"
+            _Handler.routes["/arbitral/doc_ajax/"] = (b"", "", {"Location": offsite}, 302)
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", sudact_search_path()], self.paths(), "the hop itself is never requested")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("redirect_not_allowed: localhost", result["challenge"])
+        self.assertTrue(self.channel()["captcha"])
+        self.assert_nothing_written(result)
+
+    def test_a_challenge_on_the_saves_own_fetch_marks_the_channel_too(self):
+        """The save fetches the chosen act once more — a request of the channel like any other.
+
+        A redirect to the captcha is refused before it is followed, so the save never requests the
+        captcha page; a page that is not the act (the real section page) is refused as
+        `requisites_mismatch` — never stored as an excerpt — and, being no court act at all, closes
+        the channel as `not_a_document` does on the resolver's own fetch.
+        """
+        throttle = (b"<html>slow down</html>", "text/html", {}, 429)
+        not_the_act = (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")
+        cases = (
+            ("a wall", (ECFR_STUB, "text/html"), "access_stub", "refused:access_stub"),
+            ("a throttle", throttle, "unchecked: http_429", "refused:unchecked"),
+            ("a redirect to the captcha", SUDACT_DEFENCE, "channel_unavailable: captcha", "refused:captcha"),
+            ("not the act", not_the_act, "requisites_mismatch: number, date", "refused:requisites_mismatch"),
+        )
+        for name, second, error, outcome in cases:
+            with self.subTest(answer=name):
+                self.forget_the_channel()
+                document = [(SUDACT_ACT_PAGE, "text/html; charset=utf-8"), second]
+                with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: document}) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual(["/arbitral/", sudact_search_path(), SUDACT_ACT, SUDACT_ACT], self.paths())
+                    _Handler.seen = []
+                    again = self.resolve(base)
+                    self.assertEqual([], _Handler.seen, "the next call of the run asks nothing")
+                self.assertEqual([error], result["errors"])
+                self.assertEqual(outcome, result["save_outcome"])
+                self.assertEqual({"requests": 4, "captcha": True}, self.counts())
+                self.assertEqual(["channel_unavailable: captcha"], again["errors"])
+                self.assert_nothing_written(result)
+
+    def test_a_search_answer_that_is_not_json_with_a_status_is_a_challenge_not_no_results(self):
+        no_list = json.dumps({"status": "finished", "total_found": "Найдено 4 документа"}).encode("utf-8")
+        no_status = json.dumps({"content": "<ul></ul>"}).encode("utf-8")
+        cases = {
+            "an html page": ((SUDACT_SECTION_PAGE, "text/html; charset=utf-8"), "not_json"),
+            "a body that does not parse": ((b'{"status": "fini', "application/json"), "not_json"),
+            "json without a status": ((no_status, "application/json"), "not_json"),
+            "a json list": ((b"[]", "application/json"), "not_json"),
+            "finished without its list": ((no_list, "application/json"), "no_content"),
+        }
+        for name, (answer, seen) in cases.items():
+            with self.subTest(answer=name):
+                self.forget_the_channel()
+                with self.portal([answer], {}) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual(["/arbitral/", sudact_search_path()], self.paths())
+                self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+                self.assertEqual(seen, result["challenge"])
+                self.assertTrue(self.channel()["captcha"])
+                self.assert_nothing_written(result)
+
+    def test_a_document_page_that_is_not_a_court_act_is_a_challenge(self):
+        """`/<section>/doc/<id>/` serves court acts; anything else in its place is not what it serves."""
+        other = "/arbitral/doc/Statute1/"
+        documents = {other: STATUTE_PAGE, SUDACT_ACT: SUDACT_ACT_PAGE}
+        with self.portal([sudact_finished(other, SUDACT_ACT)], documents) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", sudact_search_path(), other], self.paths(), "the next act is never asked")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("not_a_document", result["challenge"])
+        self.assertTrue(self.channel()["captcha"])
+        self.assert_nothing_written(result)
+
+    def test_an_address_off_the_allowlist_is_never_asked_and_costs_nothing(self):
+        """D-151 as everywhere: the allowlist is asked first, and a refused address takes no slot."""
+        with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow("sudact.ru")
+            result = self.resolve(base)
+            self.assertEqual([], _Handler.seen)
+        self.assertEqual(["channel_unavailable: host_not_allowed"], result["errors"])
+        self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "no slot was reserved for it")
+        self.assert_nothing_written(result)
+
+    def test_a_document_that_is_not_served_stops_the_call_without_a_marker(self):
+        """A transport failure is not a challenge: this call stops, the run's channel stays open."""
+        missing = "/arbitral/doc/Missing1/"
+        with self.portal([sudact_finished(missing, SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", sudact_search_path(), missing], self.paths(), "the next act is never asked")
+        self.assertEqual(["channel_unavailable: http_404"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertFalse(self.channel()["captcha"])
+        self.assert_nothing_written(result)
+
+    # --- choosing the act ---------------------------------------------------------
+
+    def test_four_acts_of_one_case_resolve_to_the_one_carrying_both_requisites(self):
+        """End to end on the real answers: the captured section page, `new` and `finished` — four acts
+        in page order, each read, and only the one carrying both requisites saved."""
+        search = sudact_search_path()
+        with self.portal([SUDACT_NEW, SUDACT_FINISHED], SUDACT_CASE) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            paths = self.paths()
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{SUDACT_ACT}", result["url"])
+        records = self.records()
+        self.assertEqual([result["source_id"]], list(records))
+        self.assertIn("2 7 о к т я б р я 2025 года", self.stored(records[result["source_id"]]).decode("utf-8"))
+        self.assertEqual(["/arbitral/", search, search, *SUDACT_LISTED, SUDACT_ACT], paths, "four read, one saved")
+        self.assertEqual({"requests": len(paths), "captcha": False}, self.counts())
+
+    def test_the_date_in_the_text_decides_between_the_acts_of_one_case(self):
+        with self.portal([SUDACT_FINISHED], SUDACT_CASE) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(
+                base,
+                expect_date="2025-06-19",
+                citation="Постановление по делу № А53-28950/2022 от 19.06.2025",
+            )
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{SUDACT_LISTED[1]}", result["url"])
+        self.assertEqual(1, len(self.records()))
+
+    def test_the_listing_date_a_day_early_never_satisfies_the_check(self):
+        """sudact's metadata says 26 October — the listing and the portal heading both — and the act is of the 27th."""
+        listing = sudact_finished(SUDACT_ACT)
+        self.assertIn("от 26 октября 2025 г.", listing.decode("utf-8"))
+        self.assertIn("от 26 октября 2025 г.", SUDACT_ACT_PAGE.decode("utf-8"))
+        with self.portal([listing], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base, expect_date=SUDACT_PORTAL_DATE)
+        self.assertEqual(["requisites_mismatch: date"], result["errors"])
+        self.assertEqual({"number": True, "date": False}, result["found"])
+        self.assertEqual([f"{base}{SUDACT_ACT}"], result["candidates"])
+        self.assert_nothing_written(result)
+
+    def test_a_finished_search_that_names_no_document_is_a_mismatch_not_a_broken_channel(self):
+        with self.portal([sudact_finished()], {}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual(["requisites_mismatch: number, date"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertEqual({"number": False, "date": False}, result["found"])
+        self.assertFalse(self.channel()["captcha"])
+        self.assert_nothing_written(result)
+
+    def test_two_different_acts_carrying_both_requisites_are_ambiguous(self):
+        """A labelled model: the real page with one more portal line — the same requisites, another text."""
+        twin = "/arbitral/doc/ModelTwin1/"
+        other_text = portal_page(SUDACT_ACT_TEXT + "\nОпубликовано на портале повторно.\n")
+        documents = {SUDACT_ACT: SUDACT_ACT_PAGE, twin: other_text}
+        with self.portal([sudact_finished(*documents)], documents) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            addresses = [f"{base}{path}" for path in documents]
+        self.assertEqual(["requisites_ambiguous: 2 distinct acts"], result["errors"])
+        self.assertEqual(addresses, result["candidates"])
+        self.assert_nothing_written(result)
+
+    # --- the pace, the budget, the flags -----------------------------------------
+
+    def test_the_pace_is_kept_across_two_calls_that_share_the_file(self):
+        with self.portal([sudact_finished()], {}) as base:
+            self.allow(sources.url_host(base))
+            start = self.clock.now
+            first = self.resolve_directly(base)
+            self.assertEqual(start + 2, self.channel()["last_request"], "the first call left its last slot in the file")
+            self.clock.now += 0.5  # the next call starts half a second after that request
+            second = self.resolve_directly(base)
+        self.assertEqual(([], []), (first, second))
+        self.assertEqual(4, len(_Handler.seen))
+        self.assertEqual([2.0, 1.5, 2.0], self.clock.waits)
+        self.assertEqual({"last_request": start + 6, "requests": 4, "captcha": False}, self.channel())
+
+    # --- round 2: shutdown during a wait, followed hops, short bodies, the clock, a good record ---
+
+    def test_a_marker_set_during_a_wait_stops_the_request_that_waited(self):
+        """Round 2, item 1: process A reserved its slot and waits outside the lock; process B meets a
+        challenge meanwhile. A rereads the state after the wait, right before dispatch, and sends nothing."""
+        closed_by_another_process = []
+
+        def wait(seconds: float) -> None:
+            if not closed_by_another_process:
+                sources.channel_mark_captcha(self.work_dir, "sudact")
+                closed_by_another_process.append(seconds)
+            self.clock.wait(seconds)
+
+        with self.portal([SUDACT_NEW, SUDACT_FINISHED], SUDACT_CASE) as base:
+            self.allow(sources.url_host(base))
+            with mock.patch.object(sources, "_wait", wait):
+                result = self.resolve(base)
+            self.assertEqual(["/arbitral/"], self.paths(), "the search that waited through the shutdown is never sent")
+        self.assertEqual([2.0], closed_by_another_process)
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("marker", result["challenge"])
+        self.assert_nothing_written(result)
+
+    def test_a_followed_redirect_is_a_request_of_the_channel(self):
+        """Round 2, item 2: a hop urllib follows costs its own slot, its own wait and its own count."""
+        routes = sudact_routes([sudact_finished()], {})
+        routes["/arbitral/"] = (b"", "", {"Location": "/landing/"}, 302)
+        routes["/landing/"] = (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            listed = self.resolve_directly(base)
+            paths = self.paths()
+        self.assertEqual([], listed)
+        self.assertEqual(["/arbitral/", "/landing/", sudact_search_path()], paths)
+        self.assertEqual([2.0, 2.0], self.clock.waits, "the hop waited its interval like any request")
+        self.assertEqual({"requests": 3, "captcha": False}, self.counts(), "and was counted")
+
+    def test_a_redirect_reached_on_the_last_slot_is_not_followed(self):
+        """Round 2, item 2, the case the gate reproduced: 59 requests spent, the section page answers
+        302 — the 60th request goes out, the 61st is never sent."""
+        self.write_entry(0, limits.CHANNEL_MAX_REQUESTS_PER_RUN - 1, False)
+        routes = sudact_routes([sudact_finished()], {})
+        routes["/arbitral/"] = (b"", "", {"Location": "/landing/"}, 302)
+        routes["/landing/"] = (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/"], self.paths(), "the hop past the budget is not followed")
+        self.assertEqual(["channel_budget_spent"], result["errors"])
+        self.assertEqual({"requests": limits.CHANNEL_MAX_REQUESTS_PER_RUN, "captcha": False}, self.counts())
+        self.assert_nothing_written(result)
+
+    def test_a_page_cut_short_is_truncated_and_never_a_captcha(self):
+        """Round 2, item 3: a body shorter than its `Content-Length` proves nothing about a challenge.
+
+        Its first 1 500 bytes are under the 2 KB floor, so a rule that judged the body before the
+        truncation marked the host closed for the whole run over a network hiccup.
+        """
+        html = "text/html; charset=utf-8"
+        short_page = (SUDACT_SECTION_PAGE[:1500], html, {"Content-Length": str(len(SUDACT_SECTION_PAGE))})
+        short_act = (SUDACT_ACT_PAGE[:1500], html, {"Content-Length": str(len(SUDACT_ACT_PAGE))})
+        cases = (
+            ("the section page", {"/arbitral/": short_page}, ["/arbitral/"]),
+            ("a document page", {SUDACT_ACT: short_act}, ["/arbitral/", sudact_search_path(), SUDACT_ACT]),
+        )
+        for name, overrides, asked in cases:
+            with self.subTest(page=name):
+                self.forget_the_channel()
+                routes = sudact_routes([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE})
+                routes.update(overrides)
+                with LocalServer(b"", routes=routes) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.resolve(base)
+                    self.assertEqual(asked, self.paths(), "the next request is never sent")
+                self.assertEqual(["channel_unavailable: truncated"], result["errors"])
+                self.assertFalse(self.channel()["captcha"], "no marker: a short body is not a challenge")
+                self.assert_nothing_written(result)
+
+    def test_an_impossible_reservation_refuses_without_a_request(self):
+        """Round 2, item 4: a slot no run could have reserved is `channel_unavailable: clock`."""
+        self.write_entry(self.clock.now + 3600, 0, False)
+        with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual([], _Handler.seen, "never permission to send")
+        self.assertEqual(["channel_unavailable: clock"], result["errors"])
+        self.assertEqual([], self.clock.waits, "never an unbounded wait")
+        self.assertEqual({"requests": 0, "captcha": False}, self.counts(), "no marker, nothing counted")
+        self.assert_nothing_written(result)
+
+    def test_a_failed_second_fetch_leaves_an_existing_record_untouched(self):
+        """On the resolved path **no** refusal of the save writes anything, not even `meta.save_outcome`.
+
+        The record holds a good `full_text` saved by an earlier resolve; a later resolve whose own
+        second fetch comes back as something else — a page that is not the act, or a redirect into
+        the captcha — must not rewrite that record's history. One rule, not a list of codes.
+        """
+        html = "text/html; charset=utf-8"
+        layer_dir = self.work_dir / sources.RAW_DIR / "case_law"
+        cases = (
+            ("a page that is not the act", (SUDACT_SECTION_PAGE, html), "requisites_mismatch", "requisites_mismatch"),
+            ("a captcha redirect", SUDACT_DEFENCE, "channel_unavailable", "captcha"),
+        )
+        for name, second_body, error, reason in cases:
+            with self.subTest(second=name):
+                self.forget_the_channel()
+                document = [(SUDACT_ACT_PAGE, html)] * 3 + [second_body]
+                with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: document}) as base:
+                    self.allow(sources.url_host(base))
+                    first = self.resolve(base)
+                    self.assertEqual("full_text", first["save_outcome"])
+                    record_before = self.snapshot(first["source_id"])
+                    files_before = {name: (layer_dir / name).read_bytes() for name in self.raw_files()}
+                    second = self.resolve(base)
+                    self.assertNotIn("/defence/", "".join(self.paths()))
+                self.assertEqual(error, second["errors"][0].split(":")[0])
+                self.assertEqual(f"refused:{reason}", second["save_outcome"], "the answer still carries the outcome")
+                self.assertEqual(record_before, self.snapshot(first["source_id"]), "record and meta untouched")
+                self.assertEqual(files_before, {name: (layer_dir / name).read_bytes() for name in self.raw_files()})
+
+    def test_the_request_budget_is_enforced(self):
+        self.assertEqual(60, limits.CHANNEL_MAX_REQUESTS_PER_RUN)
+        search = sudact_search_path()
+        with mock.patch.object(limits, "CHANNEL_MAX_REQUESTS_PER_RUN", 3):
+            with self.portal([SUDACT_NEW], {}) as base:
+                self.allow(sources.url_host(base))
+                result = self.resolve(base)
+                self.assertEqual(["/arbitral/", search, search], self.paths(), "three requests and no fourth")
+        self.assertEqual(["channel_budget_spent"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertEqual({"requests": 3, "captcha": False}, self.counts())
+        self.assert_nothing_written(result)
+        self.write_entry(0, limits.CHANNEL_MAX_REQUESTS_PER_RUN, False)
+        with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            spent = self.resolve(base)
+            self.assertEqual([], _Handler.seen, "a run that spent its budget asks nothing at all")
+        self.assertEqual(["channel_budget_spent"], spent["errors"])
+        self.assert_nothing_written(spent)
+
+    def test_both_requisites_are_required_before_any_request(self):
+        cases = (({"expect_date": None}, "--expect-date"), ({"expect_number": None}, "--expect-number"))
+        with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            for overrides, flag in cases:
+                with self.subTest(missing=flag):
+                    _Handler.seen = []
+                    result = self.resolve(base, **overrides)
+                    self.assertEqual([f"requisites_required: {flag}"], result["errors"])
+                    self.assertEqual([], _Handler.seen, "refused before anything left the process")
+                    self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "not even a slot was taken")
+                    self.assert_nothing_written(result)
+
+
+class SudactHostTest(_FakeClockTestCase):
+    """D-202, Task 7 findings 2 and 3: the wall is the host's, so the host is closed — `save --url` too.
+
+    A save to an address on the sudact host (the host of `SUDACT_BASE`, injected here as the
+    `LocalServer`) never follows a redirect into `/defence/`, and after the captcha marker is set it
+    refuses before any request: a portal that challenged the search challenges its documents too, and
+    walking into the same wall with `save --url` would be the retry by other hands.
+    """
+
+    def save_on_sudact(self, base: str, path: str) -> dict:
+        """`mf sources save --url <base><path>`, with the sudact host injected as `base`."""
+        with mock.patch.object(sources, "SUDACT_BASE", base):
+            return self.save(
+                f"{base}{path}",
+                title=SUDACT_TITLE,
+                citation=SUDACT_CITATION,
+                expect_number=SUDACT_NUMBER,
+                expect_date=SUDACT_DATE,
+            )
+
+    def paths(self) -> list:
+        return [row["path"] for row in _Handler.seen]
+
+    def assert_nothing_written(self, result: dict) -> None:
+        self.assertEqual({}, self.records(), result)
+        self.assertEqual([], self.raw_files())
+
+    def test_the_sudact_host_is_the_host_of_the_base_and_its_subdomains(self):
+        cases = {
+            "https://sudact.ru/arbitral/doc/VLaG5lHDfBoJ/": True,
+            "https://www.sudact.ru/regular/doc/x/": True,
+            "https://notsudact.ru/arbitral/doc/x/": False,
+            "https://sudact.ru.example.org/arbitral/doc/x/": False,
+            "file:///etc/passwd": False,
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(expected, sources.sudact_address(url))
+
+    def test_after_a_captcha_a_save_to_the_host_refuses_before_any_request(self):
+        """Checked in step 1, under the lock and before the network — so a closed host costs no
+        politeness pause either (the reread before dispatch would refuse too, but only after it)."""
+        self.write_entry(0, 3, True)
+        with LocalServer(b"", routes={SUDACT_ACT: (SUDACT_ACT_PAGE, "text/html; charset=utf-8")}) as base:
+            self.allow(sources.url_host(base))
+            sources._LAST_FETCH[sources.url_host(base)] = 0.0  # a pause would be owed if it got that far
+            result = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([], _Handler.seen, "the closed host is not asked at all")
+        self.assertEqual([], self.clock.waits, "and no pause is taken for it")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("marker", result["challenge"])
+        self.assertEqual({"requests": 3, "captcha": True}, self.counts(), "the file is read, never rewritten")
+        self.assert_nothing_written(result)
+
+    def test_a_marker_set_during_a_plain_saves_wait_stops_it_before_dispatch(self):
+        """Round 2, item 1: the window between the step-1 check and the politeness pause of
+        `fetch_allowed`. Another process closes the host while this save waits; it sends nothing."""
+        waited: list = []
+
+        def wait(seconds: float) -> None:
+            sources.channel_mark_captcha(self.work_dir, "sudact")
+            waited.append(seconds)
+
+        with LocalServer(b"", routes={SUDACT_ACT: (SUDACT_ACT_PAGE, "text/html; charset=utf-8")}) as base:
+            self.allow(sources.url_host(base))
+            # This process has fetched the host before, so `fetch_allowed` owes it a politeness pause.
+            sources._LAST_FETCH[sources.url_host(base)] = 0.0
+            with mock.patch.object(sources, "_wait", wait):
+                result = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([], _Handler.seen, "the save that waited through the shutdown is never sent")
+        self.assertEqual(1, len(waited), "the pause was taken, and the marker landed during it")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("marker", result["challenge"])
+        self.assert_nothing_written(result)
+
+    def test_a_page_cut_short_never_closes_the_host(self):
+        """Round 2, item 3, on the save path: a partial body under the 2 KB floor reads as an
+        interstitial to Task 4's admission, which still refuses it — but it is no challenge."""
+        promised = {"Content-Length": str(len(SUDACT_ACT_PAGE))}
+        route = (SUDACT_ACT_PAGE[:1500], "text/html; charset=utf-8", promised)
+        with LocalServer(b"", routes={SUDACT_ACT: route}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_on_sudact(base, SUDACT_ACT)
+        self.assertEqual(["interstitial"], result["errors"], "Task 4's own refusal, unchanged")
+        self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "no marker was written")
+        self.assert_nothing_written(result)
+
+    def test_a_save_never_requests_the_captcha_page(self):
+        """The redirect into `/defence/` is refused before it is followed, and the host is closed."""
+        routes = {SUDACT_ACT: SUDACT_DEFENCE, "/defence/": (ECFR_STUB, "text/html")}
+        with LocalServer(b"", routes=routes) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([SUDACT_ACT], self.paths(), "the captcha page itself is never requested")
+            _Handler.seen = []
+            again = self.save_on_sudact(base, SUDACT_ACT)
+            self.assertEqual([], _Handler.seen, "and the next save of the run asks nothing")
+        self.assertEqual(["channel_unavailable: captcha"], result["errors"])
+        self.assertEqual("refused:captcha", result["save_outcome"])
+        self.assertEqual("defence_redirect", result["challenge"])
+        self.assertTrue(self.state()["channels"]["sudact"]["captcha"])
+        self.assertEqual(["channel_unavailable: captcha"], again["errors"])
+        self.assert_nothing_written(result)
+
+    def test_a_challenge_a_plain_save_meets_closes_the_host(self):
+        """An access wall, a throttle: the wall is the host's, whoever walks into it first."""
+        throttle = (b"<html>slow down</html>", "text/html", {}, 429)
+        cases = (("a wall", (ECFR_STUB, "text/html"), "access_stub"), ("a throttle", throttle, "unchecked: http_429"))
+        for name, route, error in cases:
+            with self.subTest(answer=name):
+                sources.channel_state_path(self.work_dir).unlink(missing_ok=True)
+                with LocalServer(b"", routes={SUDACT_ACT: route}) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.save_on_sudact(base, SUDACT_ACT)
+                self.assertEqual([error], result["errors"])
+                self.assertTrue(self.state()["channels"]["sudact"]["captcha"])
+                self.assert_nothing_written(result)
+
+    def test_the_marker_closes_the_sudact_host_and_no_other(self):
+        """`SUDACT_BASE` is not patched here: the local server is simply another host, and it is asked."""
+        self.write_entry(0, 3, True)
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("full_text", result["save_outcome"])
+
+    def test_a_plain_save_keeps_the_rules_of_task_4(self):
+        """The resolved save's «both requisites or refuse» is the resolved path's only: a plain `--url`
+        of a page that is no court act is still an excerpt, and it is no challenge for the host."""
+        with LocalServer(b"", routes={"/arbitral/": (SUDACT_SECTION_PAGE, "text/html; charset=utf-8")}) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_on_sudact(base, "/arbitral/")
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
+        self.assertFalse(sources.channel_state_path(self.work_dir).exists(), "no challenge, no marker")
 
 
 class PackPdfOriginalTest(SaveTestCase):

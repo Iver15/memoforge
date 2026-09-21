@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import codecs
+import functools
 import gzip
+import http.cookiejar
 import io
 import json
+import math
 import os
 import re
 import ssl
@@ -1721,6 +1724,14 @@ class RedirectGuard(urllib.request.HTTPRedirectHandler):
     a 302 from an allow-listed portal to any other host used to be fetched, hashed and saved. Each
     hop is parsed with `request_host`, matched against `allowed` when the caller has an allowlist
     (`mf sources fetch`), and appended to `hops` either way (liveness records, fetch enforces).
+
+    D-202: `stop` is a caller's own rule for a hop it will not follow — `stop(newurl)` names the
+    reason, or returns None. The sudact channel refuses the hop to its portal's captcha this way, so
+    the captcha page is never even requested. `hop` is called for every hop that **will** be
+    followed, after every refusal rule and before the new request is built — so no followed hop can
+    bypass it: urllib follows a redirect only through `redirect_request`. The sudact channel reserves
+    a slot there, waits for it and rereads the shared state, exactly as for a first request, and a
+    `ChannelUnavailable` it raises stops the chain (`fetch_body` lets it through).
     """
 
     max_repeats = MAX_REDIRECT_HOPS + 1
@@ -1729,9 +1740,11 @@ class RedirectGuard(urllib.request.HTTPRedirectHandler):
     stops a chain: urllib's answer to a loop is an `HTTPError` carrying the 302, which every caller
     here would read as an ordinary redirect."""
 
-    def __init__(self, allowed: frozenset | None = None, hops: list | None = None) -> None:
+    def __init__(self, allowed: frozenset | None = None, hops: list | None = None, stop=None, hop=None) -> None:
         self.allowed = allowed
         self.hops = [] if hops is None else hops
+        self.stop = stop
+        self.hop = hop
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102 - urllib contract
         host = request_host(newurl)
@@ -1742,6 +1755,11 @@ class RedirectGuard(urllib.request.HTTPRedirectHandler):
             raise RedirectRefused("too_many_redirects", str(len(self.hops)))
         if self.allowed is not None and not host_on_allowlist(host, self.allowed):
             raise RedirectRefused("redirect_not_allowed", host)
+        refused = self.stop(newurl) if self.stop is not None else None
+        if refused:
+            raise RedirectRefused(refused)
+        if self.hop is not None:
+            self.hop(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -1754,10 +1772,21 @@ def _open(
     data: bytes | None = None,
     allowed: frozenset | None = None,
     hops: list | None = None,
+    cookies: http.cookiejar.CookieJar | None = None,
+    stop=None,
+    hop=None,
 ):
-    """One request whose redirects are validated hop by hop (D-151); the caller checked the url."""
+    """One request whose redirects are validated hop by hop (D-151); the caller checked the url.
+
+    D-202: `cookies` is a session's jar, which carries whatever cookie one request was given to the
+    next (the sudact search) and requires none; `stop` is a hop the caller refuses by its own rule
+    and `hop` what it does before any hop is followed (`RedirectGuard`).
+    """
     request = urllib.request.Request(url, data=data, method=method, headers=headers or probe_headers(url))
-    opener = urllib.request.build_opener(RedirectGuard(allowed=allowed, hops=hops))
+    handlers: list = [RedirectGuard(allowed=allowed, hops=hops, stop=stop, hop=hop)]
+    if cookies is not None:
+        handlers.append(urllib.request.HTTPCookieProcessor(cookies))
+    opener = urllib.request.build_opener(*handlers)
     return opener.open(request, timeout=timeout)  # noqa: S310 - http/https only, best effort
 
 
@@ -2379,20 +2408,34 @@ def fetch_body(
     method: str = "GET",
     body: bytes | None = None,
     allowed: frozenset | None = None,
+    extra_headers: dict | None = None,
+    cookies: http.cookiejar.CookieJar | None = None,
+    stop=None,
+    hop=None,
 ) -> dict:
     """One request through the liveness client; an HTTP error answer is read, never raised (D-149).
 
     D-151: `allowed` is the fetch allowlist and every redirect hop is checked against it before it is
     followed; `method`/`body` carry the POST route the routing notes prescribe.
+
+    D-202: the resolver channels speak through here too. `extra_headers` joins the liveness headers
+    (the sudact search is an `XMLHttpRequest` with a `Referer`), `cookies` carries a session from
+    one request to the next, `stop` is a redirect hop the caller never follows and `hop` what the
+    caller does before any hop is followed (`RedirectGuard`). A `ChannelUnavailable` raised by `hop`
+    is the caller's own refusal and is let through, not turned into a transport error. Every
+    existing caller passes none of the four and gets exactly the request it always got.
     """
     timeout = limits.LIVENESS_TIMEOUT_SECONDS if timeout is None else timeout
     cap = limits.LIVENESS_MAX_BODY_BYTES
     headers = fetch_headers(url, accept=accept, lang=lang)
+    if extra_headers:
+        headers.update(extra_headers)
     if body is not None:
         headers.setdefault("Content-Type", JSON_CONTENT_TYPE)
     hops: list = []
+    opened = {"allowed": allowed, "hops": hops, "cookies": cookies, "stop": stop, "hop": hop}
     try:
-        with _open(url, method, timeout, headers=headers, data=body, allowed=allowed, hops=hops) as response:
+        with _open(url, method, timeout, headers=headers, data=body, **opened) as response:
             code = getattr(response, "status", None) or response.getcode()
             # cap + 1: one byte over the ceiling is how `truncated` is told from «exactly this long».
             payload = response.read(cap + 1)
@@ -2419,6 +2462,9 @@ def fetch_body(
             "redirects": hops,
             "payload": b"",
         }
+    except ChannelUnavailable:
+        # D-202: the caller's own `hop` refused to follow — its answer, not a transport failure.
+        raise
     except Exception as exc:  # noqa: BLE001 - timeouts, DNS, TLS: the same best effort as liveness
         return {
             "status": "dead",
@@ -2480,17 +2526,27 @@ def fetch_allowed(
     timeout: float | None = None,
     method: str = "GET",
     body: bytes | None = None,
+    stop=None,
+    hop=None,
+    before_dispatch=None,
 ) -> dict:
     """The politeness pause this process owes the host, then one request (D-146, D-149, D-199).
 
     The caller has already run `fetch_refusal`; `hosts` travels on so every redirect hop is checked
-    against the same list.
+    against the same list. D-202: `stop` and `hop` go to `RedirectGuard` (a hop never followed, and
+    what is done before any hop is), and `before_dispatch` runs **after** the pause and immediately
+    before the request goes out — `mf sources save` rereads the sudact marker there, because another
+    process may have closed the host while this one waited.
     """
     host = request_host(url)
     since = _LAST_FETCH.get(host)
     if since is not None:
         _wait(host_delay(host) - (time.monotonic() - since))
-    answer = fetch_body(url, accept=accept, lang=lang, timeout=timeout, method=method, body=body, allowed=hosts)
+    if before_dispatch is not None:
+        before_dispatch()
+    answer = fetch_body(
+        url, accept=accept, lang=lang, timeout=timeout, method=method, body=body, allowed=hosts, stop=stop, hop=hop
+    )
     _LAST_FETCH[host] = time.monotonic()
     return answer
 
@@ -2585,7 +2641,7 @@ SAVE_TOOL = "mf-save"
 """D-199: the `retrieval_tool` of a text this command fetched and stored (`mf-save <host>`)."""
 
 SAVE_RESOLVERS: tuple[str, ...] = ("vsrf", "sudact")
-"""D-199: `--resolve` is declared with the command; the two resolvers land with their own tasks."""
+"""D-199: `--resolve` is declared with the command; both resolvers have landed (D-202, tasks 6 and 7)."""
 
 SAVE_PDF_TEXT_UNAVAILABLE = "excerpt:pdf_text_unavailable"
 """D-201: the outcome of a PDF whose text layer could not be read — no `pypdf`, or a scan.
@@ -2813,8 +2869,9 @@ asked on 2026-09-21, `number=305-ЭС24-8702` answers with the whole chain of ei
 case the resolver exists to close, because a suffix is carried only where there are twins to tell
 apart. Certification is untouched and keeps `--expect-number` whole: the suffix is the only thing
 that tells `(1,3)` from `(2,4)`. The shape is the one `source_text.has_number` already refuses to
-match across, and it is stripped **here**, where the vsrf query is built, and in no shared helper:
-another jurisdiction puts other things in brackets.
+match across, and it is stripped only where a **Russian** resolver builds its query — vsrf and
+sudact, through the one helper `resolve_query_number`, so the two never disagree about what «the
+number» is — and in no helper shared with other jurisdictions: they put other things in brackets.
 """
 
 PDF_HEADER_WINDOW = 1024
@@ -2833,11 +2890,67 @@ parsing the markup alone. The addresses are deduplicated afterwards, which is wh
 count acts rather than copies.
 """
 
+SUDACT_BASE = "https://sudact.ru"
+"""D-202: the portal `--resolve sudact` asks. Injectable, because the tests drive a `LocalServer`."""
+
+SUDACT_CHANNEL = "sudact"
+"""The channel's name — in `--resolve` and in `channels.json`."""
+
+SUDACT_ARBITRAL = "arbitral"
+SUDACT_REGULAR = "regular"
+"""The two sections of the portal the resolver asks: arbitration courts, and general jurisdiction."""
+
+SUDACT_ARBITRAL_NUMBER_RE = re.compile(r"^[АA]\d+-\d+/(?:\d{4}|\d{2})(?!\d)")
+"""D-202: the naming rule that sends a number to `arbitral` — `А`/`A`, digits, `-`, digits, `/`, a year.
+
+Cyrillic `А` and Latin `A` both, because they look alike and both occur. The year is four digits
+(`А53-28950/2022`) or two with more after them (`А40-630/25-100-1`, the Moscow court's own form).
+"""
+
+SUDACT_SEARCH_ACCEPT = "application/json, text/javascript, */*; q=0.01"
+"""What the portal's own search script asks for; the answer is JSON."""
+
+SUDACT_FINISHED = "finished"
+SUDACT_NOT_RESOLVED = "not_resolved"
+"""The `status` of a search that has its list, and the reason printed when none came in time."""
+
+SUDACT_DEFENCE_REDIRECT = "defence_redirect"
+"""What a hop to the portal's captcha at `/defence/` is reported as; the hop itself is never followed."""
+
+SUDACT_SAVE_CHALLENGES: frozenset = frozenset({"interstitial", "access_stub", "unchecked", "host_not_allowed"})
+"""D-202: the admission refusals of a save to the sudact host that mean the portal would not serve us.
+
+A challenge page (`interstitial`, `access_stub`), an anti-bot or throttle answer (`unchecked`), or a
+redirect hop off the allowlist (`host_not_allowed` — at admission the address itself has already
+passed the allowlist). Each writes the captcha marker, exactly as on the resolver's own requests,
+for a resolved save and a plain `--url` alike: the wall is the host's, whoever meets it first.
+"""
+
+CHANNEL_STATE_FILENAME = "channels.json"
+CHANNEL_STATE_VERSION = 1
+CHANNEL_CAPTCHA = "captcha"
+"""D-202: `<work_dir>/channels.json`, its schema version, and the reason a closed channel prints."""
+
 RESOLVE_HINTS: dict[str, str] = {
-    "requisites_required": "--resolve vsrf searches for --expect-number and tells the twins apart by --expect-date",
+    "requisites_required": (
+        "--resolve searches for --expect-number and tells the acts of one case apart by --expect-date"
+    ),
     "channel_unavailable": "the portal did not answer with its index of acts; use a fallback route and --url",
+    "captcha": (
+        "the portal answered with a challenge: it is never solved or retried, and the channel stays closed "
+        "for this run; use a fallback route (LDH RU/Sudact, web search) and --url"
+    ),
+    "channel_budget_spent": "this run has spent the channel's request budget; use a fallback route and --url",
+    "clock": (
+        "channels.json holds a reservation no run could have made (a clock stepped back, or an edited "
+        "file); nothing was sent — use a fallback route and --url"
+    ),
     "requisites_ambiguous": "several different acts carry these requisites; pass one of `candidates` as --url",
     "requisites_mismatch": "no candidate carried both requisites; `candidates` is what the portal offered",
+    "resolved_save_mismatch": (
+        "the resolver certified this address, but the save's own fetch of it did not carry both requisites: "
+        "the portal served something else the second time, and nothing was saved"
+    ),
 }
 """One line of advice per resolver refusal (D-202).
 
@@ -2845,7 +2958,8 @@ RESOLVE_HINTS: dict[str, str] = {
 one reason: at `--url` a single page did not carry the requisites, while here a whole chain was
 read and the answer can hand the researcher the addresses it read. It is also the answer when the
 index named no act at all — `candidates` is then empty, and the number is what to look at again.
-`channel_unavailable` is kept for the other fact: the index did not arrive.
+`channel_unavailable` is kept for the other fact: the index did not arrive. `captcha` is the advice
+of `channel_unavailable: captcha`, and `channel_budget_spent` the answer of a spent budget (sudact).
 """
 
 
@@ -2863,19 +2977,59 @@ class ChannelUnavailable(RuntimeError):
     """
 
 
+class ChannelCaptcha(ChannelUnavailable):
+    """D-202: the portal answered a request of the channel with a challenge. Its `str` is `captcha`.
+
+    **A captcha is never solved, never worked around and never retried.** By the time this is
+    raised the marker is already in `channels.json`, so the channel stays closed for the rest of the
+    run — in this call and in every later one, in any process. `seen` says what gave the challenge
+    away (`defence_redirect`, `http_429`, `not_json`, `access_stub`, `marker` …).
+    """
+
+    def __init__(self, seen: str) -> None:
+        super().__init__(CHANNEL_CAPTCHA)
+        self.seen = seen
+
+
+class ChannelBudgetSpent(ChannelUnavailable):
+    """D-202: the run has made `CHANNEL_MAX_REQUESTS_PER_RUN` requests of this channel already."""
+
+    def __init__(self) -> None:
+        super().__init__("channel_budget_spent")
+
+
+class ChannelClock(ChannelUnavailable):
+    """D-202 (round 2): `channels.json` holds a slot no run could have reserved. Its `str` is `clock`.
+
+    Further ahead than the whole budget queued at once — a clock stepped back, or an edited file. It
+    is neither permission to send nor a reason to wait until then: the channel refuses, writes no
+    marker and sends nothing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("clock")
+
+
+def resolve_query_number(number: str) -> str:
+    """The number a Russian resolver asks its portal for: the trailing bracketed group dropped (D-202).
+
+    **Search broadly, certify precisely** (`VSRF_NUMBER_SUFFIX_RE`): certification keeps
+    `--expect-number` whole. A number that is nothing but a bracketed group is sent whole — an empty
+    query is a search for everything, which is the one thing this request must never be.
+    """
+    return VSRF_NUMBER_SUFFIX_RE.sub("", number.strip()) or number.strip()
+
+
 def vsrf_listing_url(number: str, base: str) -> str:
     """The portal's answer for one case number (D-202); the parameter order is the channel's.
 
-    The number is asked **without its bracketed suffix** (`VSRF_NUMBER_SUFFIX_RE`). A number that
-    is nothing but a bracketed group is sent whole: an empty `number=` is a search for everything,
-    which is the one thing this request must never be.
+    The number is asked **without its bracketed suffix** (`resolve_query_number`).
     """
-    asked = VSRF_NUMBER_SUFFIX_RE.sub("", number.strip()) or number.strip()
     return (
         base.rstrip("/")
         + VSRF_LISTING_PATH
         + "?numberExact=true&actDateExact=off&number="
-        + urllib.parse.quote(asked, safe="")
+        + urllib.parse.quote(resolve_query_number(number), safe="")
     )
 
 
@@ -2956,13 +3110,38 @@ def resolve_text_key(text: str) -> str:
     return state_io.sha256_bytes(" ".join(text.split()).encode("utf-8"))
 
 
-def certify_candidates(candidates: list, *, number: str, date: str, timeout: float) -> dict:
+def certify_candidates(candidates: list, *, number: str, date: str, timeout: float, text_of=None) -> dict:
     """Which candidates carry both requisites — one address per distinct act (D-202).
 
-    Each is fetched under the same politeness pause and the same allowlist as any other request,
-    and certified on its text layer alone: `source_text` must find the number as a whole token in
-    the number zone (the bracketed suffix is what tells the twins apart) and the date in the date
-    zone.
+    Each candidate is certified on its text alone: `source_text` must find the number as a whole
+    token in the number zone (the bracketed suffix is what tells the twins apart) and the date in
+    the date zone — never in the metadata around the document.
+
+    `text_of(url)` fetches one candidate and returns its text, None for one that cannot be certified
+    (it is skipped), or raises `ChannelUnavailable`, which stops the channel before any later
+    candidate is asked. The default is the vsrf PDF store (`vsrf_candidate_text`); `--resolve sudact`
+    passes its own document fetch (`sudact_document_text`). The certification is the same for both.
+    """
+    fetch_text = text_of or functools.partial(vsrf_candidate_text, hosts=allowlist_hosts(), timeout=timeout)
+    found = {"number": False, "date": False}
+    distinct: dict[str, str] = {}
+    for url in candidates:
+        text = fetch_text(url)
+        if text is None:
+            continue
+        carries_number = source_text.has_number(text, number, source_text.number_zone(text))
+        carries_date = source_text.has_date(text, date, source_text.date_zone(text))
+        found["number"] = found["number"] or carries_number
+        found["date"] = found["date"] or carries_date
+        if carries_number and carries_date:
+            distinct.setdefault(resolve_text_key(text), url)
+    return {"found": found, "distinct": list(distinct.values())}
+
+
+def vsrf_candidate_text(url: str, *, hosts: frozenset, timeout: float) -> str | None:
+    """The text layer of one vsrf candidate, or None for a whole PDF without one (D-202).
+
+    Each is fetched under the same politeness pause and the same allowlist as any other request.
 
     **A captcha is never solved, never worked around and never retried**, and the next fetch after a
     challenge *is* the retry. So a candidate that did not arrive as a whole PDF stops the channel at
@@ -2980,52 +3159,433 @@ def certify_candidates(candidates: list, *, number: str, date: str, timeout: flo
     `pypdf` in the environment — is a different thing: it cannot be certified, so it is **skipped**,
     and the caller lists the addresses for the researcher to decide with `--url`.
     """
+    refused = fetch_refusal(url, hosts)
+    if refused is not None:
+        raise ChannelUnavailable(refused[0])
+    answer = fetch_allowed(url, hosts, timeout=timeout)
+    payload = answer.pop("payload")
+    # The failures that are not about the body stop the channel before the body is judged.
+    # `interstitial_suspected` is left out on purpose: it is a verdict *about the body*, and for
+    # a candidate the body is judged by its signature alone, in both directions — so that
+    # verdict has nothing left to decide here and is not consulted at all.
+    error = answer["error"]
+    if error is not None and error != "interstitial_suspected":
+        raise ChannelUnavailable(error)
+    if answer["truncated"]:
+        raise ChannelUnavailable("truncated")
+    # A PDF is a body carrying the `%PDF-` signature, whatever `Content-Type` says, and the
+    # signature decides both ways. Without it the body is not an act, whatever it declares: a
+    # challenge that declares `application/pdf` is not markup to `is_interstitial`, and `pypdf`
+    # would only find it has no text layer and skip it as a scan — the next fetch being the
+    # retry. With it the body is a PDF, whatever it declares: a signed scan served as `text/html`
+    # is markup under the size floor to `is_interstitial`, yet it is not a challenge. The
+    # signature may stand anywhere in the first `PDF_HEADER_WINDOW` bytes, because the PDF
+    # specification allows leading junk before the header and real servers do emit it.
+    if PDF_SIGNATURE not in payload[:PDF_HEADER_WINDOW]:
+        raise ChannelUnavailable("not_a_pdf")
+    return extract_pdf_text(payload)
+
+
+# --- resolve: the channel state (D-202) ---------------------------------------------------------
+
+
+def channel_state_path(work_dir: str | os.PathLike) -> Path:
+    """`<work_dir>/channels.json` — beside `research/`, deliberately outside the globs the freeze stages.
+
+    The freeze stages `research/*.json` as the inputs of the pack. The pace of a portal is not an
+    input of the memo, and a file three processes rewrite all through the research phase must never
+    be pinned into a step's inputs.
+    """
+    return Path(work_dir) / CHANNEL_STATE_FILENAME
+
+
+def _channel_entry() -> dict:
+    """The state of a channel nobody has asked yet: no request, no marker."""
+    return {"last_request": 0, "requests": 0, "captcha": False}
+
+
+def _is_channel_entry(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    last, count = entry.get("last_request"), entry.get("requests")
+    return (
+        isinstance(last, (int, float))
+        and not isinstance(last, bool)
+        and math.isfinite(last)
+        and type(count) is int
+        and count >= 0
+        and isinstance(entry.get("captcha"), bool)
+    )
+
+
+def read_channel_state(work_dir: str | os.PathLike) -> dict:
+    """`channels.json`, or a fresh document when there is none that can be read as one (D-202).
+
+    `{"schema_version": 1, "channels": {"<channel>": {"last_request": <epoch>, "requests": <int>,
+    "captcha": <bool>}}}`. A file that cannot be parsed, or parses into anything else, is treated as
+    absent and rewritten by the next reservation — **never raised on**: a corrupt pace file must not
+    stop a researcher from working.
+    """
+    fresh = {"schema_version": CHANNEL_STATE_VERSION, "channels": {}}
+    try:
+        document = state_io.read_json(channel_state_path(work_dir))
+    except (OSError, ValueError, RecursionError):
+        return fresh
+    if not isinstance(document, dict) or document.get("schema_version") != CHANNEL_STATE_VERSION:
+        return fresh
+    channels = document.get("channels")
+    if not isinstance(channels, dict) or not all(_is_channel_entry(entry) for entry in channels.values()):
+        return fresh
+    return {"schema_version": CHANNEL_STATE_VERSION, "channels": channels}
+
+
+def _channel_clock() -> float:
+    """Epoch seconds — the clock a channel's pace is kept in; the tests replace this function (D-202).
+
+    Wall-clock time and not `time.monotonic()`: the value is written to a file and compared by other
+    processes, and a monotonic reading means nothing outside the process that took it.
+    """
+    return time.time()
+
+
+def channel_reserve(work_dir: str | os.PathLike, channel: str) -> float:
+    """Reserve the next request slot of `channel`; the seconds to wait before it comes (D-202).
+
+    Briefly, under the existing `sources.lock`: read `channels.json`, refuse on the captcha marker
+    (`ChannelCaptcha`), a spent budget (`ChannelBudgetSpent`) or an impossible reservation
+    (`ChannelClock`), take the slot — `CHANNEL_MIN_INTERVAL_S` after the last one reserved by anyone,
+    or now — count the request and write the file. **The slot is reserved by writing its time**, so a
+    process that arrives while this one is still waiting gets the slot after it, not the same one.
+
+    **The wait is not here: it happens outside the lock** (`channel_slot`). That is the whole reason
+    the reservation and the wait are two steps — three researcher processes must never queue on a
+    held lock, and a lock held through a two-second pause would make every other researcher's save,
+    registration and freeze wait out the portal's pace as well.
+    """
+    with sources_lock(work_dir):
+        document = read_channel_state(work_dir)
+        entry = document["channels"].setdefault(channel, _channel_entry())
+        if entry["captcha"]:
+            raise ChannelCaptcha("marker")
+        if entry["requests"] >= limits.CHANNEL_MAX_REQUESTS_PER_RUN:
+            raise ChannelBudgetSpent()
+        now = _channel_clock()
+        last = entry["last_request"]
+        if last > now + limits.CHANNEL_MAX_REQUESTS_PER_RUN * limits.CHANNEL_MIN_INTERVAL_S:
+            # Round 2, item 4: no run can have reserved a slot that far ahead — even its whole budget
+            # queued at once ends sooner — so this is not a state this code wrote honestly: a clock
+            # stepped back, or an edited file. Never permission to send (a reset would buy an
+            # immediate request), never an unbounded wait (the strict rule would hang until then):
+            # a refusal, no marker, nothing written.
+            raise ChannelClock()
+        slot = max(now, last + limits.CHANNEL_MIN_INTERVAL_S)
+        entry["last_request"] = slot
+        entry["requests"] += 1
+        state_io.write_json_atomic(channel_state_path(work_dir), document)
+    return slot - now
+
+
+def channel_check_open(work_dir: str | os.PathLike, channel: str) -> None:
+    """Refuse (`ChannelCaptcha("marker")`) if `channel` was closed — the reread before a dispatch (D-202).
+
+    Round 2, item 1: a process that reserved its slot and then waited outside the lock may wake to a
+    channel another process closed meanwhile; this is asked after every wait and immediately before
+    the request goes out. The read is taken under `sources.lock`, briefly, and that is deliberate:
+    `read_channel_state` fails **open** by design (a file it cannot read is treated as absent, so as
+    «no marker»), and the lock is what guarantees this read never meets a writer mid-replace.
+
+    **Do not try to close the window left.** Between this read under the lock and the bytes leaving
+    the socket there is still a gap, and it cannot close without holding the lock through the
+    request, which the pace forbids; it is microseconds against the two-second window this reread
+    closes.
+    """
+    with sources_lock(work_dir):
+        closed = read_channel_state(work_dir)["channels"].get(channel, {}).get("captcha")
+    if closed:
+        raise ChannelCaptcha("marker")
+
+
+def channel_slot(work_dir: str | os.PathLike, channel: str) -> None:
+    """One request's slot of `channel`: reserved under the lock, waited for **outside** it, then the
+    state reread immediately before the request goes out (D-202)."""
+    wait = channel_reserve(work_dir, channel)
+    if wait > 0:
+        _wait(wait)
+    channel_check_open(work_dir, channel)
+
+
+def channel_hop(work_dir: str | os.PathLike, channel: str, newurl: str = "", *, reserve: bool = True) -> None:
+    """What a redirect hop to the sudact host costs before it is followed (`RedirectGuard.hop`, D-202).
+
+    Round 2, item 2: a followed hop is a request. For a request of the channel (`reserve`) it takes a
+    slot exactly as a first request does — reservation, wait, count and reread — so a hop can neither
+    skip the pace nor go past the budget. For a plain save to the host, which is not a request of
+    the channel, it rereads the marker before the hop is dispatched.
+    """
+    if reserve:
+        channel_slot(work_dir, channel)
+    else:
+        channel_check_open(work_dir, channel)
+
+
+def channel_mark_captcha(work_dir: str | os.PathLike, channel: str) -> None:
+    """Close `channel` for the rest of the run: the captcha marker, written under `sources.lock` (D-202)."""
+    with sources_lock(work_dir):
+        document = read_channel_state(work_dir)
+        document["channels"].setdefault(channel, _channel_entry())["captcha"] = True
+        state_io.write_json_atomic(channel_state_path(work_dir), document)
+
+
+# --- resolve: sudact (D-202) --------------------------------------------------------------------
+
+
+def sudact_section(number: str) -> str:
+    """The section of the portal a case number is asked in — one naming rule, not a network fact (D-202).
+
+    An arbitration case number — `А` or `A` (the Cyrillic and the Latin letter look alike, and both
+    occur), digits, `-`, digits, `/`, a year — asks `arbitral`: `А53-28950/2022`, and the Moscow
+    court's `А40-630/25-100-1`, whose year has two digits and something after it. Everything else
+    asks `regular`.
+    """
+    return SUDACT_ARBITRAL if SUDACT_ARBITRAL_NUMBER_RE.match(resolve_query_number(number)) else SUDACT_REGULAR
+
+
+def sudact_search_url(number: str, section: str, base: str) -> str:
+    """The portal's ordinary search for one case number: `/<section>/doc_ajax/`, first page (D-202)."""
+    asked = urllib.parse.quote(resolve_query_number(number), safe="")
+    return f"{base.rstrip('/')}/{section}/doc_ajax/?{section}-case_doc={asked}&page=1"
+
+
+def sudact_defence(newurl: str) -> str | None:
+    """`RedirectGuard.stop` of the channel: the hop to the portal's captcha is never followed (D-202)."""
+    path = urllib.parse.urlsplit(newurl).path
+    return SUDACT_DEFENCE_REDIRECT if path == "/defence" or path.startswith("/defence/") else None
+
+
+def sudact_address(url: object) -> bool:
+    """Whether `url` is on the sudact host — the host of `SUDACT_BASE`, or a subdomain of it (D-202).
+
+    The wall is the host's, not the search endpoint's: a portal that challenged the search challenges
+    its document pages too. So every save to this host — resolved or a plain `--url` — refuses the
+    hop into `/defence/` before following it, and after the captcha marker is set refuses before
+    any request (`run_save`).
+    """
+    host = request_host(url)
+    channel = request_host(SUDACT_BASE)
+    return bool(host) and bool(channel) and (host == channel or host.endswith("." + channel))
+
+
+def channel_challenge(work_dir: str | os.PathLike, seen: str) -> ChannelCaptcha:
+    """Write the captcha marker, and return the exception that says so (D-202)."""
+    channel_mark_captcha(work_dir, SUDACT_CHANNEL)
+    return ChannelCaptcha(seen)
+
+
+def sudact_fetch(
+    work_dir: str | os.PathLike,
+    url: str,
+    *,
+    hosts: frozenset,
+    timeout: float,
+    cookies: http.cookiejar.CookieJar | None = None,
+    headers: dict | None = None,
+    accept: str | None = None,
+) -> tuple[dict, bytes]:
+    """One request of the sudact channel: its slot, then the request itself (D-202).
+
+    The address is checked first — a refused address is no request and costs the budget nothing.
+    Then the slot is reserved under the lock, waited for outside it and the state reread
+    (`channel_slot`), and the request goes out through the ordinary client: the allowlist on the
+    address and on every hop, the honest liveness agent, the hop to `/defence/` refused before it is
+    requested, and every other hop that **is** followed paying its own slot first (`channel_hop`).
+    """
+    refused = fetch_refusal(url, hosts)
+    if refused is not None:
+        raise ChannelUnavailable(refused[0])
+    channel_slot(work_dir, SUDACT_CHANNEL)
+    answer = fetch_body(
+        url,
+        accept=accept,
+        timeout=timeout,
+        allowed=hosts,
+        extra_headers=headers,
+        cookies=cookies,
+        stop=sudact_defence,
+        hop=functools.partial(channel_hop, work_dir, SUDACT_CHANNEL),
+    )
+    return answer, answer.pop("payload")
+
+
+def sudact_refusal(work_dir: str | os.PathLike, answer: dict, payload: bytes, *, markup: bool) -> None:
+    """Stop the channel when this answer is not what the endpoint serves (D-202).
+
+    Two kinds of failure, told apart because they mean different things for the rest of the run:
+
+    - **A challenge** — the portal answered, and not with what the endpoint serves: a redirect this
+      client will not follow (to `/defence/`, off the allowlist, a loop), an anti-bot or throttle
+      answer (`UNCHECKED_HTTP_CODES` — 202, 403, 429, 503 — and the WAF and Cloudflare challenges
+      among them) and, for the HTML endpoints only, a body the interstitial rules recognise. The
+      marker is written and `ChannelCaptcha` raised: the channel is closed for the whole run.
+    - **A broken request** — the portal did not answer: a timeout, a refused connection, `404`,
+      `500`, a body cut at the ceiling. `ChannelUnavailable` stops this call, because the next
+      request after a failed one is the retry; the run's channel stays open.
+
+    `markup=False` is the search, whose answer is JSON: no markup rule applies to it at all —
+    `{"status": "new"}` is far under the 2 KB floor of a page — so `interstitial_suspected` decides
+    nothing for it, and its body is judged by `sudact_search_answer` alone, in both directions.
+
+    **The order is the rule (round 2, item 3).** First what the transport sees without reading the
+    body — a redirect into `/defence/`, a challenge status, a refused hop. Then truncation: a body
+    shorter than its `Content-Length` proves nothing about a challenge (its first kilobyte is under
+    every page's 2 KB floor), so it is `truncated`, without a marker. Only then the body rules.
+    """
+    error = answer["error"]
+    if (
+        error == SUDACT_DEFENCE_REDIRECT
+        or answer["code"] in UNCHECKED_HTTP_CODES
+        or str(error or "").startswith(("redirect_not_allowed", "too_many_redirects"))
+    ):
+        raise channel_challenge(work_dir, error or f"http_{answer['code']}")
+    if answer["truncated"]:
+        raise ChannelUnavailable("truncated")
+    if error == "interstitial_suspected":
+        if markup:
+            raise channel_challenge(work_dir, challenge_name(payload))
+    elif error is not None:
+        raise ChannelUnavailable(error)
+
+
+def sudact_search_answer(work_dir: str | os.PathLike, answer: dict, payload: bytes) -> dict:
+    """The search's answer: JSON carrying a `status`, or a challenge — never «no results» (D-202).
+
+    An HTML page, a body that does not parse, JSON without a `status`, a `finished` answer without
+    its list in `content`: none of them is what `doc_ajax` serves, and reading one as an empty list
+    would send the researcher to re-check a number when the channel was in fact blocked. Measured on
+    2026-09-21: `{"status": "new", "search_status": "new"}`, then `finished` with keys
+    `search_status`, `search_task_id`, `content`, `total_found` and `status`.
+    """
+    sudact_refusal(work_dir, answer, payload, markup=False)
+    try:
+        document = json.loads(payload.decode("utf-8-sig"))
+    except (ValueError, RecursionError):
+        document = None
+    if not isinstance(document, dict) or not isinstance(document.get("status"), str):
+        raise channel_challenge(work_dir, "not_json")
+    if document["status"] == SUDACT_FINISHED and not isinstance(document.get("content"), str):
+        raise channel_challenge(work_dir, "no_content")
+    return document
+
+
+def sudact_candidates(document: dict, section: str, search_url: str) -> list[str]:
+    """The document addresses a finished search lists — unique, in page order, capped (D-202).
+
+    The list is the HTML in `content`, and nothing else in the answer is read. In particular
+    `total_found` is **never parsed as a count**: measured, it is an HTML fragment («Найдено 4
+    документа»), not a number — the links in `content` are the only list there is. Only
+    `/<section>/doc/<id>/` of the section asked is a document: `/doc/save/<id>/`, `/doc/print/…` and
+    `/doc/send/…` are the portal's own functions (the measured `…/doc/save/455AVcwC6HrR/` leads to
+    another document entirely), and a link elsewhere is not this search's result. The listing's
+    titles and dates are never read — sudact's metadata puts an act a day early.
+    """
+    pattern = re.compile(r"/" + re.escape(section) + r"/doc/([A-Za-z0-9]+)/(?=[?#\"'\s<>]|$)")
+    seen: dict[str, None] = {}
+    for match in pattern.finditer(str(document.get("content") or "")):
+        seen.setdefault(urllib.parse.urljoin(search_url, f"/{section}/doc/{match.group(1)}/"), None)
+    return list(seen)[: limits.RESOLVE_MAX_CANDIDATES]
+
+
+def resolve_sudact(
+    number: str, *, section: str, base: str, timeout: float, work_dir: str | os.PathLike
+) -> list[str]:
+    """Addresses of the documents the portal's ordinary search lists for `number` (D-202).
+
+    A plain GET of the section page opens the session, and the search —
+    `/<section>/doc_ajax/?<section>-case_doc=<number>&page=1` with `X-Requested-With` and a
+    `Referer`, and with whatever cookie the section page set — answers `{"status": "new"}` and,
+    asked again after a pause, `finished` with the list. **The cookie is carried, never required:**
+    measured on 2026-09-21 the section page set none and the search worked, so a missing cookie is
+    never a refusal. At most `SUDACT_POLL_MAX` polls after the first answer; then
+    `ChannelUnavailable("not_resolved")`, and the fallbacks take over.
+
+    Every request is a request of the channel (`sudact_fetch`): paced and counted in
+    `channels.json`, and the first challenge on **any** of them — the section page, the search,
+    any poll — writes the marker and stops the channel at once (`ChannelCaptcha`). An empty list
+    means the search finished and named no document. `work_dir` is the one argument beyond the
+    plan's signature: the pace, the budget and the marker live in its `channels.json`.
+    """
     hosts = allowlist_hosts()
-    found = {"number": False, "date": False}
-    distinct: dict[str, str] = {}
-    for url in candidates:
-        refused = fetch_refusal(url, hosts)
-        if refused is not None:
-            raise ChannelUnavailable(refused[0])
-        answer = fetch_allowed(url, hosts, timeout=timeout)
-        payload = answer.pop("payload")
-        # The failures that are not about the body stop the channel before the body is judged.
-        # `interstitial_suspected` is left out on purpose: it is a verdict *about the body*, and for
-        # a candidate the body is judged by its signature alone, in both directions — so that
-        # verdict has nothing left to decide here and is not consulted at all.
-        error = answer["error"]
-        if error is not None and error != "interstitial_suspected":
-            raise ChannelUnavailable(error)
-        if answer["truncated"]:
-            raise ChannelUnavailable("truncated")
-        # A PDF is a body carrying the `%PDF-` signature, whatever `Content-Type` says, and the
-        # signature decides both ways. Without it the body is not an act, whatever it declares: a
-        # challenge that declares `application/pdf` is not markup to `is_interstitial`, and `pypdf`
-        # would only find it has no text layer and skip it as a scan — the next fetch being the
-        # retry. With it the body is a PDF, whatever it declares: a signed scan served as `text/html`
-        # is markup under the size floor to `is_interstitial`, yet it is not a challenge. The
-        # signature may stand anywhere in the first `PDF_HEADER_WINDOW` bytes, because the PDF
-        # specification allows leading junk before the header and real servers do emit it.
-        if PDF_SIGNATURE not in payload[:PDF_HEADER_WINDOW]:
-            raise ChannelUnavailable("not_a_pdf")
-        text = extract_pdf_text(payload)
-        if text is None:
-            continue
-        carries_number = source_text.has_number(text, number, source_text.number_zone(text))
-        carries_date = source_text.has_date(text, date, source_text.date_zone(text))
-        found["number"] = found["number"] or carries_number
-        found["date"] = found["date"] or carries_date
-        if carries_number and carries_date:
-            distinct.setdefault(resolve_text_key(text), url)
-    return {"found": found, "distinct": list(distinct.values())}
+    page = f"{base.rstrip('/')}/{section}/"
+    search = sudact_search_url(number, section, base)
+    session = http.cookiejar.CookieJar()
+    answer, payload = sudact_fetch(work_dir, page, hosts=hosts, timeout=timeout, cookies=session)
+    sudact_refusal(work_dir, answer, payload, markup=True)
+    headers = {"X-Requested-With": "XMLHttpRequest", "Referer": page}
+    for _ in range(1 + limits.SUDACT_POLL_MAX):
+        answer, payload = sudact_fetch(
+            work_dir,
+            search,
+            hosts=hosts,
+            timeout=timeout,
+            cookies=session,
+            headers=headers,
+            accept=SUDACT_SEARCH_ACCEPT,
+        )
+        document = sudact_search_answer(work_dir, answer, payload)
+        if document["status"] == SUDACT_FINISHED:
+            return sudact_candidates(document, section, search)
+    raise ChannelUnavailable(SUDACT_NOT_RESOLVED)
+
+
+def sudact_document_text(work_dir: str | os.PathLike, url: str, *, hosts: frozenset, timeout: float) -> str:
+    """The text of one listed document, as the save will store it — or the channel stops (D-202).
+
+    The page is a request of the channel like any other (`sudact_fetch`) and is judged as HTML: a
+    challenge the interstitial rules recognise closes the channel. It is then converted exactly as
+    `run_save` converts it — `markup_to_text`, one `prepare_raw` — so the text certified here is the
+    text the save will judge. `/<section>/doc/<id>/` serves court acts: a page whose text is no
+    Russian judicial act at all (`source_text.is_russian_act`) is not what the endpoint serves — a
+    challenge in the portal's own words, which the English `CHALLENGE_PHRASES` cannot read — and it
+    closes the channel too. Nothing is ever skipped: the next fetch after a failed one is the retry.
+    """
+    answer, payload = sudact_fetch(work_dir, url, hosts=hosts, timeout=timeout)
+    sudact_refusal(work_dir, answer, payload, markup=True)
+    converted = markup_to_text(payload, answer["content_type"])
+    text = prepare_raw(converted if converted is not None else payload).decode("utf-8-sig", errors="replace")
+    if not source_text.is_russian_act(text):
+        raise channel_challenge(work_dir, "not_a_document")
+    return text
+
+
+def resolve_channel_refusal(exc: ChannelUnavailable) -> dict:
+    """The answer of a channel that did not work — with no candidate address in it (D-202).
+
+    The addresses sit behind the same blocked channel, and pointing the researcher at them would be
+    the retry by other hands.
+    """
+    if isinstance(exc, ChannelBudgetSpent):
+        return {"errors": ["channel_budget_spent"], "hint": RESOLVE_HINTS["channel_budget_spent"], "candidates": []}
+    answer = {"errors": [f"channel_unavailable: {exc}"], "hint": RESOLVE_HINTS["channel_unavailable"], "candidates": []}
+    if isinstance(exc, ChannelCaptcha):
+        answer.update(hint=RESOLVE_HINTS["captcha"], challenge=exc.seen)
+    elif isinstance(exc, ChannelClock):
+        answer["hint"] = RESOLVE_HINTS["clock"]
+    return answer
 
 
 def run_save_resolved(args: argparse.Namespace) -> dict:
-    """`mf sources save --resolve vsrf` — from the requisites of an act to the address of it (D-202).
+    """`mf sources save --resolve vsrf|sudact` — from the requisites of an act to its address (D-202).
 
-    Acts of the **judicial chambers** of the Supreme Court. A Plenum or Presidium document is saved
-    with `--url` from its published page: the resolver refuses nothing for them, it is simply not
-    the way to them.
+    `vsrf`: acts of the **judicial chambers** of the Supreme Court. A Plenum or Presidium document
+    is saved with `--url` from its published page: the resolver refuses nothing for them, it is
+    simply not the way to them.
+
+    `sudact`: acts of the arbitration and general-jurisdiction courts on sudact.ru, through the
+    portal's ordinary search (`resolve_sudact`, the section chosen by `sudact_section`). Each listed
+    document is certified exactly as a vsrf candidate is; every request of the channel — the save's
+    own fetch of the chosen act included — is paced and counted in `channels.json`, and the first
+    challenge on any of them closes the channel for the run. No captcha is ever solved, worked
+    around or retried: the fallbacks (LDH `RU/Sudact`, the agent's web search, then `--url`) need
+    no code.
 
     The resolver writes nothing and saves nothing. It chooses one address among the chain the
     portal returns for the case number and hands it to the transaction of D-199 and D-201
@@ -3036,15 +3596,20 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
     away.** Threading the certified bytes into the save would mean a second entry into the save
     path, which is the one thing this task refuses to build, and it would record a digest of bytes
     the transaction never saw. As it stands the save certifies what *it* fetched, with the same
-    `--expect-number` and `--expect-date`, so a portal that served something else the second time
-    is refused by the verdict instead of stored uncertified. One extra request and one extra
-    politeness pause is the price, and it is the right one.
+    `--expect-number` and `--expect-date`, and it is called with `resolved=True`: a second body
+    whose own verdict did not find **both** requisites is refused as `requisites_mismatch` and
+    nothing is stored. The verdict alone was not enough — it refuses only a text it reads as a
+    Russian act, and anything else (a wall the English phrases cannot read, an HTML page served in
+    place of a PDF, a scan) fell under the non-Russian rule and was stored as an excerpt (Task 7,
+    finding 1). One extra request and one extra politeness pause is the price, and it is the right
+    one.
 
     Both requisites are mandatory here, and missing one is refused before the first request: the
     measured chain holds the judge's referral order of 11.07.2024 and the chamber's ruling of
     14.08.2024 under the same number *and* the same bracketed suffix, so the number alone cannot
     identify the act and the date alone cannot either.
     """
+    resolver = str(getattr(args, "resolve", "") or "").strip()
     number = str(getattr(args, "expect_number", "") or "").strip()
     date = str(getattr(args, "expect_date", "") or "").strip()
     missing = [flag for flag, value in (("--expect-number", number), ("--expect-date", date)) if not value]
@@ -3065,18 +3630,21 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
         return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
     timeout = float(getattr(args, "timeout", None) or limits.LIVENESS_TIMEOUT_SECONDS)
     try:
-        candidates = resolve_vsrf(number, base=VSRF_BASE, timeout=timeout)
+        if resolver == SUDACT_CHANNEL:
+            candidates = resolve_sudact(
+                number, section=sudact_section(number), base=SUDACT_BASE, timeout=timeout, work_dir=work_dir
+            )
+            text_of = functools.partial(sudact_document_text, work_dir, hosts=allowlist_hosts(), timeout=timeout)
+        else:
+            candidates = resolve_vsrf(number, base=VSRF_BASE, timeout=timeout)
+            text_of = None
         # An index that arrived and named no act is not a broken channel: it is a number that lists
         # nothing, and it falls through to `requisites_mismatch` with no candidate and nothing found.
-        answer = certify_candidates(candidates, number=number, date=date, timeout=timeout)
+        answer = certify_candidates(candidates, number=number, date=date, timeout=timeout, text_of=text_of)
     except ChannelUnavailable as exc:
         # No candidate is handed out either: the addresses sit behind the same blocked channel, and
         # pointing the researcher at them would be the retry by other hands.
-        return {
-            "errors": [f"channel_unavailable: {exc}"],
-            "hint": RESOLVE_HINTS["channel_unavailable"],
-            "candidates": [],
-        }
+        return resolve_channel_refusal(exc)
     distinct = answer["distinct"]
     if len(distinct) > 1:
         # Two documents that are not the same document carry the same requisites: the code cannot
@@ -3096,10 +3664,19 @@ def run_save_resolved(args: argparse.Namespace) -> dict:
             "candidates": candidates,
             "found": answer["found"],
         }
-    return run_save(argparse.Namespace(**{**vars(args), "url": distinct[0], "resolve": None}))
+    chosen = argparse.Namespace(**{**vars(args), "url": distinct[0], "resolve": None})
+    if resolver == SUDACT_CHANNEL:
+        # The save fetches the chosen act once more (see above), and that fetch is a request of the
+        # channel like any other: it takes a slot and counts against the budget. A challenge in its
+        # answer closes the host for the run — `run_save` does that for every save to the host.
+        try:
+            channel_slot(work_dir, SUDACT_CHANNEL)
+        except ChannelUnavailable as exc:
+            return resolve_channel_refusal(exc)
+    return run_save(chosen, resolved=True)
 
 
-def run_save(args: argparse.Namespace) -> dict:
+def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     """`mf sources save` — one transaction from an address to a registered, certified text (D-199).
 
     The agent was the glue between fetching and registering, and in the run this plan comes from 43
@@ -3121,15 +3698,24 @@ def run_save(args: argparse.Namespace) -> dict:
     `<id>.md` like any other text and judged by `source_text.verdict`. Without a text layer the
     original is saved alone and the source is registered uncertified (`raw_kind: none`,
     `excerpt:pdf_text_unavailable`).
+
+    D-202 (Task 7). `resolved` is internal — never a CLI flag: `run_save_resolved` passes it for the
+    address a resolver has already certified, and then the save refuses as `requisites_mismatch`
+    unless its **own** verdict found both requisites; a plain `--url` keeps the rules above. An
+    address on the sudact host (`sudact_address`) is closed once the captcha marker is set — the
+    save refuses before any request — its redirect into `/defence/` is refused before it is followed
+    and closes the host, and so does any other challenge the save meets there
+    (`SUDACT_SAVE_CHALLENGES`): the wall is the host's, not the search endpoint's.
     """
     resolver = str(getattr(args, "resolve", "") or "").strip()
-    if resolver == "vsrf":
+    if resolver in SAVE_RESOLVERS:
         # D-202: the resolver only chooses an address, and comes back here with it.
         return run_save_resolved(args)
     if resolver:
+        # The parser admits only `SAVE_RESOLVERS`; this answers a caller that built its own namespace.
         return {
             "errors": [f"resolver_not_available: {resolver}"],
-            "hint": "pass --url: the resolvers that find an address from the requisites land later",
+            "hint": "pass --url, or --resolve " + "|".join(SAVE_RESOLVERS),
         }
     try:
         meta = parse_json_argument(args.meta, "meta")
@@ -3154,11 +3740,36 @@ def run_save(args: argparse.Namespace) -> dict:
     clean_url, retrieved_from = public_url(url)
     explicit_id = slugify(args.id) if getattr(args, "id", None) else None
     identity = {"layer": layer, "source_id": explicit_id, "url": clean_url, "citation": citation}
+    on_sudact = sudact_address(url)
+
+    def refuse(reason: str, answer: dict) -> dict:
+        """Every refusal of this save goes through here — use it for any refusal added later.
+
+        D-202, Task 7: **on the resolved path no refusal writes anything to the registry**, whatever
+        its code. There, every refusal of this fetch is the same event: a document the resolver had
+        already certified came back as something else on the second fetch — a wall, a throttle, a
+        captcha, a cut body, a changed page. An existing record of the same identity may hold a good
+        `full_text`, and none of these may overwrite its history; the answer still carries the
+        outcome. One rule in one place, never a list of codes: a list would miss the next refusal
+        someone adds. On a plain `--url` the refusal IS the first attempt, and Task 4's exception
+        (`save_refused` stamping `meta.save_outcome`) stands untouched.
+        """
+        if resolved:
+            return {**answer, "save_outcome": f"refused:{reason}"}
+        return save_refused(work_dir, identity, reason, answer)
 
     # Step 1 — under the lock, before the network: nothing here writes.
     with sources_lock(work_dir):
         if is_frozen(work_dir):
             return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
+        if on_sudact and read_channel_state(work_dir)["channels"].get(SUDACT_CHANNEL, {}).get("captcha"):
+            # D-202: the host challenged this run already. Walking into the same wall with a plain
+            # `--url` would be the retry by other hands, so nothing is asked of it.
+            return {
+                "errors": [f"channel_unavailable: {CHANNEL_CAPTCHA}"],
+                "hint": RESOLVE_HINTS["captcha"],
+                "challenge": "marker",
+            }
         refusal = save_guard(read_registry(work_dir)["sources"], **identity)
     if refusal is not None:
         return refusal
@@ -3167,18 +3778,45 @@ def run_save(args: argparse.Namespace) -> dict:
     hosts = allowlist_hosts()
     refused = fetch_refusal(url, hosts)
     if refused is not None:
-        return save_refused(work_dir, identity, refused[0], refused[1])
+        return refuse(refused[0], refused[1])
     host = request_host(url)
-    answer = fetch_allowed(
-        url, hosts, accept=args.accept, lang=args.lang, timeout=args.timeout, method=method, body=body
-    )
+    # D-202, round 2: a request to the sudact host rereads the marker after the politeness pause and
+    # immediately before it goes out (another process may have closed the host while this one
+    # waited), and every hop it would follow costs what a request costs — a slot of the channel for
+    # the resolved save, which is a request of the channel, and the same reread for a plain `--url`.
+    channel = {}
+    if on_sudact:
+        channel = {
+            "stop": sudact_defence,
+            "hop": functools.partial(channel_hop, work_dir, SUDACT_CHANNEL, reserve=resolved),
+            "before_dispatch": functools.partial(channel_check_open, work_dir, SUDACT_CHANNEL),
+        }
+    try:
+        answer = fetch_allowed(
+            url, hosts, accept=args.accept, lang=args.lang, timeout=args.timeout, method=method, body=body, **channel
+        )
+    except ChannelUnavailable as exc:
+        # Refused before a request went out (or before a hop was followed): nothing to record.
+        return {key: value for key, value in resolve_channel_refusal(exc).items() if key != "candidates"}
     payload = answer.pop("payload")
     transport = {"url": clean_url, "host": host, "status": answer["status"], "code": answer["code"]}
+    if answer["error"] == SUDACT_DEFENCE_REDIRECT:
+        # D-202: the hop into the captcha was refused before it was followed — the captcha page is
+        # never requested — and the host is closed for the run.
+        channel_mark_captcha(work_dir, SUDACT_CHANNEL)
+        errors = [f"channel_unavailable: {CHANNEL_CAPTCHA}"]
+        closed = {"errors": errors, "hint": RESOLVE_HINTS["captcha"], "challenge": SUDACT_DEFENCE_REDIRECT}
+        return refuse(CHANNEL_CAPTCHA, {**closed, **transport})
     admission = save_admission(answer, payload)
     if admission is not None:
         reason, detail = admission
+        if on_sudact and reason in SUDACT_SAVE_CHALLENGES and not answer["truncated"]:
+            # D-202: the wall is the host's, whoever meets it first — the resolver or a plain `--url`.
+            # A body cut short proves nothing about a challenge (round 2, item 3): Task 4's admission
+            # still refuses it, but it closes nothing.
+            channel_mark_captcha(work_dir, SUDACT_CHANNEL)
         errors = [f"{reason}: {detail}" if detail else reason]
-        return save_refused(work_dir, identity, reason, {"errors": errors, "hint": SAVE_HINTS[reason], **transport})
+        return refuse(reason, {"errors": errors, "hint": SAVE_HINTS[reason], **transport})
 
     # D-201: a PDF is kept as the bytes the server served — it never goes through `prepare_raw`,
     # which decodes as `utf-8-sig` with `errors="replace"` and would corrupt the file it is meant
@@ -3211,13 +3849,31 @@ def run_save(args: argparse.Namespace) -> dict:
             expect_date=args.expect_date,
             expect_article=args.expect_article,
         )
+    if resolved and not (call["found"].get("number") and call["found"].get("date")):
+        # D-202, Task 7 finding 1: the resolver certified this address — both requisites in the
+        # text it fetched — so a second body without both is not that document, whatever else it
+        # is. The verdict alone refuses only a text it reads as a Russian act; a wall the English
+        # phrases cannot read, a page served in place of a PDF, or a scan would otherwise be stored
+        # as an excerpt. A plain `--url` never comes here.
+        missing = ", ".join(name for name in ("number", "date") if not call["found"].get(name))
+        refusal = {
+            "errors": [f"requisites_mismatch: {missing}"],
+            "hint": RESOLVE_HINTS["resolved_save_mismatch"],
+            "found": call["found"],
+            **transport,
+        }
+        if on_sudact and not call["found"].get("russian"):
+            # What `sudact_document_text` calls `not_a_document` on the resolver's own fetch: a page
+            # of `/<section>/doc/<id>/` that is no court act at all — a challenge in the portal's words.
+            channel_mark_captcha(work_dir, SUDACT_CHANNEL)
+            refusal["challenge"] = "not_a_document"
+        # `refuse` writes nothing on the resolved path, and this is the resolved path.
+        return refuse("requisites_mismatch", refusal)
     if call["error"] is not None:
         # D-203: a Russian judicial act missing a requisite in its own zone is not this document.
         missing = ", ".join(name for name in ("number", "date") if not call["found"].get(name))
         errors = [f"{call['error']}: {missing}" if missing else call["error"]]
-        return save_refused(
-            work_dir, identity, call["error"], {"errors": errors, "hint": SAVE_HINTS[call["error"]], **transport}
-        )
+        return refuse(call["error"], {"errors": errors, "hint": SAVE_HINTS[call["error"]], **transport})
     outcome = call["outcome"]
     # D-201: «are these the same bytes» is asked of the original wherever there is one. A PDF with
     # no text layer has no text digest at all, so a comparison that reached for `raw_sha256` there

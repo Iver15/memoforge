@@ -21,3 +21,9 @@
 
 # Extensionless POSIX launcher.
 scripts/mf text eol=lf
+
+# Real portal captures (plan 68): served to the tests byte for byte, so no line-ending policy
+# may touch them — an HTML page falls under `text=auto` above and a Windows checkout would
+# rewrite it. Last in the file so it overrides the per-extension rules for these folders.
+scripts/tests/fixtures/vsrf/** binary
+scripts/tests/fixtures/sudact/** binary

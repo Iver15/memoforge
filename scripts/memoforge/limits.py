@@ -164,6 +164,30 @@ deduplicated by address **before** the cap is applied — the real page prints e
 links six times, so a cap on the raw list would spend all ten fetches on the first two acts.
 """
 
+SUDACT_POLL_MAX = 5
+"""How many times `--resolve sudact` asks the portal's search again after it answered `new` (D-202).
+
+The search is asynchronous: the first answer is `{"status": "new"}` and, measured on 2026-09-20,
+`finished` with the list of documents comes some 3 s later. With `CHANNEL_MIN_INTERVAL_S` between
+polls that is a window of ten seconds; past it the channel answers «not resolved» and the fallbacks
+take over — no exception, and no marker, because an unfinished search is not a challenge.
+"""
+
+CHANNEL_MIN_INTERVAL_S = 2
+"""Seconds between two requests of a resolver channel, across every process of the run (D-202).
+
+Every request counts — the section page, the search, each poll, each document, the save's own
+fetch. The pace lives in `<work_dir>/channels.json`, because three researchers resolve at once and
+a pause one process keeps to itself is no pace for the portal.
+"""
+
+CHANNEL_MAX_REQUESTS_PER_RUN = 60
+"""Requests a resolver channel may make in one run, all processes together (D-202).
+
+Counted the same way as the pace, request by request. Over the cap the channel answers
+`channel_budget_spent` and the fallbacks take over: the budget is politeness, and it is spent.
+"""
+
 QUOTE_DEFAULT_MAX_WORDS = 30  # S3
 """`quote extract --max-words` default (§4.4, §5.3)."""
 
