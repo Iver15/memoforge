@@ -78,6 +78,9 @@ SOURCES = {
     },
 }
 
+RAW_ARTICLE_6 = b"Article 6 raw text"
+"""The raw file of the published fixture source; its digest is what authorises the export."""
+
 QUOTES = {"quotes": {"q-001": {"source_id": "gdpr-art6", "raw_sha256": "0" * 64}}}
 
 SIGNED_OFF = "approved_on_v1"
@@ -295,6 +298,9 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         registry = json.loads(json.dumps(SOURCES))
         registry["sources"]["gdpr-art6"]["tier"] = "critical"
         registry["sources"]["gdpr-art6"]["raw_path"] = "research/raw/statutes/gdpr-art6.md"
+        # D-201 fix round 3: a text is exported only when a digest vouches for it, exactly as an
+        # original is — so a record with a raw file carries the sha of that file, as a real one does.
+        registry["sources"]["gdpr-art6"]["raw_sha256"] = state_io.sha256_bytes(RAW_ARTICLE_6)
         registry["sources"]["ico-guide"] = {
             "layer": "doctrine",
             "title": "ICO guidance",
@@ -314,7 +320,7 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
         raw = work_dir / "research" / "raw" / "statutes"
         raw.mkdir(parents=True, exist_ok=True)
-        (raw / "gdpr-art6.md").write_text("Article 6 raw text", encoding="utf-8")
+        (raw / "gdpr-art6.md").write_bytes(RAW_ARTICLE_6)
         # `ico-guide` names a raw file nobody saved, `blog-post` is background: neither is published.
         return work_dir
 
@@ -334,7 +340,7 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         self.assertTrue(pack.is_file())
         self.assertIn("gdpr-art6", pack.read_text(encoding="utf-8"))
         raw = target / finalize.PUBLISH_SOURCES_DIRNAME / "gdpr-art6.txt"
-        self.assertEqual(raw.read_text(encoding="utf-8"), "Article 6 raw text")
+        self.assertEqual(raw.read_bytes(), RAW_ARTICLE_6, "the stored bytes, not a round trip")
         self.assertEqual(
             (work_dir / finalize.DELIVERABLE_MD).read_bytes(),
             (target / finalize.DELIVERABLE_MD).read_bytes(),
@@ -407,7 +413,7 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
                     "citation_form": "Regulation (EU) 2016/679, art 6",
                 }
             ],
-            "snapshot": [{"source_id": "gdpr-art6", "raw_sha256": "0" * 64}],
+            "snapshot": [{"source_id": "gdpr-art6", "raw_sha256": state_io.sha256_bytes(RAW_ARTICLE_6)}],
         }
         state_io.write_json_atomic(work_dir / "research" / "source-pack.json", pack)
         finalize.run_finalize(finalize_args(work_dir))
@@ -416,8 +422,14 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
             / finalize.PUBLISH_SOURCES_DIRNAME
             / finalize.SOURCE_PACK_MD
         ).read_text(encoding="utf-8")
-        self.assertEqual(published.strip(), render.render_source_pack(pack).strip())
+        self.assertIn(render.render_source_pack(pack).strip(), published)
         self.assertIn("Source pack (frozen)", published)
+        # D-201 fix round 3: `ico-guide` names a raw file nobody saved, so the client is told why
+        # `sources/` holds no text for it instead of being left to wonder.
+        self.assertIn(
+            md_fallback.label("text_export_mismatch_note", "en", source_id="`ico-guide`"),
+            published,
+        )
 
     def test_the_folder_is_named_by_the_slug_of_the_task(self):
         root = Path(tempfile.mkdtemp())
@@ -513,7 +525,12 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("publish_failed", (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8"))
 
     def test_a_registry_record_of_the_wrong_type_is_not_an_exception(self):
-        """D-111: `raw_path: 42` used to escape as a `TypeError` before the terminal state was written."""
+        """D-111: `raw_path: 42` used to escape as a `TypeError` before the terminal state was written.
+
+        D-201 fix round 3: it no longer even costs the publication. Every artefact is now staged
+        and checked one by one, so a record the schema would reject is one artefact that cannot be
+        handed over — named in `source-pack.md` — while the rest of the delivery goes out.
+        """
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, True)
         work_dir = self.make_published_task(root)
@@ -522,7 +539,15 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
 
         result = finalize.run_finalize(finalize_args(work_dir))
-        self.assert_publish_failed_but_delivered(work_dir, result, "TypeError")
+        self.assertIsNone(result.get("publish_error"), result.get("publish_error"))
+        self.assertIsNotNone(result["published_to"])
+        published = self.published_dir(root, work_dir) / finalize.PUBLISH_SOURCES_DIRNAME
+        self.assertFalse((published / "gdpr-art6.txt").exists())
+        self.assertIn(
+            md_fallback.label("text_export_mismatch_note", "en", source_id="`gdpr-art6`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        self.assert_delivered(work_dir)
 
     def test_a_registry_that_is_not_a_dict_is_not_an_exception(self):
         root = Path(tempfile.mkdtemp())
@@ -548,10 +573,13 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         work_dir = self.make_published_task(root, final_status=SIGNED_OFF)
         doctrine = work_dir / "research" / "raw" / "doctrine"
         doctrine.mkdir(parents=True, exist_ok=True)
-        (doctrine / "ico-guide.md").write_text("ICO raw text", encoding="utf-8")
-        (doctrine / "blog-post.md").write_text("Blog raw text", encoding="utf-8")
+        (doctrine / "ico-guide.md").write_bytes(b"ICO raw text")
+        (doctrine / "blog-post.md").write_bytes(b"Blog raw text")
         registry = state_io.read_json(work_dir / "research" / "sources.json")
         registry["sources"]["blog-post"]["tier"] = "supporting"
+        # D-201 fix round 3: a text is exported only when a digest vouches for it.
+        registry["sources"]["ico-guide"]["raw_sha256"] = state_io.sha256_bytes(b"ICO raw text")
+        registry["sources"]["blog-post"]["raw_sha256"] = state_io.sha256_bytes(b"Blog raw text")
         state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
 
         render_export(work_dir)  # the docx export of the selected version, so run one delivers docx
@@ -605,11 +633,11 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
             root, final_status="forced_exit_on_v1_with_remaining_issues"
         )
         render_export(work_dir)
-        registry = state_io.read_json(work_dir / "research" / "sources.json")
-        registry["sources"]["gdpr-art6"]["raw_path"] = 42  # D-111: `publish` fails, the run does not
-        state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
-
-        first = finalize.run_finalize(finalize_args(work_dir, step=None))
+        # D-201 fix round 3: a malformed `raw_path` no longer fails the copy — it is one artefact
+        # that cannot be handed over — so the failure this test needs comes from the boundary
+        # itself, exactly as `test_a_publish_root_that_raises_is_not_an_exception` raises it.
+        with mock.patch.object(finalize, "publish_root", side_effect=OSError("read-only")):
+            first = finalize.run_finalize(finalize_args(work_dir, step=None))
         self.assertEqual(first["deliverable_kind"], "docx")
         self.assertIn("publish_failed", [row["banner_id"] for row in first["banners"]])
         self.assertIn("publish_failed", (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8"))
@@ -1708,6 +1736,428 @@ class McpSoftCapTest(_WorkDirMixin, unittest.TestCase):
         summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
         self.assertIn("- justicelibre: 130", summary)
         self.assertIn("- legalviz: 120", summary)
+
+
+PDF_ORIGINAL = b"%PDF-1.7\n" + b"original bytes\n" * 40 + b"%%EOF\n"
+"""D-201: the bytes of an original as the server served them — never decoded, only copied."""
+
+
+class PdfExportTest(PublishTest):
+    """D-201: the original PDF is delivered next to the text, and a changed one is named instead."""
+
+    def add_pdf_source(self, work_dir: Path, *, source_id: str, text: str | None) -> None:
+        """A `mf sources save` record of a PDF — with a text layer when `text` is given."""
+        path = work_dir / "research" / "sources.json"
+        registry = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = work_dir / "research" / "raw" / "case_law"
+        raw.mkdir(parents=True, exist_ok=True)
+        (raw / f"{source_id}.pdf").write_bytes(PDF_ORIGINAL)
+        record = {
+            "layer": "case_law",
+            "title": "ВС РФ, определение",
+            "citation_form": "Определение ВС РФ",
+            "url": "https://vsrf.ru/act.pdf",
+            "tier": "critical",
+            "raw_path": None,
+            "raw_kind": "none",
+            "raw_original_path": f"research/raw/case_law/{source_id}.pdf",
+            "raw_original_sha256": state_io.sha256_bytes(PDF_ORIGINAL),
+        }
+        if text is not None:
+            (raw / f"{source_id}.md").write_bytes(text.encode("utf-8"))
+            record["raw_path"] = f"research/raw/case_law/{source_id}.md"
+            record["raw_kind"] = "full_text"
+            record["raw_sha256"] = state_io.sha256_bytes(text.encode("utf-8"))
+        registry["sources"][source_id] = record
+        state_io.write_json_atomic(path, registry)
+
+    def freeze_pack(
+        self, work_dir: Path, source_id: str, *, original: str | None, text: str | None = None
+    ) -> None:
+        """The frozen pack of that source. `original`/`text` are the digests the snapshot pins;
+        None means the freeze pinned nothing for that artefact, which authorises nothing."""
+        pack = {
+            "schema_version": 2,
+            "frozen_at": "2026-09-08T12:00:00.000Z",
+            "entries": [
+                {
+                    "source_id": source_id,
+                    "layer": "case_law",
+                    "title": "ВС РФ, определение",
+                    "citation_form": "Определение ВС РФ",
+                    "url": "https://vsrf.ru/act.pdf",
+                    "tier": "critical",
+                    "currency_status": "current",
+                    "pack": {
+                        "role_by_issue": {},
+                        "weight": "binding",
+                        "confidence": "high",
+                        "use_in_memo": "rule",
+                    },
+                }
+            ],
+            "snapshot": [
+                {"source_id": source_id, "raw_sha256": text},
+                # A real freeze pins every source of the work dir, not only the one under test.
+                {"source_id": "gdpr-art6", "raw_sha256": state_io.sha256_bytes(RAW_ARTICLE_6)},
+            ],
+        }
+        if original is not None:
+            pack["snapshot"][0]["raw_original_sha256"] = original
+        state_io.write_json_atomic(work_dir / "research" / "source-pack.json", pack)
+
+    def sources_dir(self, root: Path, work_dir: Path) -> Path:
+        return self.published_dir(root, work_dir) / finalize.PUBLISH_SOURCES_DIRNAME
+
+    def test_the_original_is_copied_even_when_there_is_no_text(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertEqual(PDF_ORIGINAL, (published / "vsrf-act.pdf").read_bytes())
+        self.assertFalse((published / "vsrf-act.txt").exists(), "there is no text to export")
+        self.assertIn(f"{finalize.PUBLISH_SOURCES_DIRNAME}/vsrf-act.pdf", result["published_files"])
+
+    def test_the_original_travels_beside_the_text(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        text = "ОПРЕДЕЛЕНИЕ\nустановил\n"
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=text)
+        self.freeze_pack(
+            work_dir,
+            "vsrf-act",
+            original=state_io.sha256_bytes(PDF_ORIGINAL),
+            text=state_io.sha256_bytes(text.encode("utf-8")),
+        )
+        finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertEqual(PDF_ORIGINAL, (published / "vsrf-act.pdf").read_bytes())
+        self.assertIn("установил", (published / "vsrf-act.txt").read_text(encoding="utf-8"))
+
+    def test_a_background_source_keeps_its_original_private(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        registry = json.loads((work_dir / "research" / "sources.json").read_text(encoding="utf-8-sig"))
+        registry["sources"]["vsrf-act"]["tier"] = "background"
+        state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        finalize.run_finalize(finalize_args(work_dir))
+        self.assertFalse((self.sources_dir(root, work_dir) / "vsrf-act.pdf").exists())
+
+    def test_an_original_edited_after_the_freeze_is_not_exported_and_is_named(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original="0" * 64)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.pdf").exists(), "a changed original is never exported")
+        pack_md = (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8")
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"), pack_md
+        )
+        # D-109: the delivery continues — everything else is still there.
+        self.assertIsNotNone(result["published_to"])
+        self.assertTrue((published / "gdpr-art6.txt").is_file())
+        self.assertTrue((self.published_dir(root, work_dir) / finalize.DELIVERABLE_MD).is_file())
+
+    def test_a_missing_original_is_named_not_silently_omitted(self):
+        """Fix round 1: the client opens `sources/`, finds no PDF, and must be told why — the
+        freeze's warning lives in the pack, not in the folder they receive."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        (work_dir / "research" / "raw" / "case_law" / "vsrf-act.pdf").unlink()
+        result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.pdf").exists())
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        self.assertIsNotNone(result["published_to"])
+        self.assertTrue((published / "gdpr-art6.txt").is_file())
+
+    def test_an_original_the_freeze_never_pinned_is_not_exportable(self):
+        """Fix round 1: after a freeze only the snapshot authorises an export. Deleted, frozen,
+        then put back — the registry's own digest must not smuggle it into the client's folder."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        # The freeze found no file, so it pinned no digest; the file is back on disk afterwards.
+        self.freeze_pack(work_dir, "vsrf-act", original=None)
+        finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.pdf").exists())
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+
+    def test_a_file_replaced_between_the_check_and_the_copy_is_not_delivered(self):
+        """Fix round 3: the observation that counts is the bytes actually retained for delivery.
+
+        Hashing the source and copying it afterwards is two reads of a file that can change in
+        between, and unpinned bytes then reached the client with no omission note. Staging first
+        and hashing the staged copy closes the window, whatever happens during the copy itself.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        real = shutil.copyfile
+
+        def swap(src, dst, *args, **kwargs):
+            if str(dst).endswith("vsrf-act.pdf"):
+                Path(dst).write_bytes(b"%PDF-1.7\nother bytes\n%%EOF\n")
+                return dst
+            return real(src, dst, *args, **kwargs)
+
+        with mock.patch.object(finalize.shutil, "copyfile", side_effect=swap):
+            result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.pdf").exists(), "the staged copy failed the check")
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        self.assertIsNotNone(result["published_to"])
+        self.assertTrue((published / "gdpr-art6.txt").is_file())
+
+    def test_a_rejected_file_never_reaches_the_client_even_if_its_deletion_fails(self):
+        """Fix round 4: an unverified file is never inside the directory that will be delivered.
+
+        The copy used to be staged in the publication folder itself, so a rejected artefact whose
+        `unlink` failed rode along into the client's folder — unpinned bytes beside a manifest
+        saying they were omitted. It now waits outside and only a verified file is moved in, so a
+        failed clean-up leaves rubbish somewhere nobody publishes.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        # The freeze pinned other bytes, so the copy of this original is rejected…
+        self.freeze_pack(work_dir, "vsrf-act", original="0" * 64)
+        real_unlink = Path.unlink
+
+        def refuse(self_path, *args, **kwargs):
+            # …and the clean-up of the rejected copy fails, as a transient lock would make it.
+            if self_path.name == "vsrf-act.pdf":
+                raise OSError("locked")
+            return real_unlink(self_path, *args, **kwargs)
+
+        with mock.patch.object(Path, "unlink", refuse):
+            result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse(
+            (published / "vsrf-act.pdf").exists(),
+            "rejected bytes must never sit in the folder whose manifest says they were omitted",
+        )
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        # D-109 and every unaffected artefact: the delivery is otherwise complete.
+        self.assertIsNotNone(result["published_to"])
+        self.assertTrue((published / "gdpr-art6.txt").is_file())
+        self.assertTrue((self.published_dir(root, work_dir) / finalize.DELIVERABLE_MD).is_file())
+
+    def test_the_publication_folder_holds_no_leftover_staging_directory(self):
+        """The scratch area is beside the publication and is cleaned up, delivered or not."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        finalize.run_finalize(finalize_args(work_dir))
+        target = self.published_dir(root, work_dir)
+        self.assertEqual(PDF_ORIGINAL, (self.sources_dir(root, work_dir) / "vsrf-act.pdf").read_bytes())
+        self.assertEqual(
+            [],
+            [path.name for path in target.parent.iterdir() if path.name != target.name],
+            "no staging or verifying directory survives the publication",
+        )
+
+    def test_a_file_deleted_during_the_copy_is_named_and_never_fatal(self):
+        """Fix round 3: a `copyfile` that raises is an omission row, not an aborted publication."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        real = shutil.copyfile
+
+        def vanish(src, dst, *args, **kwargs):
+            if str(dst).endswith("vsrf-act.pdf"):
+                raise FileNotFoundError(src)
+            return real(src, dst, *args, **kwargs)
+
+        with mock.patch.object(finalize.shutil, "copyfile", side_effect=vanish):
+            result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.pdf").exists())
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        # D-109: the rest of the delivery is intact — a copy that failed never aborts a run.
+        self.assertIsNotNone(result["published_to"])
+        self.assertNotIn("publish_failed", [row["banner_id"] for row in result["banners"]])
+        self.assertTrue((published / "gdpr-art6.txt").is_file())
+        self.assertTrue((self.published_dir(root, work_dir) / finalize.DELIVERABLE_MD).is_file())
+
+    def test_text_edited_after_the_freeze_is_not_exported_and_is_named(self):
+        """Fix round 3: the text is gated exactly as the original is.
+
+        C-02 only checks files reached through `[[q:]]`; a source cited through `[[src:]]` alone
+        never passes it, and the freeze-time demotion cannot see an edit made afterwards — so an
+        edited `.md` used to reach the client while the pack still described the frozen source.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        text = "ОПРЕДЕЛЕНИЕ\nустановил\n"
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=text)
+        self.freeze_pack(
+            work_dir,
+            "vsrf-act",
+            original=state_io.sha256_bytes(PDF_ORIGINAL),
+            text=state_io.sha256_bytes(text.encode("utf-8")),
+        )
+        edited = work_dir / "research" / "raw" / "case_law" / "vsrf-act.md"
+        edited.write_bytes("ОПРЕДЕЛЕНИЕ\nустановил иначе\n".encode("utf-8"))
+
+        result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse((published / "vsrf-act.txt").exists(), "edited text never reaches a client")
+        self.assertIn(
+            md_fallback.label("text_export_mismatch_note", "en", source_id="`vsrf-act`"),
+            (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8"),
+        )
+        # The original was not touched, so it still travels: the two artefacts are judged apart.
+        self.assertEqual(PDF_ORIGINAL, (published / "vsrf-act.pdf").read_bytes())
+        self.assertIsNotNone(result["published_to"])
+
+    def test_without_a_pack_the_text_still_travels_on_the_records_digest(self):
+        """`finalize --salvage` on an unfrozen work dir has nothing pinned and must still deliver."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        text = "ОПРЕДЕЛЕНИЕ\nустановил\n"
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=text)
+        finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertEqual(text.encode("utf-8"), (published / "vsrf-act.txt").read_bytes())
+        self.assertEqual(PDF_ORIGINAL, (published / "vsrf-act.pdf").read_bytes())
+
+    def test_the_exported_text_is_the_stored_bytes_and_not_a_round_trip(self):
+        """Fix round 3: a decode-then-encode round trip is a second chance to differ from the
+        digest that was pinned, and a false mismatch would be worse than the hole it closes."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        # A BOM and a lone CR: both survive a byte copy and both move under a text round trip.
+        stored = "﻿ОПРЕДЕЛЕНИЕ\rустановил\n".encode("utf-8")
+        raw = work_dir / "research" / "raw" / "case_law"
+        raw.mkdir(parents=True, exist_ok=True)
+        (raw / "vsrf-act.md").write_bytes(stored)
+        path = work_dir / "research" / "sources.json"
+        registry = json.loads(path.read_text(encoding="utf-8-sig"))
+        registry["sources"]["vsrf-act"] = {
+            "layer": "case_law",
+            "title": "ВС РФ, определение",
+            "citation_form": "Определение ВС РФ",
+            "url": "https://vsrf.ru/act",
+            "tier": "critical",
+            "raw_path": "research/raw/case_law/vsrf-act.md",
+            "raw_kind": "full_text",
+            "raw_sha256": state_io.sha256_bytes(stored),
+        }
+        state_io.write_json_atomic(path, registry)
+        finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(stored, (self.sources_dir(root, work_dir) / "vsrf-act.txt").read_bytes())
+
+    def test_a_pack_that_cannot_be_read_authorises_nothing(self):
+        """Fix round 2: a pack on disk means a freeze happened; one that cannot be read means we do
+        not know what it pinned, and not knowing never hands a document to a client. The failure
+        stays loud — every affected original gets its line — and the delivery still goes out."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        (work_dir / "research" / "source-pack.json").write_text("{ not json", encoding="utf-8")
+        result = finalize.run_finalize(finalize_args(work_dir))
+        published = self.sources_dir(root, work_dir)
+        self.assertFalse(
+            (published / "vsrf-act.pdf").exists(),
+            "the registry's own digest must not authorise an export the freeze cannot confirm",
+        )
+        pack_md = (published / finalize.SOURCE_PACK_MD).read_text(encoding="utf-8")
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "en", source_id="`vsrf-act`"), pack_md
+        )
+        # Fix round 3: neither artefact of any source is authorised by a pack nobody can read.
+        self.assertFalse((published / "gdpr-art6.txt").exists())
+        self.assertIn(
+            md_fallback.label("text_export_mismatch_note", "en", source_id="`gdpr-art6`"), pack_md
+        )
+        # D-109: the delivery itself is untouched.
+        self.assertIsNotNone(result["published_to"])
+        self.assertTrue((self.published_dir(root, work_dir) / finalize.DELIVERABLE_MD).is_file())
+
+    def test_without_a_pack_the_records_own_digest_still_authorises_the_export(self):
+        """`finalize --salvage` on an unfrozen work dir has nothing pinned and must still deliver."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(
+            PDF_ORIGINAL, (self.sources_dir(root, work_dir) / "vsrf-act.pdf").read_bytes()
+        )
+
+    def test_one_publish_looks_at_each_original_exactly_once(self):
+        """Fix round 1: the note and the copy are decided from one observation, so the delivered
+        folder can never contradict its own `source-pack.md`."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original=state_io.sha256_bytes(PDF_ORIGINAL))
+        hashed: list[str] = []
+        original = state_io.sha256_file
+
+        def counting(path):
+            hashed.append(Path(path).name)
+            return original(path)
+
+        with mock.patch.object(state_io, "sha256_file", counting):
+            finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(["vsrf-act.pdf"], [name for name in hashed if name.endswith(".pdf")])
+
+    def test_the_mismatch_note_is_written_in_the_memo_language(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        self.add_pdf_source(work_dir, source_id="vsrf-act", text=None)
+        self.freeze_pack(work_dir, "vsrf-act", original="0" * 64)
+        rendered = finalize.source_pack_markdown(
+            work_dir, language="ru", omissions=[("vsrf-act", finalize.SOURCE_ORIGINAL_KIND)]
+        )
+        self.assertIn(
+            md_fallback.label("pdf_export_mismatch_note", "ru", source_id="`vsrf-act`"), rendered
+        )
 
 
 class RootCopiesTest(PublishTest):

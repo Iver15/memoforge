@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import codecs
 import gzip
+import io
 import json
 import os
 import re
@@ -333,6 +334,22 @@ def snapshot_map(work_dir: str | os.PathLike) -> dict[str, str | None]:
         row["source_id"]: row.get("raw_sha256")
         for row in pack.get("snapshot") or []
         if isinstance(row, dict) and row.get("source_id")
+    }
+
+
+def snapshot_originals(work_dir: str | os.PathLike) -> dict[str, str]:
+    """`{source_id: raw_original_sha256}` of the freeze snapshot; empty before it (D-201).
+
+    Only the rows that carry the field: a record with no original, and one whose original was gone
+    when the freeze ran, have nothing pinned and are simply absent.
+    """
+    pack = read_pack(work_dir)
+    if not pack:
+        return {}
+    return {
+        row["source_id"]: row["raw_original_sha256"]
+        for row in pack.get("snapshot") or []
+        if isinstance(row, dict) and row.get("source_id") and row.get("raw_original_sha256")
     }
 
 
@@ -1160,6 +1177,10 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
     in the same write as the demotion itself, and the pass re-emits a stamped marker when the
     record no longer classifies — so a retry after a crash between the registry write and the
     publication reproduces exactly the interrupted run's warnings.
+
+    D-201: the same pass pins the original of a record that carries one (`raw_original_path`) and
+    warns by the same rule — but demotes only a `full_text` record, because a record at `none`
+    holds no text to lose. Each file is hashed exactly once per freeze.
     """
     sources = registry["sources"]
     currency = load_currency(work_dir, state=state)
@@ -1169,9 +1190,23 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
     # is reused for `raw_sha256` and the snapshot row below instead of hashing again.
     warnings: list[dict] = []
     observed: dict[str, str | None] = {}
+    originals: dict[str, str | None] = {}
     for source_id in sorted(sources):
         record = sources[source_id]
-        if raw_kind_of(record) == "full_text":
+        kind = raw_kind_of(record)
+        # D-201: the original a PDF save kept is pinned by the same rule as the text, and hashed
+        # exactly once per freeze — the digest taken here is the one the snapshot row records.
+        original_changed = False
+        if record.get("raw_original_path"):
+            path = Path(work_dir) / record["raw_original_path"]
+            if path.is_file():
+                digest = state_io.sha256_file(path)
+                originals[source_id] = digest
+                original_changed = digest != (record.get("raw_original_sha256") or None)
+            else:
+                originals[source_id] = None
+                original_changed = True
+        if kind == "full_text":
             # D-200: the recorded sha is what the code saved; any other bytes — or no file at
             # all — mean the text is no longer that document. A null recorded digest never equals
             # the file's digest, so it demotes like any mismatch.
@@ -1184,6 +1219,10 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
                 digest = state_io.sha256_file(path)
                 observed[source_id] = digest
                 now = "agent_summary" if digest != held_sha else None
+            if now is None and original_changed:
+                # D-201: a text layer that still matches, over an original that no longer does, is
+                # no longer the document the code saved either.
+                now = "agent_summary"
             if now is not None:
                 record["raw_kind"] = now
                 # Fix round 3: the evidence is part of the same write as the demotion — `meta`
@@ -1208,6 +1247,11 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
                     "now": marker["now"],
                 }
             )
+        elif original_changed:
+            # D-201: there is nothing to demote — a record at `none` holds no text to lose — but
+            # the freeze says out loud that the original is not the file it pinned. One warning per
+            # source, so the stamped evidence above wins when a record carries both.
+            warnings.append({"code": FULL_TEXT_INTEGRITY, "source_id": source_id, "was": kind, "now": kind})
     # D34-04: duplicates collapse into one canonical id before anything is projected onto the pack.
     merged, contradictory = merge_map(work_dir, sources)
     if contradictory:
@@ -1282,17 +1326,24 @@ def build_pack(work_dir: str | os.PathLike, registry: dict, *, state: dict | Non
                 path = Path(work_dir) / (record.get("raw_path") or "")
                 if path.is_file():
                     record["raw_chars"] = len(path.read_text(encoding="utf-8-sig", errors="replace"))
-            snapshot.append({"source_id": source_id, "raw_sha256": digest})
-            continue
-        raw_path = record.get("raw_path")
-        digest = None
-        if raw_path:
-            path = Path(work_dir) / raw_path
-            if path.is_file():
-                digest = state_io.sha256_file(path)
-                record["raw_sha256"] = digest
-                record["raw_chars"] = len(path.read_text(encoding="utf-8-sig", errors="replace"))
-        snapshot.append({"source_id": source_id, "raw_sha256": digest})
+        else:
+            digest = None
+            raw_path = record.get("raw_path")
+            if raw_path:
+                path = Path(work_dir) / raw_path
+                if path.is_file():
+                    digest = state_io.sha256_file(path)
+                    record["raw_sha256"] = digest
+                    record["raw_chars"] = len(path.read_text(encoding="utf-8-sig", errors="replace"))
+        row = {"source_id": source_id, "raw_sha256": digest}
+        original = originals.get(source_id)
+        if original is not None:
+            # D-201: the digest taken by the integrity pass above, never a second hash of the same
+            # file. A vanished original writes no row at all, exactly as a vanished text writes no
+            # registry sha — there is nothing on disk to pin, and `publish` exports nothing.
+            record["raw_original_sha256"] = original
+            row["raw_original_sha256"] = original
+        snapshot.append(row)
 
     pack_document = {
         "schema_version": 2,
@@ -2104,7 +2155,12 @@ def run_liveness(args: argparse.Namespace) -> dict:
                 continue
             url = str(record.get("url") or "")
             # D34-08: only a body that came from this url by this tool may be compared with the sha.
-            expected = record.get("raw_sha256") if body_comparable(record) else None
+            # D-201: a record that kept an original is identified by those bytes — the text layer
+            # is a convenience, and nothing here extracts one: the body as served is what the
+            # server sends again, so the digest of the original is what may be compared with it.
+            comparable = body_comparable(record)
+            original_sha = record.get("raw_original_sha256") if comparable else None
+            expected = original_sha or (record.get("raw_sha256") if comparable else None)
             if not url:
                 record["liveness"] = {"status": "unchecked", "code": None, "checked_at": events.utc_now()}
                 checked.append({"source_id": source_id, "status": "unchecked", "error": "no_url"})
@@ -2121,7 +2177,12 @@ def run_liveness(args: argparse.Namespace) -> dict:
             status = probe["status"]
             # A7: the registry holds the sha of the scrubbed text; a record written before D-193
             # holds the sha of the body as served. Either equality is the same page.
-            digests = {value for value in (probe["sha256"], probe.get("sha256_normalised")) if value}
+            # D-201 fix round 3: that licence is for *text* only. An original has no normalised
+            # form — it is bytes — so a PDF whose new body differs but scrubs to the same value is
+            # `changed`, and is never promoted to `confirmed` on the strength of a normalisation
+            # that was never applied to the file on disk.
+            offered = (probe["sha256"],) if original_sha else (probe["sha256"], probe.get("sha256_normalised"))
+            digests = {value for value in offered if value}
             if expected and digests and expected not in digests:
                 status = "changed"
             record["liveness"] = {
@@ -2526,14 +2587,27 @@ SAVE_TOOL = "mf-save"
 SAVE_RESOLVERS: tuple[str, ...] = ("vsrf", "sudact")
 """D-199: `--resolve` is declared with the command; the two resolvers land with their own tasks."""
 
+SAVE_PDF_TEXT_UNAVAILABLE = "excerpt:pdf_text_unavailable"
+"""D-201: the outcome of a PDF whose text layer could not be read — no `pypdf`, or a scan.
+
+The original is saved and the record holds no text at all (`raw_kind: none`), so the identity is
+never certified: `[[q:]]` is impossible on such a source (C-02 is not bypassed) and the appendix
+says in one line that the requisites and quotations were not checked by code.
+"""
+
 SAVE_TEXT_TYPES: frozenset = frozenset(
     {"application/json", "application/ld+json", "application/rdf+xml", "application/xhtml+xml", "application/xml"}
 )
 """Media types outside `text/*` whose body is still text — the BOE XML and the RIS/Normattiva JSON.
 
-Anything else, a PDF above all, is refused `unsupported_media_type`: D-201 is what teaches this
-command to keep an original and extract its text layer.
+A PDF has its own path (D-201). Anything else — an image, an archive, an unknown binary — is
+refused `unsupported_media_type`: only a text answer can be certified.
 """
+
+SAVE_PDF_TYPE = "application/pdf"
+PDF_SIGNATURE = b"%PDF-"
+PDF_EXTENSION = ".pdf"
+"""D-201: what a PDF answer is, and the name its original is kept under (`<source_id>.pdf`)."""
 
 SAVE_HINTS: dict[str, str] = {
     "unchecked": "the server did not serve the document; nothing was registered",
@@ -2541,26 +2615,61 @@ SAVE_HINTS: dict[str, str] = {
     "interstitial": "the answer is a challenge page, not the document; nothing was registered",
     "access_stub": "the answer is an access wall, not the document; nothing was registered",
     "truncated": "the body was cut at the ceiling, and a partial document is never registered",
+    "pdf_truncated": "the pdf did not arrive whole, and half a file is neither a document nor an original",
     "host_not_allowed": "hooks/allowlist.txt is the same list the fetch permission gate enforces (§8.1)",
-    "unsupported_media_type": "only a text answer can be certified and saved today",
+    "unsupported_media_type": "only a text answer or a pdf can be saved",
     "requisites_mismatch": "the page does not carry --expect-number and --expect-date in their zones",
     "url_error": "only http(s) urls without credentials can be fetched",
 }
 """One line of advice per refusal; `meta.save_outcome` records `refused:<key>` (D-199)."""
 
 
+def save_pdf_answer(content_type: object, payload: bytes = b"") -> bool:
+    """True when the answer is a PDF, by its declared type or — with none declared — its signature.
+
+    D-201: a declared type decides, the way it decides everywhere else in this module. With none
+    declared, `%PDF-` is the one signature that really is served that way and really is not text;
+    Task 4 refused those bytes rather than decode them into mojibake, and this is where they go
+    instead. One signature, not a type sniffer.
+    """
+    kind = str(content_type or "").split(";")[0].strip().lower()
+    if kind:
+        return kind == SAVE_PDF_TYPE
+    return payload.startswith(PDF_SIGNATURE)
+
+
+def extract_pdf_text(payload: bytes) -> str | None:
+    """The text layer of a PDF, or None when there is none to read (D-201).
+
+    `pypdf` is imported here and nowhere else, because it is optional (§5.6): its absence is one
+    more PDF without a text layer, not an error. So is a scan, whose pages carry an image and no
+    characters, and so is a file `pypdf` cannot parse at all — in each case the original has still
+    arrived and is still saved; only the certification is impossible. There is no second
+    extractor: no `pdftotext`, no OCR. A whitespace-only layer counts as none.
+    """
+    try:
+        from pypdf import PdfReader
+    except Exception:  # noqa: BLE001 - absent, broken or shadowed: all «no text layer» (§5.6)
+        return None
+    try:
+        reader = PdfReader(io.BytesIO(payload))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:  # noqa: BLE001 - a damaged or encrypted file has no readable layer either
+        return None
+    return text if text.strip() else None
+
+
 def save_text_type(content_type: object, payload: bytes = b"") -> bool:
     """True when the answer is text this command can certify (D-199).
 
     A declared type decides. With none declared the body is admitted as text — many portals send
-    no header — except for the one signature that really is served that way and really is not text:
-    `%PDF-`, which would otherwise be decoded with replacement characters, registered as certified
-    text and exported to the client as a `.txt` of mojibake. One signature, not a type sniffer;
-    D-201 is what teaches this command to keep a PDF and extract its text layer.
+    no header — except for the one signature that really is served that way and really is not
+    text: `%PDF-`, which takes the PDF path of D-201 instead of being decoded with replacement
+    characters and exported to the client as a `.txt` of mojibake.
     """
     kind = str(content_type or "").split(";")[0].strip().lower()
     if not kind:
-        return not payload.startswith(b"%PDF-")
+        return not payload.startswith(PDF_SIGNATURE)
     return kind.startswith("text/") or kind in SAVE_TEXT_TYPES
 
 
@@ -2569,7 +2678,9 @@ def save_admission(answer: dict, payload: bytes) -> tuple[str, str] | None:
 
     These rules judge the *answer*, which is why they live here and not in `source_text`: a status
     that means «not served», a challenge page, an access wall, a body cut at the ceiling and a
-    media type that is not text never become a source, whatever the text of them would say.
+    media type that is neither text nor a PDF never become a source, whatever the text of them
+    would say. D-201: a PDF is admitted, and a truncated one is refused under its own name —
+    half a file is neither a document to certify nor an original to keep.
     """
     error = str(answer.get("error") or "")
     if error.startswith("redirect_not_allowed"):
@@ -2581,13 +2692,17 @@ def save_admission(answer: dict, payload: bytes) -> tuple[str, str] | None:
         return "unchecked", error
     if answer.get("status") == "dead":
         return "dead", error
+    pdf = save_pdf_answer(answer.get("content_type"), payload)
     if answer.get("truncated"):
         # A partial document is the exact failure this command exists to stop: never an excerpt.
-        return "truncated", ""
+        return ("pdf_truncated" if pdf else "truncated"), ""
+    if pdf:
+        return None
     if not save_text_type(answer.get("content_type"), payload):
-        # With no declared type the only body that fails is the one the signature named.
+        # Only a declared type reaches this: with none declared, the single signature that fails
+        # `save_text_type` is `%PDF-`, and it was admitted above.
         kind = str(answer.get("content_type") or "").split(";")[0].strip()
-        return "unsupported_media_type", kind or "application/pdf"
+        return "unsupported_media_type", kind or "application/octet-stream"
     return None
 
 
@@ -2668,6 +2783,18 @@ def save_refused(work_dir: Path, identity: dict, reason: str, answer: dict) -> d
     return {**answer, "source_id": held_id}
 
 
+def _stage_bytes(path: Path, payload: bytes) -> None:
+    """Write `payload` to a temporary file and flush it to the platter before any rename (D-199).
+
+    Exactly what `state_io.write_bytes_atomic` does on its own temp file: the registry must never
+    name a file whose bytes a crash could still lose.
+    """
+    with open(path, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def run_save(args: argparse.Namespace) -> dict:
     """`mf sources save` — one transaction from an address to a registered, certified text (D-199).
 
@@ -2683,6 +2810,13 @@ def run_save(args: argparse.Namespace) -> dict:
     inside the target folder; (3) the same checks again, then and only then the duplicate search,
     the id, the atomic publication and the registry write. A refusal or a crash leaves every file
     and every record as it was; `meta.save_outcome` in an already existing record is the exception.
+
+    D-201: an answer that is a PDF takes a second path through the same transaction. The bytes as
+    served are kept whole as `research/raw/<layer>/<id>.pdf` and recorded as `raw_original_path` +
+    `raw_original_sha256`; the `pypdf` text layer is a convenience, extracted once, stored as
+    `<id>.md` like any other text and judged by `source_text.verdict`. Without a text layer the
+    original is saved alone and the source is registered uncertified (`raw_kind: none`,
+    `excerpt:pdf_text_unavailable`).
     """
     resolver = str(getattr(args, "resolve", "") or "").strip()
     if resolver:
@@ -2739,18 +2873,37 @@ def run_save(args: argparse.Namespace) -> dict:
         errors = [f"{reason}: {detail}" if detail else reason]
         return save_refused(work_dir, identity, reason, {"errors": errors, "hint": SAVE_HINTS[reason], **transport})
 
-    converted = markup_to_text(payload, answer["content_type"])
-    # `prepare_raw` runs once, on the converted text, so the digest stored is the one liveness can
-    # confirm against the page it came from (D-163, D-193, D-199).
-    stored = prepare_raw(converted if converted is not None else payload)
-    text = stored.decode("utf-8-sig", errors="replace")
-    call = source_text.verdict(
-        text,
-        layer=layer,
-        expect_number=args.expect_number,
-        expect_date=args.expect_date,
-        expect_article=args.expect_article,
-    )
+    # D-201: a PDF is kept as the bytes the server served — it never goes through `prepare_raw`,
+    # which decodes as `utf-8-sig` with `errors="replace"` and would corrupt the file it is meant
+    # to preserve. Its text layer is read once, here, and is then text like any other.
+    original = payload if save_pdf_answer(answer["content_type"], payload) else None
+    original_digest = state_io.sha256_bytes(payload) if original is not None else None
+    if original is not None:
+        pdf_text = extract_pdf_text(payload)
+        stored = None if pdf_text is None else prepare_raw(pdf_text.encode("utf-8"))
+    else:
+        converted = markup_to_text(payload, answer["content_type"])
+        # `prepare_raw` runs once, on the converted text, so the digest stored is the one liveness
+        # can confirm against the page it came from (D-163, D-193, D-199).
+        stored = prepare_raw(converted if converted is not None else payload)
+    if stored is None:
+        # D-201: no text layer at all. The original is still saved and the source is registered —
+        # uncertified, with no text to quote from and no requisites checked by code.
+        call = {
+            "raw_kind": "none",
+            "outcome": SAVE_PDF_TEXT_UNAVAILABLE,
+            "error": None,
+            "found": {"number": False, "date": False, "russian": False, "chars": 0},
+        }
+    else:
+        text = stored.decode("utf-8-sig", errors="replace")
+        call = source_text.verdict(
+            text,
+            layer=layer,
+            expect_number=args.expect_number,
+            expect_date=args.expect_date,
+            expect_article=args.expect_article,
+        )
     if call["error"] is not None:
         # D-203: a Russian judicial act missing a requisite in its own zone is not this document.
         missing = ", ".join(name for name in ("number", "date") if not call["found"].get(name))
@@ -2759,20 +2912,23 @@ def run_save(args: argparse.Namespace) -> dict:
             work_dir, identity, call["error"], {"errors": errors, "hint": SAVE_HINTS[call["error"]], **transport}
         )
     outcome = call["outcome"]
-    digest = state_io.sha256_bytes(stored)
+    # D-201: «are these the same bytes» is asked of the original wherever there is one. A PDF with
+    # no text layer has no text digest at all, so a comparison that reached for `raw_sha256` there
+    # would compare None with None and call two different scans one document.
+    digest = original_digest if original is not None else state_io.sha256_bytes(stored)
 
     target_dir = work_dir / RAW_DIR / layer
     target_dir.mkdir(parents=True, exist_ok=True)
     # Inside the target folder, so step 3 publishes with one atomic rename and writes nothing under
     # the lock; the pid keeps two processes saving the same document out of each other's way.
-    temp = target_dir / f".{explicit_id or slugify(title)}.{os.getpid()}.tmp"
+    stem = f".{explicit_id or slugify(title)}.{os.getpid()}"
+    temp = target_dir / f"{stem}.tmp"
+    temp_original = target_dir / f"{stem}{PDF_EXTENSION}.tmp"
     try:
-        with open(temp, "wb") as handle:
-            # Flushed to the platter before the rename, exactly as `state_io.write_bytes_atomic`
-            # does it: the registry must never name a file whose bytes a crash could still lose.
-            handle.write(stored)
-            handle.flush()
-            os.fsync(handle.fileno())
+        if stored is not None:
+            _stage_bytes(temp, stored)
+        if original is not None:
+            _stage_bytes(temp_original, original)
 
         # Step 3 — under the lock again: the tree may have changed while the network ran.
         with sources_lock(work_dir):
@@ -2785,12 +2941,21 @@ def run_save(args: argparse.Namespace) -> dict:
                 return refusal
             source_id = explicit_id if explicit_id in sources else find_source(sources, layer, clean_url, citation)
             created = source_id is None
+            # Fix round 1: «the same bytes» is the digest the record already carries, and nothing
+            # else. Not the presence of a file: a record holding an uncertified scan would then
+            # answer `idempotent` over bytes it had just discarded, and two different documents
+            # would be reported as one. The recorded digest is the original's where there is one
+            # (a PDF with no text layer has no text digest at all) and the text's otherwise —
+            # one rule for both, which is also the rule the downgrade guard below asks.
+            same_bytes = False
             if created:
                 source_id = explicit_id or unique_slug(slugify(title), set(sources))
                 record = _new_record(layer, title, citation, clean_url, f"{SAVE_TOOL} {host}", tier, retrieved_from)
                 sources[source_id] = record
             else:
                 record = sources[source_id]
+                held_digest = record.get("raw_original_sha256") or record.get("raw_sha256")
+                same_bytes = bool(held_digest) and held_digest == digest
                 if raw_kind_of(record) == "full_text":
                     # Text saved by code is replaced by the same document, whole, and by nothing
                     # else: an excerpt of it is a downgrade, other bytes are another text under an
@@ -2801,7 +2966,7 @@ def run_save(args: argparse.Namespace) -> dict:
                             "source_id": source_id,
                             "hint": "a shorter text never replaces one the code saved whole",
                         }
-                    if record.get("raw_sha256") != digest:
+                    if not same_bytes:
                         return {
                             "errors": [f"source_id_collision: {source_id} already holds another saved text"],
                             "source_id": source_id,
@@ -2816,11 +2981,77 @@ def run_save(args: argparse.Namespace) -> dict:
             # field alone: a publication interrupted after the registry write leaves a `raw_path`
             # whose file was never written, and that record has no text to displace either — the
             # next save repairs it instead of answering a hollow `idempotent` over a missing file.
-            held_text = record.get("raw_path") and (work_dir / record["raw_path"]).is_file()
-            publish = call["raw_kind"] == "full_text" or not held_text
+            # D-201: an original that exists is text enough to hold — a scan is the document the
+            # client was promised, and a save that finds the file gone republishes it, exactly as
+            # it repairs an interrupted text publication. Fix round 1: publication is disk-aware,
+            # the answer is not — when the file is gone and the bytes differ, publishing them is
+            # still right (the record would otherwise name a file that is not there), but a
+            # replacement is not a repair and `idempotent` says so.
+            # Fix round 3: the two artefacts are decided **separately**. The pair is published in
+            # two renames, so a kill between them leaves the registry naming both files while only
+            # the `.pdf` is on disk — a third state the old single boolean could not see («holds
+            # one of two»), in which an identical retry saw `held_original`, published nothing and
+            # called the half-written pair idempotent.
+            held_text = bool(record.get("raw_path")) and (work_dir / record["raw_path"]).is_file()
+            held_original = bool(record.get("raw_original_path")) and (
+                work_dir / record["raw_original_path"]
+            ).is_file()
             target = target_dir / f"{source_id}.md"
-            if publish:
-                record.update(raw_fields(work_dir, target, stored, call["raw_kind"]))
+            target_original = target_dir / f"{source_id}{PDF_EXTENSION}"
+            # Fix round 4: three outcomes, not two. A repair is only ever the same document
+            # arriving again, so it is conditional on `same_bytes` and on nothing else — filling a
+            # missing half with *other* bytes would record a pair that never existed as one
+            # document, and a later freeze would pin the mixture without noticing, because the
+            # integrity check asks only whether each file still matches its own digest.
+            replacing = repairing = False
+            if created or call["raw_kind"] == "full_text":
+                # The record takes this answer whole: a new record, or text the code saved entire.
+                replacing = True
+            elif same_bytes:
+                # The repair: whatever the record names and the disk lacks is written back and
+                # nothing else moves. `idempotent` stays true.
+                repairing = True
+            elif not (held_text or held_original):
+                # Other bytes over a record holding nothing on disk: there is nothing to displace.
+                replacing = True
+            # …and other bytes over a record that still holds *either* component publish nothing:
+            # only `meta.save_outcome` is written, and `idempotent` is false.
+            if replacing:
+                publish_text = stored is not None
+                publish_original = original is not None
+            elif repairing:
+                publish_text = stored is not None and bool(record.get("raw_path")) and not held_text
+                publish_original = (
+                    original is not None and bool(record.get("raw_original_path")) and not held_original
+                )
+            else:
+                publish_text = publish_original = False
+            if replacing:
+                if stored is not None:
+                    record.update(raw_fields(work_dir, target, stored, call["raw_kind"]))
+                else:
+                    record.update(
+                        {"raw_path": None, "raw_sha256": None, "raw_chars": 0, "raw_kind": call["raw_kind"]}
+                    )
+                if original is not None:
+                    record["raw_original_path"] = stepctx.rel_path(work_dir, target_original)
+                    record["raw_original_sha256"] = original_digest
+                else:
+                    # A text answer over a record that used to hold one: a record never names an
+                    # original that is no longer its own. The stale file is left on disk, unnamed.
+                    record.pop("raw_original_path", None)
+                    record.pop("raw_original_sha256", None)
+            elif repairing:
+                # A repair writes the fields of the artefact it republishes, from the bytes it is
+                # about to publish — `same_bytes` is one digest, and a text layer re-extracted by
+                # another `pypdf` may differ from the one the record recorded. The record never
+                # describes a file it does not have.
+                if publish_text:
+                    record.update(raw_fields(work_dir, target, stored, call["raw_kind"]))
+                if publish_original:
+                    record["raw_original_path"] = stepctx.rel_path(work_dir, target_original)
+                    record["raw_original_sha256"] = original_digest
+            if publish_text or publish_original:
                 record["title"] = title
                 record["citation_form"] = citation
                 record["tier"] = tier
@@ -2847,25 +3078,35 @@ def run_save(args: argparse.Namespace) -> dict:
             # equality blocks. Loud and safe rather than silent and lossy; no journal, no backup.
             schema.validate_or_raise(registry, "sources")
             write_registry(work_dir, registry)
-            if publish:
+            # D-201: the original first — it is the source itself, and the text layer only the
+            # convenience read out of it. Fix round 3: a kill between the two renames is repaired
+            # by the next identical save, which now sees «holds one of two» for what it is.
+            if publish_original:
+                os.replace(temp_original, target_original)
+            if publish_text:
                 os.replace(temp, target)
             result = dict(record)
     finally:
         temp.unlink(missing_ok=True)
+        temp_original.unlink(missing_ok=True)
 
     return {
         "source_id": source_id,
         "created": created,
-        "idempotent": not created,
+        # Fix round 1: the record already existed AND the address served the bytes it holds.
+        # Nothing else may set it — «this call changed nothing» is a statement about the bytes.
+        "idempotent": (not created) and same_bytes,
         "layer": layer,
         "raw_path": result.get("raw_path"),
         "raw_sha256": result.get("raw_sha256"),
         "raw_chars": result.get("raw_chars"),
         "raw_kind": raw_kind_of(result),
+        "raw_original_path": result.get("raw_original_path"),
+        "raw_original_sha256": result.get("raw_original_sha256"),
         "save_outcome": outcome,
         "provenance": result.get("provenance"),
         "tier": result.get("tier"),
-        "bytes": len(stored),
+        "bytes": len(original if original is not None else stored),
         **transport,
     }
 

@@ -40,7 +40,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt ruff
+          # `pypdf` is a build dependency only: the PDF tests read two real PDFs (D-201). The
+          # runtime never requires it — its `requirements.txt` line stays commented out, and the
+          # without-`pypdf` path is proven by a test that patches the import away.
+          python -m pip install -r requirements.txt ruff pypdf
 
       - name: Compile
         run: python -m compileall scripts

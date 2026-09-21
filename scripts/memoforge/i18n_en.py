@@ -84,6 +84,26 @@ EN: dict = {
                 "saved text of {source_id} changed after it was saved by code; "
                 "it now counts as an agent copy"
             ),
+            # D-201: a PDF whose text layer could not be read — no `pypdf`, or a scan. The original
+            # is on disk and travels to the client; nothing about it was certified by code.
+            "pdf_unverified_note": (
+                "the original was saved; its requisites and quotations were not checked by code"
+            ),
+            # D-201: the original is not the file the freeze pinned — edited, deleted, or never
+            # pinned at all — so `sources/<id>.pdf` is not exported. One sentence for all three,
+            # because the client-facing fact is the same: the delivery continues, and this line
+            # says why the folder holds no PDF.
+            "pdf_export_mismatch_note": (
+                "the original PDF of {source_id} no longer matches what the freeze recorded "
+                "and was not exported"
+            ),
+            # D-201 fix round 3: the same rule for the saved text, and its own key — the client is
+            # looking for a particular missing file, and a line that does not say which artefact it
+            # means does not explain the absence.
+            "text_export_mismatch_note": (
+                "the saved text of {source_id} no longer matches what the freeze recorded "
+                "and was not exported"
+            ),
             "link_note": "link {status}",
             # D-192: the Sources annex of a source with no public url — the database it came from
             # instead of an address. `{server}` is a bundled server's label, or `legal_database`

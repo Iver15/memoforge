@@ -36,6 +36,12 @@ class RequirementsTest(unittest.TestCase):
         )
         self.assertEqual(">=4.18", required["jsonschema"])
 
+    def test_the_optional_line_of_pypdf_stays_commented_out(self):
+        """D-201: `pypdf` is never required, so `mf deps install` never brings it in."""
+        text = deps.requirements_path().read_text(encoding="utf-8-sig")
+        self.assertIn("# pypdf>=4.0", text)
+        self.assertNotIn("pypdf", deps.read_requirements())
+
     def test_comments_and_blank_lines_are_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "requirements.txt"
@@ -60,7 +66,7 @@ class CheckTest(unittest.TestCase):
             result = deps.run_check(check_args(str(target)))
             report = json.loads(target.read_text(encoding="utf-8-sig"))
 
-        self.assertEqual(sorted(result["deps"]), ["docx", "jsonschema", "mistune"])
+        self.assertEqual(sorted(result["deps"]), ["docx", "jsonschema", "mistune", "pypdf"])
         for name, row in result["deps"].items():
             with self.subTest(dependency=name):
                 self.assertIsInstance(row["installed"], bool)
@@ -86,6 +92,7 @@ class CheckTest(unittest.TestCase):
                 result = deps.run_check(check_args(str(Path(tmp) / "deps.json")))
         self.assertFalse(result["ok"])
         self.assertEqual(["docx", "jsonschema", "mistune"], result["missing"])
+        self.assertNotIn("pypdf", result["missing"], "D-201: an optional module is never missing")
         self.assertIn("mf deps install", result["human"])
 
     def test_an_outdated_dependency_is_flagged(self):
@@ -94,6 +101,7 @@ class CheckTest(unittest.TestCase):
                 result = deps.run_check(check_args(str(Path(tmp) / "deps.json")))
         self.assertFalse(result["ok"])
         self.assertEqual(["docx", "jsonschema", "mistune"], result["outdated"])
+        self.assertNotIn("pypdf", result["outdated"])
 
     def test_check_never_runs_a_subprocess(self):
         with mock.patch.object(subprocess, "run", side_effect=AssertionError("no subprocess")):
@@ -106,6 +114,50 @@ class CheckTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 result = deps.run_check(check_args(str(Path(tmp) / "deps.json")))
         self.assertIn("jsonschema", result["deps"])
+
+
+class OptionalModuleTest(unittest.TestCase):
+    """D-201: `pypdf` is reported, never required and never installed by `mf deps install`."""
+
+    def test_the_optional_tuple_names_pypdf_and_nothing_required(self):
+        self.assertEqual((("pypdf", "pypdf"),), deps.OPTIONAL_MODULES)
+        self.assertEqual(set(), {name for name, _ in deps.OPTIONAL_MODULES} & {name for name, _ in deps.MODULES})
+
+    def test_the_row_is_marked_optional_and_never_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = deps.run_check(check_args(str(Path(tmp) / "deps.json")))
+        row = result["deps"]["pypdf"]
+        self.assertTrue(row["optional"])
+        self.assertNotIn("pypdf", result["missing"])
+        self.assertNotIn("pypdf", result["outdated"])
+
+    def test_an_absent_optional_module_prints_its_state_without_a_mark(self):
+        with mock.patch.object(deps.importlib.util, "find_spec", return_value=None):
+            with tempfile.TemporaryDirectory() as tmp:
+                result = deps.run_check(check_args(str(Path(tmp) / "deps.json")))
+        line = [row for row in result["human"].splitlines() if "pypdf" in row]
+        self.assertEqual(1, len(line), result["human"])
+        self.assertIn("missing (optional)", line[0])
+        self.assertTrue(line[0].startswith("   "), line[0])
+        self.assertEqual(["docx", "jsonschema", "mistune"], result["missing"])
+
+    def test_the_report_with_the_optional_row_still_matches_the_open_internal_schema(self):
+        """The `deps` map of `internal.schema.json` is open, so no schema change was needed."""
+        if not schema.available():
+            self.skipTest("jsonschema is not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "deps.json"
+            deps.run_check(check_args(str(target)))
+            report = json.loads(target.read_text(encoding="utf-8-sig"))
+        self.assertIn("pypdf", report["deps"])
+        self.assertEqual([], schema.validate(report, "internal"))
+
+    def test_install_never_reaches_for_an_optional_module(self):
+        completed = subprocess.CompletedProcess([], 0, stdout="ok", stderr="")
+        with mock.patch.object(subprocess, "run", return_value=completed) as runner:
+            with tempfile.TemporaryDirectory() as tmp:
+                deps.run_install(install_args(out=str(Path(tmp) / "deps.json")))
+        self.assertNotIn("pypdf", " ".join(runner.call_args[0][0]))
 
 
 class InstallTest(unittest.TestCase):

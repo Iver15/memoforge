@@ -421,6 +421,73 @@ class QuotesSchemaTest(unittest.TestCase):
         self.assertTrue(errors_for("quotes", self._skip(reason="too-long")))
 
 
+class PdfOriginalSchemaTest(unittest.TestCase):
+    """D-201: the original a PDF save keeps, in the registry and in the freeze snapshot."""
+
+    SHA = "9216ab6a5bb553658b572b3be8c98a474dff7358416c05223b034c705438fdda"
+
+    def registry(self, **overrides) -> dict:
+        document = read_json(fixture_dir("sources") / "valid-1.json")
+        document["sources"]["gdpr-art-6"].update(overrides)
+        return document
+
+    def test_a_record_may_carry_the_original_it_was_served(self):
+        self.assertEqual(
+            [],
+            errors_for(
+                "sources",
+                self.registry(
+                    raw_original_path="research/raw/case_law/vsrf-act.pdf",
+                    raw_original_sha256=self.SHA,
+                ),
+            ),
+        )
+
+    def test_a_malformed_original_digest_is_rejected(self):
+        self.assertTrue(errors_for("sources", self.registry(raw_original_sha256="not-a-digest")))
+        self.assertTrue(errors_for("sources", self.registry(raw_original_path="")))
+
+    def test_a_registry_written_before_this_task_still_validates(self):
+        self.assertEqual([], errors_for("sources", self.registry()))
+
+    def test_the_snapshot_may_pin_the_original_next_to_the_text(self):
+        pack = read_json(fixture_dir("source-pack") / "valid-1.json")
+        self.assertEqual([], errors_for("source-pack", pack), "an old pack keeps validating")
+        pack["snapshot"][0]["raw_original_sha256"] = self.SHA
+        self.assertEqual([], errors_for("source-pack", pack))
+        pack["snapshot"][0]["raw_original_sha256"] = "nope"
+        self.assertTrue(errors_for("source-pack", pack))
+
+    def warning(self, was: str, now: str) -> dict:
+        pack = read_json(fixture_dir("source-pack") / "valid-1.json")
+        pack["integrity_warnings"] = [
+            {"code": "full_text_integrity", "source_id": "gdpr-art-6", "was": was, "now": now}
+        ]
+        return pack
+
+    def test_an_integrity_warning_may_name_a_kind_that_was_never_full_text(self):
+        """D-201: a scan that changed is warned about although there is nothing to demote."""
+        for kind in ("none", "excerpt", "agent_summary", "client_file"):
+            with self.subTest(kind=kind):
+                self.assertEqual([], errors_for("source-pack", self.warning(kind, kind)))
+        self.assertTrue(errors_for("source-pack", self.warning("invented", "invented")))
+
+    def test_the_demotion_of_d_200_is_still_the_only_transition_allowed(self):
+        """Fix round 1: widening the pair must not let an impossible transition through."""
+        for now in ("agent_summary", "none"):
+            with self.subTest(now=now):
+                self.assertEqual([], errors_for("source-pack", self.warning("full_text", now)))
+        for was, now in (
+            ("none", "full_text"),  # nothing is ever promoted by the freeze
+            ("none", "agent_summary"),  # only `full_text` is ever demoted
+            ("excerpt", "none"),
+            ("full_text", "full_text"),  # a warning always records a change
+            ("agent_summary", "excerpt"),
+        ):
+            with self.subTest(was=was, now=now):
+                self.assertTrue(errors_for("source-pack", self.warning(was, now)), f"{was} -> {now}")
+
+
 class SufficiencySchemaTest(unittest.TestCase):
     def test_user_targeted_gap_needs_a_followup_question(self):
         report = read_json(fixture_dir("research-sufficiency") / "valid-1.json")

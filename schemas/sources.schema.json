@@ -169,6 +169,15 @@
         },
         "raw_sha256": { "$ref": "#/$defs/sha256_or_null" },
         "raw_chars": { "type": "integer", "minimum": 0 },
+        "raw_original_path": {
+          "description": "D-201: POSIX path relative to work_dir of the file as the server served it — a PDF `mf sources save` kept whole. Optional and always written together with `raw_original_sha256`; absent for every source whose answer was text.",
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_original_sha256": {
+          "description": "D-201: sha256 of the original bytes. It — not `raw_sha256` — answers «are these the same bytes» for such a record, because a PDF with no text layer has no text digest at all.",
+          "$ref": "#/$defs/sha256"
+        },
         "raw_kind": {
           "description": "D-200: what the saved text is. Optional; the reader defaults it (`agent_summary` when the record holds raw, else `none`), so an old work dir keeps validating and is never rewritten.",
           "enum": ["full_text", "excerpt", "agent_summary", "client_file", "none"]

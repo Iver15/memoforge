@@ -8,3 +8,7 @@ mistune>=3.0
 # optional: rapidfuzz — speeds up the `quote extract` candidate search only.
 # Never required: the audit path uses exact matching (M5) and difflib is the stdlib fallback.
 # rapidfuzz>=3.0
+
+# optional: pypdf — extracts the text layer of a PDF saved by `mf sources save`.
+# Never required: without it the original is still saved and the source is marked «not checked by code».
+# pypdf>=4.0

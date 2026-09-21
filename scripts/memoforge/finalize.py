@@ -628,11 +628,16 @@ def publish_root(state: dict) -> Path | None:
     return None
 
 
-def source_pack_markdown(work_dir: Path, *, language: str = "en") -> str:
+def source_pack_markdown(work_dir: Path, *, language: str = "en", omissions=()) -> str:
     """`sources/source-pack.md`: the frozen pack when there is one, else a list of what was found.
 
     D-175: the client reads this file next to the memorandum, so it is written in the memo
     language. `tier` and the currency status are the recorded tokens and are printed as they are.
+
+    D-201: `omissions` is the staging result `publish` already produced — the artefacts that were
+    not handed over, named so the client can see why a file is missing. It is never computed here:
+    only the call that stages the folder knows what actually landed in it, and a second look could
+    disagree with the first. Every other caller renders the pack alone, as it always did.
     """
     pack = None
     try:
@@ -641,7 +646,9 @@ def source_pack_markdown(work_dir: Path, *, language: str = "en") -> str:
         pack = None
     if isinstance(pack, dict) and pack.get("entries"):
         try:
-            return render.render_source_pack(pack, language)
+            return render.render_source_pack(pack, language) + _export_omission_notes(
+                omissions, language
+            )
         except (TypeError, AttributeError, KeyError, IndexError):
             pass  # a structurally broken pack falls through to the registry listing (D-99, D-90)
 
@@ -669,27 +676,148 @@ def source_pack_markdown(work_dir: Path, *, language: str = "en") -> str:
                 status=currency.get("status") or "unchecked",
             )
         )
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip() + "\n" + _export_omission_notes(omissions, language)
 
 
-def published_source_texts(work_dir: Path) -> list[tuple[str, str]]:
-    """`(source_id, raw text)` of every `critical`/`supporting` source that still has a raw file."""
+def _export_omission_notes(omissions, language: str) -> str:
+    """One line per artefact the publication had to leave behind (D-201, D-109).
+
+    The client opens `sources/`, finds no `<id>.pdf` or no `<id>.txt`, and this says why — edited,
+    deleted, never pinned by the freeze, or pinned by a pack that cannot be read. `omissions` is
+    the staging result itself, so the folder and its own manifest are written from one observation
+    and can no longer disagree. Best effort like everything on the publish boundary: a label that
+    cannot be rendered prints nothing and never fails the delivery.
+    """
+    try:
+        lines = [
+            "- "
+            + md_fallback.label(
+                EXPORT_MISMATCH_NOTES[kind], language, source_id=f"`{source_id}`"
+            )
+            for source_id, kind in omissions or ()
+        ]
+    except Exception:  # noqa: BLE001 - M9/D-109: no note is worth a failed publication
+        return ""
+    if not lines:
+        return ""
+    return "\n" + "\n".join(lines) + "\n"
+
+
+SOURCE_TEXT_KIND = "text"
+SOURCE_ORIGINAL_KIND = "original"
+"""D-201: the two artefacts a source may hand to the client — `<id>.txt` and `<id>.pdf`."""
+
+EXPORT_MISMATCH_NOTES: dict[str, str] = {
+    SOURCE_TEXT_KIND: "text_export_mismatch_note",
+    SOURCE_ORIGINAL_KIND: "pdf_export_mismatch_note",
+}
+"""One label per artefact: the client is looking for a particular missing file, and a line that
+does not say which one it means does not explain the absence."""
+
+
+def deliverable_source_files(work_dir: Path) -> list[tuple[str, str, Path, str | None]]:
+    """`(source_id, kind, path, expected)` for every artefact a publication may deliver (D-201).
+
+    The one place that answers «what may this source hand to the client, and what vouches for it».
+    Both artefacts of every `critical`/`supporting` source are listed — the text is no longer the
+    only gate, because a PDF with no readable text layer has `raw_path: null` and is still the
+    document the client was promised — and each carries the digest that authorises it:
+
+    * a pack exists → its snapshot, and **only** its snapshot. The freeze writes no digest for a
+      file it did not find, so a file put back afterwards was never pinned and `expected` is None;
+    * the pack exists but cannot be read → nothing is authorised. A pack on disk means a freeze
+      happened, and not knowing what it pinned authorises nothing (fix round 2);
+    * no pack at all (`finalize --salvage` on an unfrozen work dir) → the record's own digest.
+
+    `expected` of None means «not exportable», never «export it unchecked»: fix round 3 closed the
+    asymmetry where the original was gated by the frozen digest while the text was handed over on
+    the strength of being present, so an edit made after the freeze reached the client.
+    """
     try:
         registry = sources.read_registry(work_dir)
     except (OSError, ValueError):
         return []
-    found: list[tuple[str, str]] = []
+    frozen: dict[str, dict[str, str]] | None = None
+    if sources.pack_path(work_dir).is_file():
+        try:
+            frozen = {
+                SOURCE_TEXT_KIND: {
+                    source_id: digest
+                    for source_id, digest in sources.snapshot_map(work_dir).items()
+                    if digest
+                },
+                SOURCE_ORIGINAL_KIND: sources.snapshot_originals(work_dir),
+            }
+        except (OSError, ValueError):
+            frozen = {SOURCE_TEXT_KIND: {}, SOURCE_ORIGINAL_KIND: {}}
+    found: list[tuple[str, str, Path, str | None]] = []
     for source_id, record in sorted((registry.get("sources") or {}).items()):
         if not isinstance(record, dict) or record.get("tier") not in PUBLISHED_TIERS:
             continue
-        try:
-            text = sources.read_raw_text(work_dir, record)
-        except (OSError, ValueError):
-            text = None
-        if text is None:  # the raw file was never saved, or is gone — skip it, never fail
-            continue
-        found.append((source_id, text))
+        for kind, field, digest_field in (
+            (SOURCE_TEXT_KIND, "raw_path", "raw_sha256"),
+            (SOURCE_ORIGINAL_KIND, "raw_original_path", "raw_original_sha256"),
+        ):
+            relative = record.get(field)
+            if not relative:
+                continue  # the source has no such artefact: nothing promised, nothing to explain
+            expected = frozen[kind].get(source_id) if frozen is not None else record.get(digest_field)
+            found.append((source_id, kind, work_dir / str(relative), expected or None))
     return found
+
+
+def published_name(source_id: str, kind: str) -> str:
+    """What an artefact is called inside `<publish>/…/sources/`."""
+    return f"{source_id}.txt" if kind == SOURCE_TEXT_KIND else f"{source_id}{sources.PDF_EXTENSION}"
+
+
+def stage_source_files(work_dir: Path, target: Path, scratch: Path) -> dict:
+    """Deliver every source artefact the freeze vouches for into `target`, via `scratch`.
+
+    Returns `{"files": [name, …], "omissions": [(source_id, kind), …]}` and **never raises**
+    (D-109). Fix round 3: the observation that counts is the bytes actually retained for delivery,
+    so the file is copied **first** and the digest is taken from that copy. Hashing the source and
+    copying it afterwards is two reads of a file that can change in between — the reviewer
+    delivered unpinned bytes through exactly that window — and a deletion in it made `copyfile`
+    raise and aborted a publication D-109 forbids.
+
+    Fix round 4: **an unverified file is never inside the directory that will be delivered.** The
+    copy waits in `scratch`, which the publication does not move, and only a file whose digest
+    matched is renamed into `target`. Rejecting a copy used to mean unlinking it from the delivered
+    folder, and an `unlink` that failed left unpinned bytes sitting beside a manifest that said
+    they were omitted. Now a failed clean-up leaves rubbish in a temporary place nobody publishes,
+    which is the harmless direction. A copy that raises is still an omission row, and so is a
+    rename that fails.
+    """
+    files: list[str] = []
+    omissions: list[tuple[str, str]] = []
+    try:
+        rows = deliverable_source_files(work_dir)
+        scratch.mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: BLE001 - M9/D-109: the boundary never fails a delivered run
+        return {"files": files, "omissions": omissions}
+    for source_id, kind, path, expected in rows:
+        name = published_name(source_id, kind)
+        candidate = scratch / name
+        if not expected:
+            omissions.append((source_id, kind))
+            continue
+        try:
+            shutil.copyfile(path, candidate)
+            # The bytes that were retained, not the bytes that were read: this is the copy that
+            # will be delivered, and nothing else is ever moved into `target`.
+            if state_io.sha256_file(candidate) == expected:
+                os.replace(candidate, target / name)
+                files.append(name)
+                continue
+        except OSError:
+            pass
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover - and harmless: `scratch` is never published
+            pass
+        omissions.append((source_id, kind))
+    return {"files": files, "omissions": omissions}
 
 
 RUN_FILES: tuple[str, ...] = (
@@ -777,22 +905,34 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
             shutil.rmtree(staging)
         staged_sources = staging / PUBLISH_SOURCES_DIRNAME
         staged_sources.mkdir(parents=True, exist_ok=True)
+        # D-201 fix round 4: where an unverified source artefact waits. Beside the publication,
+        # never inside it — `staging` is moved into `target` whole, so a copy that fails its digest
+        # check and then fails to be deleted would ride along into the client's folder.
+        verifying = target.parent / f"{target.name}.verifying"
+        shutil.rmtree(verifying, ignore_errors=True)
         try:
             for name in (deliverable, summary):
                 origin = work_dir / name
                 if origin.is_file():
                     shutil.copyfile(origin, staging / name)
                     result["files"].append(name)
+            # D-201: the source artefacts are staged FIRST and judged by what landed — the text
+            # and the original alike, each against the digest the freeze pinned for it. The bytes
+            # are copied, never decoded and re-encoded: a round trip is a second chance to differ
+            # from the digest, and a false mismatch would be worse than the hole it closes.
+            staged = stage_source_files(work_dir, staged_sources, verifying)
+            result["files"].extend(f"{PUBLISH_SOURCES_DIRNAME}/{name}" for name in staged["files"])
+            # …and the manifest is written LAST, from that same result, so the folder and the file
+            # that explains it are one observation and can never disagree.
             state_io.write_bytes_atomic(
                 staged_sources / SOURCE_PACK_MD,
                 source_pack_markdown(
-                    work_dir, language=md_fallback.memo_language(state)
+                    work_dir,
+                    language=md_fallback.memo_language(state),
+                    omissions=staged["omissions"],
                 ).encode("utf-8"),
             )
             result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{SOURCE_PACK_MD}")
-            for source_id, text in published_source_texts(work_dir):
-                state_io.write_bytes_atomic(staged_sources / f"{source_id}.txt", text.encode("utf-8"))
-                result["files"].append(f"{PUBLISH_SOURCES_DIRNAME}/{source_id}.txt")
             # D-113: `_run/` travels with the result — the state as it stood before the terminal write,
             # the journal, the plan, the intake facts, the sufficiency verdict and the reviews.
             result["files"].extend(copy_run_diagnostics(work_dir, staging))
@@ -868,6 +1008,7 @@ def publish(work_dir: Path, state: dict, deliverable: str, *, summary: str = SUM
                 shutil.rmtree(previous_root, ignore_errors=True)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
+            shutil.rmtree(verifying, ignore_errors=True)
             shutil.rmtree(staging.parent / f"{target.name}.root", ignore_errors=True)
         result["published_to"] = str(target)
         result["published_memo"] = str(root / memo_name) if staged_memo is not None else None

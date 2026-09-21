@@ -6,6 +6,7 @@ import argparse
 import http.server
 import json
 import multiprocessing
+import shutil
 import ssl
 import sys
 import tempfile
@@ -20,7 +21,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import cli, i18n, limits, sources, state_io, task  # noqa: E402
+from memoforge import cli, i18n, limits, schema, source_text, sources, state_io, task  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -209,7 +210,32 @@ STATUTE_PAGE = act_page("statute-table-of-contents", "statute-article-152")
 """A statute page carrying ст. 152 whole and ст. 36 as a table-of-contents line only."""
 
 PDF_BYTES = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n"
-"""D-201 is the next task: until it lands, `save` refuses a non-text media type."""
+"""A PDF with no cross-reference table: `pypdf` cannot read it, so it carries no text layer (D-201)."""
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + bytes(64)
+"""A media type that is neither text nor a PDF — `unsupported_media_type` stands for those (D-201)."""
+
+PDF_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pdf"
+"""D-201: the two real PDFs this command is measured on, served exactly as a portal serves them."""
+
+VSRF_PDF = (PDF_FIXTURES / "vsrf-305-es24-8702.pdf").read_bytes()
+VSRF_PDF_SHA256 = "9216ab6a5bb553658b572b3be8c98a474dff7358416c05223b034c705438fdda"
+"""The vsrf.ru PDF of a judge's referral order, and the digest of the bytes the server sends."""
+
+VSRF_PDF_NUMBER = "305-ЭС24-8702 (1,3)"
+VSRF_PDF_DATE = "2024-07-11"
+VSRF_PDF_TITLE = "ВС РФ, определение № 305-ЭС24-8702 (1,3)"
+VSRF_PDF_CITATION = "Определение ВС РФ от 11.07.2024 № 305-ЭС24-8702 (1,3)"
+
+SCAN_PDF = (PDF_FIXTURES / "scan-no-text-layer.pdf").read_bytes()
+SCAN_PDF_SHA256 = "f236ea6c0cd988b5c4a083e8faa2fcbb1656febd2029b2729646c16db6752db5"
+"""One page whose only content stream is an inline image: `pypdf` extracts the empty string."""
+
+SCAN_PDF_OTHER = SCAN_PDF + b"%edited\n"
+"""Another scan: still a PDF, still no text layer, and not the same bytes (fix round 1)."""
+
+VSRF_PDF_OTHER = VSRF_PDF + b"%tampered\n"
+"""Another PDF that **does** carry a text layer, so a save of it has both halves to offer."""
 
 
 def save_namespace(work_dir: str, url: str, **overrides) -> dict:
@@ -403,6 +429,34 @@ def worker_save_killed_before_publishing(work_dir: str, url: str, overrides: dic
     Path(result).write_text(json.dumps(outcome), encoding="utf-8")
 
 
+def worker_save_killed_between_publications(work_dir: str, url: str, paused, result: str) -> None:
+    """Child process: a save terminated **between** the two renames that publish a PDF pair.
+
+    D-201 fix round 3: the original lands first and the text second, so a kill in that window
+    leaves the registry naming both files while only the `.pdf` exists. The pause is inside
+    `os.replace` itself, so it is a forced termination at exactly that point and not a mock.
+    """
+    sys.path.insert(0, str(Path(work_dir).parents[1] / "scripts"))
+    from memoforge import sources as child_sources
+
+    child_sources.allowlist_hosts = lambda root=None: frozenset({child_sources.url_host(url)})
+    replace = child_sources.os.replace
+
+    def replace_then_wait_to_be_killed(src, dst):
+        replace(src, dst)
+        if str(dst).endswith(".pdf"):
+            paused.set()
+            threading.Event().wait(120)  # blocks until the parent terminates this process
+
+    child_sources.os.replace = replace_then_wait_to_be_killed
+    outcome: dict = {"error": None}
+    try:
+        outcome["result"] = child_sources.run_save(argparse.Namespace(**save_namespace(work_dir, url)))
+    except BaseException as exc:  # noqa: BLE001 - reported to the parent
+        outcome["error"] = repr(exc)
+    Path(result).write_text(json.dumps(outcome), encoding="utf-8")
+
+
 def spawn(target, args):
     return multiprocessing.get_context("spawn").Process(target=target, args=args)
 
@@ -426,10 +480,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     }
     """D-146: the same codes, but with the header that names the interstitial (analysis/38 §7.4)."""
 
-    pages = {"/stub": ECFR_STUB, "/shell": CURIA_SHELL, "/ris.json": RIS_JSON, "/act.pdf": PDF_BYTES}
+    pages = {
+        "/stub": ECFR_STUB,
+        "/shell": CURIA_SHELL,
+        "/ris.json": RIS_JSON,
+        "/act.pdf": PDF_BYTES,
+        "/image.png": PNG_BYTES,
+    }
     """D-146: HTTP 200 answers that are not the document — plus the RIS JSON that is one (D-149)."""
 
-    types = {"/ris.json": "application/json; charset=utf-8", "/stub": "text/html", "/act.pdf": "application/pdf"}
+    types = {
+        "/ris.json": "application/json; charset=utf-8",
+        "/stub": "text/html",
+        "/act.pdf": "application/pdf",
+        "/image.png": "image/png",
+        # D-201: the configured body, declared as the PDF it is — the ordinary portal answer.
+        "/served.pdf": "application/pdf",
+    }
     """D-149: the declared `Content-Type`, which is what `is_markup` and `fetch` read."""
 
     variants: list = []
@@ -453,7 +520,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     """D-151: the `Location` of each redirecting path; `/offsite` needs the live port, see `_respond`."""
 
     def _payload(self) -> tuple[int, bytes]:
-        if self.path in ("/ok", "/short"):
+        if self.path in ("/ok", "/short", "/served.pdf"):
             # D-199: `/short` declares this whole length and then sends two thirds of it.
             return 200, type(self).body
         if self.path == "/partial":
@@ -560,6 +627,23 @@ class SourcesTestCase(unittest.TestCase):
         original_wait = sources._wait
         sources._wait = self.waits.append
         self.addCleanup(setattr, sources, "_wait", original_wait)
+
+    def client_export(self, source_id: str, suffix: str = ".txt") -> str:
+        """What the client's `sources/<id>.txt` really holds, staged through `finalize` itself.
+
+        D-201 fix round 3: the export is no longer «read the raw file and re-encode it» — the
+        bytes are staged and checked against the digest the freeze pinned — so a test about what
+        reaches a client drives that path instead of a reader that no longer describes it.
+        """
+        from memoforge import finalize
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        target = root / "sources"
+        target.mkdir()
+        # D-201 fix round 4: an unverified copy waits outside the folder that will be delivered.
+        finalize.stage_source_files(self.work_dir, target, root / "verifying")
+        return (target / f"{source_id}{suffix}").read_text(encoding="utf-8")
 
     def raw_file(self, name: str = "raw.md", text: str = RAW_TEXT) -> Path:
         path = self.root / name
@@ -2634,23 +2718,35 @@ class SaveTest(SaveTestCase):
                 self.assertEqual([], self.raw_files())
 
     def test_a_non_text_media_type_is_refused(self):
+        """D-201 admits a PDF; every other non-text answer is still refused as it always was."""
         with LocalServer(VS_ACT_PAGE) as base:
             self.allow(sources.url_host(base))
-            result = self.save(f"{base}/act.pdf", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            result = self.save(f"{base}/image.png", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
         self.assertEqual("refused:unsupported_media_type", result["save_outcome"])
-        self.assertEqual(["unsupported_media_type: application/pdf"], result["errors"])
+        self.assertEqual(["unsupported_media_type: image/png"], result["errors"])
         self.assertEqual({}, self.records())
         self.assertEqual([], self.raw_files())
 
-    def test_an_undeclared_pdf_is_refused_by_its_signature(self):
-        """A portal that sends a PDF with no `Content-Type` must not be decoded into mojibake."""
-        with LocalServer(PDF_BYTES) as base:
+    def test_an_undeclared_pdf_is_saved_by_its_signature(self):
+        """D-201: a portal that sends a PDF with no `Content-Type` still sends a PDF, and it is kept.
+
+        Task 4 refused those bytes (`unsupported_media_type`) so they could never be decoded into
+        mojibake; now the signature routes them to the PDF path instead of to a refusal.
+        """
+        with LocalServer(VSRF_PDF) as base:
             self.allow(sources.url_host(base))
-            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
-        self.assertEqual(["unsupported_media_type: application/pdf"], result["errors"])
-        self.assertEqual("refused:unsupported_media_type", result["save_outcome"])
-        self.assertEqual({}, self.records())
-        self.assertEqual([], self.raw_files())
+            result = self.save(
+                f"{base}/ok",
+                title=VSRF_PDF_TITLE,
+                citation=VSRF_PDF_CITATION,
+                expect_number=VSRF_PDF_NUMBER,
+                expect_date=VSRF_PDF_DATE,
+            )
+        self.assertEqual([], result.get("errors", []))
+        self.assertEqual("full_text", result["save_outcome"])
+        record = self.records()[result["source_id"]]
+        self.assertEqual(VSRF_PDF_SHA256, record["raw_original_sha256"])
+        self.assertEqual(VSRF_PDF, (self.work_dir / record["raw_original_path"]).read_bytes())
 
     def test_a_plain_text_answer_without_a_declared_type_is_still_saved(self):
         with LocalServer(VS_ACT_TEXT) as base:
@@ -2840,7 +2936,9 @@ class SaveTest(SaveTestCase):
             self.assertIsNone(self.records()["vs-act"]["raw_path"])
             result = self.save(f"{base}/ok")
         self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
-        self.assertTrue(result["idempotent"])
+        # Fix round 1: the record held no digest at all, so this call did not find the bytes it
+        # already had — it brought new ones. Not idempotent, however little was displaced.
+        self.assertFalse(result["idempotent"])
         self.assertEqual("vs-act", result["source_id"])
         record = self.records()["vs-act"]
         self.assertEqual("excerpt", record["raw_kind"])
@@ -2864,7 +2962,9 @@ class SaveTest(SaveTestCase):
             result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
         self.assertEqual("vs-act", result["source_id"])
         self.assertFalse(result["created"])
-        self.assertTrue(result["idempotent"])
+        # Fix round 1: the excerpt's digest is not the act's, so the save replaced text rather
+        # than confirming it. `created` is false and `idempotent` is false: both are true facts.
+        self.assertFalse(result["idempotent"])
         self.assertEqual("full_text", result["raw_kind"])
         record = self.records()["vs-act"]
         self.assertEqual("full_text", record["raw_kind"])
@@ -2890,7 +2990,9 @@ class SaveTest(SaveTestCase):
             before_bytes = self.stored(self.records()["vs-act"])
             result = self.save(f"{base}/ok")
         self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
-        self.assertTrue(result["idempotent"])
+        # Fix round 1: other bytes arrived and were discarded — nothing was published, but the
+        # answer never calls a discarded document the same document.
+        self.assertFalse(result["idempotent"])
         self.assertEqual("vs-act", result["source_id"])
         self.assert_only_the_outcome_moved(before, self.snapshot("vs-act"), "excerpt:identity_unverified")
         self.assertEqual(before_bytes, self.stored(self.records()["vs-act"]))
@@ -2960,6 +3062,441 @@ class SaveTest(SaveTestCase):
             self.assertTrue(second["errors"])
             self.assertEqual([], self.temp_files(), "the refusal path removes its temporary file")
         self.assertEqual(1, len(self.raw_files()))
+
+
+class ExtractPdfTextTest(unittest.TestCase):
+    """D-201: the text layer is read once, with `pypdf`, and there is no second extractor."""
+
+    def test_a_pdf_with_a_text_layer_yields_its_text(self):
+        text = sources.extract_pdf_text(VSRF_PDF)
+        self.assertIsNotNone(text)
+        # The exact rendering belongs to `pypdf` and is never pinned: a version bump must not
+        # redden this suite. What is pinned is that the act is readable in what came out.
+        self.assertGreaterEqual(len(text), source_text.FULL_TEXT_MIN_CHARS_CASE)
+        self.assertIn(VSRF_PDF_NUMBER, text)
+        self.assertIn("установил", text)
+
+    def test_a_scan_has_no_text_layer_at_all(self):
+        self.assertIsNone(sources.extract_pdf_text(SCAN_PDF))
+
+    def test_a_pdf_pypdf_cannot_parse_has_no_text_layer_either(self):
+        self.assertIsNone(sources.extract_pdf_text(PDF_BYTES))
+
+    def test_without_pypdf_there_is_no_text_layer_and_no_crash(self):
+        with mock.patch.dict(sys.modules, {"pypdf": None}):
+            self.assertIsNone(sources.extract_pdf_text(VSRF_PDF))
+
+
+class SavePdfTest(SaveTestCase):
+    """D-201: the PDF arrives as bytes, and the text layer is a convenience."""
+
+    def save_pdf(self, base: str, path: str = "/served.pdf", **overrides) -> dict:
+        payload = {
+            "title": VSRF_PDF_TITLE,
+            "citation": VSRF_PDF_CITATION,
+            "expect_number": VSRF_PDF_NUMBER,
+            "expect_date": VSRF_PDF_DATE,
+        }
+        payload.update(overrides)
+        return self.save(f"{base}{path}", **payload)
+
+    # --- bytes first --------------------------------------------------------
+
+    def test_a_pdf_is_stored_as_the_bytes_the_server_served(self):
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base)
+        self.assertEqual([], result.get("errors", []))
+        source_id = result["source_id"]
+        record = self.records()[source_id]
+        original = self.work_dir / record["raw_original_path"]
+        self.assertEqual(f"research/raw/case_law/{source_id}.pdf", record["raw_original_path"])
+        self.assertEqual(VSRF_PDF, original.read_bytes(), "the body is stored exactly as served")
+        self.assertEqual(VSRF_PDF_SHA256, record["raw_original_sha256"])
+        self.assertEqual(VSRF_PDF_SHA256, state_io.sha256_bytes(original.read_bytes()))
+        self.assertEqual(record["raw_original_path"], result["raw_original_path"])
+        self.assertEqual(record["raw_original_sha256"], result["raw_original_sha256"])
+
+    def test_the_text_layer_is_stored_beside_the_original_and_reaches_full_text(self):
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base)
+        source_id = result["source_id"]
+        record = self.records()[source_id]
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual("full_text", result["raw_kind"])
+        self.assertEqual(f"research/raw/case_law/{source_id}.md", record["raw_path"])
+        text = (self.work_dir / record["raw_path"]).read_text(encoding="utf-8")
+        self.assertGreaterEqual(len(text), source_text.FULL_TEXT_MIN_CHARS_CASE)
+        self.assertIn(VSRF_PDF_NUMBER, text)
+        self.assertIn("установил", text)
+        self.assertEqual(state_io.sha256_bytes(text.encode("utf-8")), record["raw_sha256"])
+        self.assertEqual(sorted([f"{source_id}.md", f"{source_id}.pdf"]), self.raw_files())
+
+    def test_a_pdf_whose_requisites_do_not_match_registers_nothing_at_all(self):
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base, expect_number="305-ЭС24-8702")
+        self.assertEqual(["requisites_mismatch: number"], result["errors"])
+        self.assertEqual("refused:requisites_mismatch", result["save_outcome"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files(), "not even the original is kept")
+
+    # --- without a text layer ----------------------------------------------
+
+    def test_a_scan_keeps_its_original_and_is_not_certified(self):
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base)
+        self.assertEqual([], result.get("errors", []))
+        source_id = result["source_id"]
+        record = self.records()[source_id]
+        self.assertEqual("excerpt:pdf_text_unavailable", result["save_outcome"])
+        self.assertEqual("none", result["raw_kind"])
+        self.assertIsNone(record["raw_path"])
+        self.assertIsNone(record["raw_sha256"])
+        self.assertEqual(0, record["raw_chars"])
+        self.assertEqual("none", record["raw_kind"])
+        self.assertEqual("excerpt:pdf_text_unavailable", record["meta"]["save_outcome"])
+        self.assertEqual(SCAN_PDF_SHA256, record["raw_original_sha256"])
+        self.assertEqual([f"{source_id}.pdf"], self.raw_files())
+        self.assertIsNone(sources.read_raw_text(self.work_dir, record))
+
+    def test_without_pypdf_a_readable_pdf_is_saved_uncertified_too(self):
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            with mock.patch.dict(sys.modules, {"pypdf": None}):
+                result = self.save_pdf(base)
+        self.assertEqual("excerpt:pdf_text_unavailable", result["save_outcome"])
+        self.assertEqual("none", result["raw_kind"])
+        record = self.records()[result["source_id"]]
+        self.assertIsNone(record["raw_path"])
+        self.assertEqual(VSRF_PDF_SHA256, record["raw_original_sha256"])
+        self.assertEqual([f"{result['source_id']}.pdf"], self.raw_files())
+
+    # --- refusals -----------------------------------------------------------
+
+    def test_a_truncated_pdf_is_refused_and_nothing_is_written(self):
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            for path in ("/short", "/partial"):
+                with self.subTest(path=path):
+                    result = self.save_pdf(base, path)
+                    self.assertEqual(["pdf_truncated"], result["errors"])
+                    self.assertEqual("refused:pdf_truncated", result["save_outcome"])
+                    self.assertEqual({}, self.records())
+                    self.assertEqual([], self.raw_files())
+
+    def test_a_pdf_over_the_ceiling_is_refused_too(self):
+        original = limits.LIVENESS_MAX_BODY_BYTES
+        limits.LIVENESS_MAX_BODY_BYTES = 4096
+        self.addCleanup(setattr, limits, "LIVENESS_MAX_BODY_BYTES", original)
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base)
+        self.assertEqual("refused:pdf_truncated", result["save_outcome"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    # --- idempotence over bytes --------------------------------------------
+
+    def test_the_same_scan_saved_twice_leaves_one_record_and_one_file(self):
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_pdf(base)
+            second = self.save_pdf(base)
+        self.assertTrue(first["created"])
+        self.assertTrue(second["idempotent"])
+        self.assertEqual(first["source_id"], second["source_id"])
+        self.assertEqual(1, len(self.records()))
+        self.assertEqual([f"{first['source_id']}.pdf"], self.raw_files())
+
+    def test_another_scan_under_the_same_identity_is_never_called_idempotent(self):
+        """Fix round 1: two different scans at one address are two documents, not one."""
+        with LocalServer(SCAN_PDF, variants=(SCAN_PDF, SCAN_PDF_OTHER)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_pdf(base, "/varying")
+            self.assertEqual("excerpt:pdf_text_unavailable", first["save_outcome"])
+            before = self.snapshot(first["source_id"])
+            second = self.save_pdf(base, "/varying")
+        self.assertFalse(second["created"])
+        self.assertFalse(second["idempotent"], "different bytes are never the same document")
+        self.assertEqual(first["source_id"], second["source_id"])
+        # Nothing was displaced: the original the code saved is still byte for byte on disk, and
+        # `meta.save_outcome` is the one field a save that publishes nothing may write.
+        record = self.records()[first["source_id"]]
+        self.assertEqual(SCAN_PDF, (self.work_dir / record["raw_original_path"]).read_bytes())
+        self.assertEqual(SCAN_PDF_SHA256, record["raw_original_sha256"])
+        self.assert_only_the_outcome_moved(
+            before, self.snapshot(first["source_id"]), "excerpt:pdf_text_unavailable"
+        )
+        self.assertEqual([f"{first['source_id']}.pdf"], self.raw_files())
+
+    def test_a_missing_original_replaced_by_other_bytes_is_not_a_repair(self):
+        """Fix round 1: publishing is right — the record named a file that is not there — but the
+        answer says `idempotent: false`, because a replacement is not a repair."""
+        with LocalServer(SCAN_PDF, variants=(SCAN_PDF, SCAN_PDF_OTHER)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_pdf(base, "/varying")
+            (self.work_dir / self.records()[first["source_id"]]["raw_original_path"]).unlink()
+            second = self.save_pdf(base, "/varying")
+        self.assertFalse(second["idempotent"])
+        record = self.records()[first["source_id"]]
+        self.assertEqual(SCAN_PDF_OTHER, (self.work_dir / record["raw_original_path"]).read_bytes())
+        self.assertEqual(state_io.sha256_bytes(SCAN_PDF_OTHER), record["raw_original_sha256"])
+
+    def test_other_bytes_never_fill_a_missing_original_beside_a_surviving_text(self):
+        """Fix round 4: «holds something» means either component, and a repair is only ever the
+        same document arriving again.
+
+        Filling the gap with another document would record a pair that never existed as one —
+        and a later freeze would pin the mixture without noticing, because the integrity check
+        asks only whether each file still matches its own digest, which after the rewrite it does.
+        """
+        with LocalServer(VSRF_PDF, variants=(VSRF_PDF, SCAN_PDF_OTHER)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/varying")
+            source_id = first["source_id"]
+            self.assertEqual("excerpt:identity_unverified", first["save_outcome"])
+            (self.work_dir / self.records()[source_id]["raw_original_path"]).unlink()
+            before = self.snapshot(source_id)
+            held = (self.work_dir / self.records()[source_id]["raw_path"]).read_bytes()
+            second = self.save(f"{base}/varying")
+        self.assertFalse(second["idempotent"], "other bytes are never the same document")
+        self.assertEqual([f"{source_id}.md"], self.raw_files(), "the gap stays a gap")
+        self.assertEqual(held, (self.work_dir / self.records()[source_id]["raw_path"]).read_bytes())
+        self.assert_only_the_outcome_moved(
+            before, self.snapshot(source_id), "excerpt:pdf_text_unavailable"
+        )
+
+    def test_other_bytes_never_fill_a_missing_text_beside_a_surviving_original(self):
+        """The mirror of the case above: the surviving component is the original this time.
+
+        The second document carries a text layer of its own, so the old repair branch really did
+        have a half to offer into the gap — and offering it would pair B's text with A's original.
+        """
+        with LocalServer(VSRF_PDF, variants=(VSRF_PDF, VSRF_PDF_OTHER)) as base:
+            self.allow(sources.url_host(base))
+            first = self.save(f"{base}/varying")
+            source_id = first["source_id"]
+            (self.work_dir / self.records()[source_id]["raw_path"]).unlink()
+            before = self.snapshot(source_id)
+            second = self.save(f"{base}/varying")
+        self.assertEqual("excerpt:identity_unverified", second["save_outcome"])
+        self.assertFalse(second["idempotent"])
+        self.assertEqual([f"{source_id}.pdf"], self.raw_files(), "the gap stays a gap")
+        self.assertEqual(
+            VSRF_PDF, (self.work_dir / self.records()[source_id]["raw_original_path"]).read_bytes()
+        )
+        self.assert_only_the_outcome_moved(
+            before, self.snapshot(source_id), "excerpt:identity_unverified"
+        )
+
+    def test_a_missing_original_is_republished_by_the_next_save(self):
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_pdf(base)
+            (self.work_dir / self.records()[first["source_id"]]["raw_original_path"]).unlink()
+            self.assertEqual([], self.raw_files())
+            again = self.save_pdf(base)
+        # Fix round 1: the same bytes over a record that names a missing file is a repair, and a
+        # repair is idempotent — the record ends holding exactly what it always claimed to hold.
+        self.assertTrue(again["idempotent"])
+        self.assertEqual([f"{first['source_id']}.pdf"], self.raw_files())
+        self.assertEqual(SCAN_PDF, (self.work_dir / f"research/raw/case_law/{first['source_id']}.pdf").read_bytes())
+
+    def test_another_pdf_over_a_code_saved_original_is_a_collision(self):
+        with LocalServer(VSRF_PDF, variants=(VSRF_PDF, VSRF_PDF + b"%tampered\n")) as base:
+            self.allow(sources.url_host(base))
+            first = self.save_pdf(base, "/varying")
+            self.assertEqual("full_text", first["save_outcome"])
+            second = self.save_pdf(base, "/varying")
+        self.assertTrue(second["errors"][0].startswith("source_id_collision:"))
+        self.assertEqual(VSRF_PDF, (self.work_dir / f"research/raw/case_law/{first['source_id']}.pdf").read_bytes())
+
+    # --- liveness -----------------------------------------------------------
+
+    def test_liveness_compares_the_original_digest_and_extracts_no_text(self):
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            result = self.save_pdf(base)
+            with mock.patch.object(sources, "extract_pdf_text", side_effect=AssertionError("no extraction")):
+                row = sources.run_liveness(
+                    argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+                )["checked"][0]
+        self.assertEqual(result["source_id"], row["source_id"])
+        self.assertEqual("ok", row["status"])
+        self.assertEqual("confirmed", row["provenance"])
+
+    def test_a_body_that_only_normalises_to_the_pin_is_reported_changed(self):
+        """Fix round 3: an original has no normalised form — it is bytes.
+
+        `probe_url` offers `sha256_normalised` so a text page carrying a token is not reported
+        `changed` after the scrub (A7). A PDF never went through that scrub, so accepting the
+        normalised value would confirm a file whose bytes are not the ones on disk.
+        """
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            source_id = self.save_pdf(base)["source_id"]
+            # The body that came back is not the file on disk; only its scrubbed form is.
+            probe = {
+                "status": "ok",
+                "code": 200,
+                "sha256": "0" * 64,
+                "sha256_normalised": SCAN_PDF_SHA256,
+                "error": None,
+                "redirects": [],
+            }
+            with mock.patch.object(sources, "probe_url", return_value=probe):
+                row = sources.run_liveness(
+                    argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+                )["checked"][0]
+        self.assertEqual(source_id, row["source_id"])
+        self.assertEqual("changed", row["status"])
+        self.assertEqual("agent_saved", row["provenance"], "never promoted on a normalised match")
+
+    def test_a_text_record_still_matches_on_the_normalised_digest(self):
+        """A7 is untouched for text: only a record carrying an original loses the licence."""
+        with LocalServer(VS_ACT_PAGE) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number=VS_ACT_NUMBER, expect_date=VS_ACT_DATE)
+            record = self.records()[result["source_id"]]
+            self.assertNotIn("raw_original_sha256", record)
+            probe = {
+                "status": "ok",
+                "code": 200,
+                "sha256": "0" * 64,
+                "sha256_normalised": record["raw_sha256"],
+                "error": None,
+                "redirects": [],
+            }
+            with mock.patch.object(sources, "probe_url", return_value=probe):
+                row = sources.run_liveness(
+                    argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+                )["checked"][0]
+        self.assertEqual("ok", row["status"])
+        self.assertEqual("confirmed", row["provenance"])
+
+    def test_an_address_serving_other_bytes_is_reported_changed(self):
+        with LocalServer(SCAN_PDF) as base:
+            self.allow(sources.url_host(base))
+            source_id = self.save_pdf(base)["source_id"]
+        with LocalServer(VSRF_PDF) as base:
+            # The same address, another document: the comparison is on the original digest, so
+            # this is `changed` and not a silent `ok` over two files that share no bytes.
+            registry = sources.read_registry(self.work_dir)
+            registry["sources"][source_id]["url"] = f"{base}/served.pdf"
+            sources.write_registry(self.work_dir, registry)
+            row = sources.run_liveness(
+                argparse.Namespace(workdir=str(self.work_dir), source=None, timeout=5.0)
+            )["checked"][0]
+        self.assertEqual("changed", row["status"])
+        self.assertEqual("agent_saved", row["provenance"])
+
+
+class PackPdfOriginalTest(SaveTestCase):
+    """D-201: the freeze pins the original, and a changed original is said out loud."""
+
+    def save_fixture(self, payload: bytes, **overrides) -> str:
+        with LocalServer(payload) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(
+                f"{base}/served.pdf",
+                title=VSRF_PDF_TITLE,
+                citation=VSRF_PDF_CITATION,
+                expect_number=VSRF_PDF_NUMBER,
+                expect_date=VSRF_PDF_DATE,
+                **overrides,
+            )
+        self.assertEqual([], result.get("errors", []), result)
+        self.write_findings([{"source_id": result["source_id"]}], layer="case_law")
+        return result["source_id"]
+
+    def original_of(self, source_id: str) -> Path:
+        return self.work_dir / self.records()[source_id]["raw_original_path"]
+
+    def snapshot_rows(self) -> dict:
+        pack = sources.read_pack(self.work_dir)
+        return {row["source_id"]: row for row in pack["snapshot"]}
+
+    def test_the_snapshot_pins_the_original_next_to_the_text(self):
+        source_id = self.save_fixture(VSRF_PDF)
+        self.freeze()
+        row = self.snapshot_rows()[source_id]
+        self.assertEqual(VSRF_PDF_SHA256, row["raw_original_sha256"])
+        self.assertEqual(self.records()[source_id]["raw_sha256"], row["raw_sha256"])
+        self.assertEqual([], sources.read_pack(self.work_dir).get("integrity_warnings", []))
+
+    def test_a_scan_freezes_with_an_original_row_and_no_text_digest(self):
+        source_id = self.save_fixture(SCAN_PDF)
+        self.freeze()
+        row = self.snapshot_rows()[source_id]
+        self.assertIsNone(row["raw_sha256"])
+        self.assertEqual(SCAN_PDF_SHA256, row["raw_original_sha256"])
+
+    def test_an_edited_original_demotes_the_full_text_record_and_warns(self):
+        source_id = self.save_fixture(VSRF_PDF)
+        self.original_of(source_id).write_bytes(VSRF_PDF + b"%edited\n")
+        result = self.freeze()
+        self.assertEqual(
+            [{"code": "full_text_integrity", "source_id": source_id, "was": "full_text", "now": "agent_summary"}],
+            result["warnings"],
+        )
+        self.assertEqual("agent_summary", self.records()[source_id]["raw_kind"])
+        self.assertEqual(
+            state_io.sha256_bytes(VSRF_PDF + b"%edited\n"),
+            self.snapshot_rows()[source_id]["raw_original_sha256"],
+            "the snapshot records the truth of what is on disk",
+        )
+
+    def test_an_edited_original_of_a_scan_warns_without_demoting(self):
+        source_id = self.save_fixture(SCAN_PDF)
+        self.original_of(source_id).write_bytes(SCAN_PDF + b"%edited\n")
+        result = self.freeze()
+        self.assertEqual(
+            [{"code": "full_text_integrity", "source_id": source_id, "was": "none", "now": "none"}],
+            result["warnings"],
+        )
+        self.assertEqual("none", self.records()[source_id]["raw_kind"])
+
+    def test_a_missing_original_writes_no_digest_and_warns(self):
+        source_id = self.save_fixture(SCAN_PDF)
+        self.original_of(source_id).unlink()
+        result = self.freeze()
+        self.assertEqual(1, len(result["warnings"]))
+        self.assertEqual(source_id, result["warnings"][0]["source_id"])
+        self.assertNotIn("raw_original_sha256", self.snapshot_rows()[source_id])
+        self.assertEqual("none", self.records()[source_id]["raw_kind"])
+
+    def test_one_freeze_never_hashes_one_file_twice(self):
+        source_id = self.save_fixture(VSRF_PDF)
+        hashed: list = []
+        original = state_io.sha256_file
+
+        def counting(path):
+            hashed.append(Path(path).name)
+            return original(path)
+
+        with mock.patch.object(state_io, "sha256_file", counting):
+            self.freeze()
+        raw = sorted(name for name in hashed if name.startswith(source_id))
+        self.assertEqual([f"{source_id}.md", f"{source_id}.pdf"], raw, "each file is hashed once")
+
+    def test_one_source_never_raises_two_integrity_warnings(self):
+        source_id = self.save_fixture(VSRF_PDF)
+        self.original_of(source_id).write_bytes(VSRF_PDF + b"%edited\n")
+        (self.work_dir / self.records()[source_id]["raw_path"]).write_text("other", encoding="utf-8")
+        result = self.freeze()
+        self.assertEqual(1, len(result["warnings"]))
+
+    def test_a_pack_frozen_before_this_task_still_validates(self):
+        source_id = self.save_fixture(VSRF_PDF)
+        self.freeze()
+        pack = sources.read_pack(self.work_dir)
+        for row in pack["snapshot"]:
+            row.pop("raw_original_sha256", None)
+        self.assertEqual([], schema.validate(pack, "source-pack"))
+        self.assertIn(source_id, {row["source_id"] for row in pack["snapshot"]})
 
 
 class KilledSaveTest(SaveTestCase):
@@ -3052,6 +3589,76 @@ class KilledSaveTest(SaveTestCase):
         self.assertEqual(repaired["raw_sha256"], state_io.sha256_file(stored))
         self.assertEqual(record["raw_sha256"], repaired["raw_sha256"], "the same bytes as the first run")
         self.assertIn(VS_ACT_NUMBER, stored.read_bytes().decode("utf-8"))
+
+    def published_files(self) -> list:
+        """The files a record could name: the killed child's leftover `.tmp` is not one of them."""
+        return sorted(set(self.raw_files()) - set(self.temp_files()))
+
+    def test_a_kill_between_the_two_renames_leaves_the_pair_half_published(self):
+        """D-201 fix round 3: the original lands first, so the `.pdf` is there and the `.md` is not."""
+        source_id, record = self._half_published_pair()
+        self.assertTrue(record["raw_path"], "the registry was committed first and names both files")
+        self.assertTrue(record["raw_original_path"])
+        self.assertTrue((self.work_dir / record["raw_original_path"]).is_file())
+        self.assertFalse((self.work_dir / record["raw_path"]).is_file(), "the text never landed")
+        self.assertEqual([f"{source_id}.pdf"], self.published_files())
+
+    def test_an_identical_retry_repairs_the_missing_half_and_stays_idempotent(self):
+        source_id, _ = self._half_published_pair()
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            answer = self.save(f"{base}/served.pdf")
+        self.assertEqual(source_id, answer["source_id"])
+        self.assertTrue(answer["idempotent"], "the same bytes over a half-written pair is a repair")
+        repaired = self.records()[source_id]
+        text = self.work_dir / repaired["raw_path"]
+        self.assertTrue(text.is_file(), "the retry published the half that was missing")
+        self.assertEqual(repaired["raw_sha256"], state_io.sha256_file(text))
+        original = self.work_dir / repaired["raw_original_path"]
+        self.assertEqual(VSRF_PDF, original.read_bytes(), "the half that was there is untouched")
+        self.assertEqual(VSRF_PDF_SHA256, repaired["raw_original_sha256"])
+        self.assertEqual([f"{source_id}.md", f"{source_id}.pdf"], self.published_files())
+
+    def test_the_mirror_case_repairs_a_missing_original_the_same_way(self):
+        source_id, _ = self._half_published_pair()
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            # Complete the pair, then take the original away instead of the text.
+            self.save(f"{base}/served.pdf")
+            (self.work_dir / self.records()[source_id]["raw_original_path"]).unlink()
+            self.assertEqual([f"{source_id}.md"], self.published_files())
+            answer = self.save(f"{base}/served.pdf")
+        self.assertTrue(answer["idempotent"])
+        repaired = self.records()[source_id]
+        self.assertEqual(VSRF_PDF, (self.work_dir / repaired["raw_original_path"]).read_bytes())
+        self.assertEqual(VSRF_PDF_SHA256, repaired["raw_original_sha256"])
+        self.assertEqual([f"{source_id}.md", f"{source_id}.pdf"], self.published_files())
+
+    def _half_published_pair(self) -> tuple[str, dict]:
+        """Run a PDF save in a child and kill it between the two renames; return `(id, record)`.
+
+        The retries reuse the child's own `--title`/`--citation` (the `save_namespace` defaults),
+        so the record is found again by its citation form: the mock server takes a fresh port each
+        time and the url identity would not survive it.
+        """
+        context = multiprocessing.get_context("spawn")
+        paused = context.Event()
+        result = str(self.root / "half-result")
+        with LocalServer(VSRF_PDF) as base:
+            self.allow(sources.url_host(base))
+            process = context.Process(
+                target=worker_save_killed_between_publications,
+                args=(str(self.work_dir), f"{base}/served.pdf", paused, result),
+            )
+            process.start()
+            self.assertTrue(paused.wait(timeout=120), "the child never reached the second rename")
+            process.terminate()
+            process.join(timeout=120)
+            self.assertFalse(Path(result).exists(), "the child was killed, not allowed to finish")
+        records = self.records()
+        self.assertEqual(1, len(records))
+        source_id, record = next(iter(records.items()))
+        return source_id, record
 
 
 class ConcurrentSaveTest(SourcesTestCase):
@@ -3972,12 +4579,10 @@ class FailClosedTest(SourcesTestCase):
         self.assertEqual(sources.ADDRESS_REMOVED, sources.redacted_url("https:///path?t=TESTTOKEN"))
 
     def test_the_stored_raw_text_and_the_client_export_carry_neither(self):
-        from memoforge import finalize
-
         raw = f"# Решение\n\nИсточник: {self.BAD_MCP_HOST}\n\nТекст.\n"
         result = self.register(raw_file=self.raw_file(name="bad.md", text=raw), url="")
         stored = (self.work_dir / result["raw_path"]).read_text(encoding="utf-8")
-        exported = dict(finalize.published_source_texts(self.work_dir))[result["source_id"]]
+        exported = self.client_export(result["source_id"])
         for text in (stored, exported):
             self.assertNotIn("TESTTOKEN", text)
             self.assertNotIn("casus", text)
@@ -4036,10 +4641,8 @@ class JsonUnicodeEscapeScrubTest(SourcesTestCase):
         self.assertEqual(first_text, (self.work_dir / again["raw_path"]).read_text(encoding="utf-8"))
 
     def test_the_client_export_carries_no_token(self):
-        from memoforge import finalize
-
         result, _ = self.stored()
-        exported = dict(finalize.published_source_texts(self.work_dir))[result["source_id"]]
+        exported = self.client_export(result["source_id"])
         self.assertNotIn("TESTTOKEN", exported)
         self.assertNotIn("mcp.casus.legal", exported)
         self.assertEqual("[retrieved via CasusLegal (RU)]", json.loads(exported)["endpoint"])

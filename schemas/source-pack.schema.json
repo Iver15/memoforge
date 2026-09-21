@@ -67,21 +67,43 @@
         "source_id": { "$ref": "#/$defs/source_id" },
         "raw_sha256": {
           "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+        },
+        "raw_original_sha256": {
+          "description": "D-201: sha256 of the original file the record kept (a PDF), recomputed from disk by the freeze. Absent when the record has no original or the file is gone; an old pack without the field keeps validating.",
+          "$ref": "#/$defs/sha256"
         }
       }
     },
     "integrity_warning": {
-      "description": "D-200 fix round 2: one demotion of code-saved text at the freeze.",
+      "description": "D-200 fix round 2: one integrity finding of the freeze. Two shapes and no others: a demotion of code-saved text, or — D-201 — a record that is not `full_text` whose original changed or vanished, which is said out loud but never demoted, so its kind is reported unchanged.",
       "type": "object",
       "required": ["code", "source_id", "was", "now"],
       "additionalProperties": false,
       "properties": {
         "code": { "const": "full_text_integrity" },
         "source_id": { "$ref": "#/$defs/source_id" },
-        "was": { "const": "full_text" },
-        "now": { "enum": ["agent_summary", "none"] }
-      }
-    },    "pack": {
+        "was": { "$ref": "#/$defs/raw_kind" },
+        "now": { "$ref": "#/$defs/raw_kind" }
+      },
+      "anyOf": [
+        {
+          "description": "The demotion of D-200: only `full_text` is ever demoted, and only downwards.",
+          "properties": { "was": { "const": "full_text" }, "now": { "enum": ["agent_summary", "none"] } }
+        },
+        {
+          "description": "D-201: nothing to demote, so `was` and `now` are the same non-`full_text` kind.",
+          "properties": { "was": { "const": "excerpt" }, "now": { "const": "excerpt" } }
+        },
+        { "properties": { "was": { "const": "agent_summary" }, "now": { "const": "agent_summary" } } },
+        { "properties": { "was": { "const": "client_file" }, "now": { "const": "client_file" } } },
+        { "properties": { "was": { "const": "none" }, "now": { "const": "none" } } }
+      ]
+    },
+    "raw_kind": {
+      "description": "D-200: what a saved text is.",
+      "enum": ["full_text", "excerpt", "agent_summary", "client_file", "none"]
+    },
+    "pack": {
       "type": "object",
       "required": ["role_by_issue", "weight", "confidence", "use_in_memo"],
       "additionalProperties": false,

@@ -169,6 +169,87 @@ class PackParityTest(unittest.TestCase):
                 self.assertIn("{source_id}", note, code)
                 self.assertEqual(expected[code], note, code)
 
+    def test_the_two_pdf_labels_are_the_agreed_sentences_in_every_pack(self):
+        # D-201: one line says the original was kept but never checked by code, the other says a
+        # changed original was not exported. Both reach the client, so both are pinned verbatim.
+        unverified = {
+            "en": "the original was saved; its requisites and quotations were not checked by code",
+            "ru": "оригинал сохранён; реквизиты и цитаты кодом не проверялись",
+            "de": (
+                "Original gespeichert; Aktenzeichen und Zitate wurden nicht durch Code geprüft"
+            ),
+            "fr": (
+                "original enregistré ; les références et les citations n'ont pas été "
+                "vérifiées par le code"
+            ),
+            "es": "original guardado; los datos y las citas no fueron verificados por el código",
+        }
+        # Fix round 1: one sentence covers an original that was edited, one that was deleted and
+        # one the freeze never pinned — «changed after the freeze» would be false for a deletion.
+        mismatch = {
+            "en": (
+                "the original PDF of {source_id} no longer matches what the freeze recorded "
+                "and was not exported"
+            ),
+            "ru": (
+                "оригинальный PDF {source_id} не совпадает с зафиксированным при заморозке "
+                "и не выгружен"
+            ),
+            "de": (
+                "das Original-PDF {source_id} stimmt nicht mehr mit dem beim Einfrieren "
+                "festgehaltenen überein und wurde nicht exportiert"
+            ),
+            "fr": (
+                "le PDF original de {source_id} ne correspond plus à ce qui a été figé "
+                "et n'a pas été exporté"
+            ),
+            "es": (
+                "el PDF original de {source_id} ya no coincide con lo fijado en el congelado "
+                "y no se exportó"
+            ),
+        }
+        # Fix round 3: the saved text is gated exactly as the original is, and gets its own key —
+        # the client is looking for a particular missing file.
+        text_mismatch = {
+            "en": (
+                "the saved text of {source_id} no longer matches what the freeze recorded "
+                "and was not exported"
+            ),
+            "ru": (
+                "сохранённый текст {source_id} не совпадает с зафиксированным при заморозке "
+                "и не выгружен"
+            ),
+            "de": (
+                "der gespeicherte Text von {source_id} stimmt nicht mehr mit dem beim Einfrieren "
+                "festgehaltenen überein und wurde nicht exportiert"
+            ),
+            "fr": (
+                "le texte enregistré de {source_id} ne correspond plus à ce qui a été figé "
+                "et n'a pas été exporté"
+            ),
+            "es": (
+                "el texto guardado de {source_id} ya no coincide con lo fijado en el congelado "
+                "y no se exportó"
+            ),
+        }
+        for code in ("en", *PACK_CODES):
+            with self.subTest(code=code):
+                self.assertEqual(
+                    unverified[code], str(i18n.t(code, "memo.labels.pdf_unverified_note")), code
+                )
+                for key, expected in (
+                    ("pdf_export_mismatch_note", mismatch),
+                    ("text_export_mismatch_note", text_mismatch),
+                ):
+                    note = str(i18n.t(code, f"memo.labels.{key}"))
+                    self.assertEqual(expected[code], note, f"{code}.{key}")
+                    self.assertIn("{source_id}", note, f"{code}.{key}")
+                self.assertNotEqual(
+                    str(i18n.t(code, "memo.labels.pdf_export_mismatch_note")),
+                    str(i18n.t(code, "memo.labels.text_export_mismatch_note")),
+                    f"{code}: the two artefacts must not read alike",
+                )
+
     def test_disclaimer_pattern_compiles_and_matches_probe_disclaimer(self):
         for code in PACK_CODES:
             with self.subTest(code=code):

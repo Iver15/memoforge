@@ -33,6 +33,15 @@ MODULES: tuple[tuple[str, str], ...] = (
 )
 """`(import name, distribution name)` of the three dependencies of §5.6, in `requirements.txt` order."""
 
+OPTIONAL_MODULES: tuple[tuple[str, str], ...] = (("pypdf", "pypdf"),)
+"""D-201: modules `mf deps check` reports but never asks for.
+
+`pypdf` reads the text layer of a PDF `mf sources save` fetched. Without it the original is still
+saved byte for byte and the source is simply marked as not checked by code, so its absence is never
+`missing[]`, never `outdated[]`, never a reason for `ok: false`, and `mf deps install` never brings
+it in — its `requirements.txt` line is commented out until the user uncomments it.
+"""
+
 DISTRIBUTION_BY_MODULE: dict[str, str] = {module: dist for module, dist in MODULES}
 MODULE_BY_DISTRIBUTION: dict[str, str] = {dist: module for module, dist in MODULES}
 
@@ -112,12 +121,17 @@ def installed_version(distribution: str) -> str | None:
 
 
 def check_modules(extra_path: str | None = None) -> dict:
-    """`{module: {installed, version, required, satisfied, distribution}}` — import check only."""
+    """`{module: {installed, version, required, satisfied, distribution, optional}}` — import only.
+
+    D-201: the optional rows are reported in the same map, after the required ones, and carry
+    `optional: true`. `deps.json` is schema-open (`internal.schema.json` describes `deps` as an
+    open map with `additionalProperties: true`), so nothing about the file had to change.
+    """
     if extra_path and extra_path not in sys.path:
         sys.path.insert(0, extra_path)
     required = read_requirements()
     report: dict[str, dict] = {}
-    for module, distribution in MODULES:
+    for module, distribution in MODULES + OPTIONAL_MODULES:
         try:
             found = importlib.util.find_spec(module) is not None
         except (ImportError, ValueError):
@@ -130,6 +144,7 @@ def check_modules(extra_path: str | None = None) -> dict:
             "distribution": distribution,
             "required": specifier,
             "satisfied": satisfies(version, specifier) if found else False,
+            "optional": (module, distribution) in OPTIONAL_MODULES,
         }
     return report
 
@@ -145,9 +160,14 @@ def build_report(extra_path: str | None = None) -> dict:
         "python_version": platform.python_version(),
         "python_executable": sys.executable,
         "deps": deps,
-        "missing": sorted(name for name, row in deps.items() if not row["installed"]),
+        # D-201: an optional module is reported and never demanded — neither list may name one.
+        "missing": sorted(
+            name for name, row in deps.items() if not row["installed"] and not row.get("optional")
+        ),
         "outdated": sorted(
-            name for name, row in deps.items() if row["installed"] and row["satisfied"] is False
+            name
+            for name, row in deps.items()
+            if row["installed"] and row["satisfied"] is False and not row.get("optional")
         ),
     }
 
@@ -189,8 +209,15 @@ def install_command(site_packages: Path, requirements: Path) -> list[str]:
 def _human(report: dict, path: Path) -> str:
     lines = [f"python {report['python_version']}  ({report['python_executable']})"]
     for module, row in report["deps"].items():
+        optional = bool(row.get("optional"))
         state = "missing" if not row["installed"] else (row["version"] or "installed")
         mark = "!" if not row["installed"] or row["satisfied"] is False else " "
+        if optional:
+            # D-201: an optional module is never a problem, so it never carries the mark, and its
+            # absence says so in as many words instead of reading like a broken install.
+            mark = " "
+            if not row["installed"]:
+                state = "missing (optional)"
         lines.append(f" {mark} {module:<12} {state:<12} required {row['required'] or 'any'}")
     lines.append(f"report: {path}")
     if report["missing"]:
