@@ -155,6 +155,15 @@ shortest legitimate pinpoint address of the routing table, the `legislation.gov.
 1 318.
 """
 
+RESOLVE_MAX_CANDIDATES = 10
+"""How many candidate acts `mf sources save --resolve` fetches and certifies from one listing (D-202).
+
+A portal answers a case number with the whole chain of the case: the measured `305-ЭС24-8702`
+returns eight acts, and every candidate costs one request and one politeness pause. The links are
+deduplicated by address **before** the cap is applied — the real page prints each of its eight
+links six times, so a cap on the raw list would spend all ten fetches on the first two acts.
+"""
+
 QUOTE_DEFAULT_MAX_WORDS = 30  # S3
 """`quote extract --max-words` default (§4.4, §5.3)."""
 

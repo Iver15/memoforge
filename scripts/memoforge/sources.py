@@ -2795,6 +2795,241 @@ def _stage_bytes(path: Path, payload: bytes) -> None:
         os.fsync(handle.fileno())
 
 
+# --- resolve --------------------------------------------------------------
+
+
+VSRF_BASE = "https://www.vsrf.ru"
+"""D-202: the portal `--resolve vsrf` asks. Injectable, because the tests drive a `LocalServer`."""
+
+VSRF_LISTING_PATH = "/lk/practice/acts"
+"""The practice index of the Supreme Court; `robots.txt` allows it (`Allow: /`, `Disallow: /api/`)."""
+
+VSRF_NUMBER_SUFFIX_RE = re.compile(r"\s*\([\d\s,]*\)$")
+"""D-202: the trailing bracketed group of a Russian case number — the `(1,3)` that names the twin.
+
+**Search broadly, certify precisely.** The portal's `numberExact` index does not know the suffix:
+asked on 2026-09-21, `number=305-ЭС24-8702` answers with the whole chain of eight acts and
+`number=305-ЭС24-8702 (1,3)` answers with none — so asking it verbatim would fail on exactly the
+case the resolver exists to close, because a suffix is carried only where there are twins to tell
+apart. Certification is untouched and keeps `--expect-number` whole: the suffix is the only thing
+that tells `(1,3)` from `(2,4)`. The shape is the one `source_text.has_number` already refuses to
+match across, and it is stripped **here**, where the vsrf query is built, and in no shared helper:
+another jurisdiction puts other things in brackets.
+"""
+
+VSRF_ACT_PATH_RE = re.compile(rb"/lk/practice/stor_pdf(?:_ec)?/\d+")
+"""D-202: the two shapes of a link to an act's own PDF, matched on the bytes of the listing.
+
+The page is a React shell that prints every link once in its markup and once inside the JSON it
+hydrates from — six copies of each address on the measured page — and neither copy is reached by
+parsing the markup alone. The addresses are deduplicated afterwards, which is what makes the cap
+count acts rather than copies.
+"""
+
+RESOLVE_HINTS: dict[str, str] = {
+    "requisites_required": "--resolve vsrf searches for --expect-number and tells the twins apart by --expect-date",
+    "channel_unavailable": "the portal did not answer with its index of acts; use a fallback route and --url",
+    "requisites_ambiguous": "several different acts carry these requisites; pass one of `candidates` as --url",
+    "requisites_mismatch": "no candidate carried both requisites; `candidates` is what the portal offered",
+}
+"""One line of advice per resolver refusal (D-202).
+
+`requisites_mismatch` is the refusal of D-199 under its own name, and its advice differs here for
+one reason: at `--url` a single page did not carry the requisites, while here a whole chain was
+read and the answer can hand the researcher the addresses it read. It is also the answer when the
+index named no act at all — `candidates` is then empty, and the number is what to look at again.
+`channel_unavailable` is kept for the other fact: the index did not arrive.
+"""
+
+
+class ChannelUnavailable(RuntimeError):
+    """D-202: the resolver's channel did not answer with a listing at all.
+
+    Not «this number lists nothing»: that is a listing that arrived intact and named no act, and it
+    is a `requisites_mismatch`. The two facts send the researcher to different places — a broken
+    channel means «use the fallbacks of the routing table», a number that lists nothing means «look
+    at the number again» — and answering the first when it is the second costs them the right move.
+    `resolve_vsrf` returns the addresses it read, so the failure needs a channel of its own, and
+    this is the narrowest one. Its `str` is the transport's own reason (`http_404`,
+    `host_not_allowed`, `truncated`, `cloudflare_challenge`, a timeout…), which is what the refusal
+    prints.
+    """
+
+
+def vsrf_listing_url(number: str, base: str) -> str:
+    """The portal's answer for one case number (D-202); the parameter order is the channel's.
+
+    The number is asked **without its bracketed suffix** (`VSRF_NUMBER_SUFFIX_RE`). A number that
+    is nothing but a bracketed group is sent whole: an empty `number=` is a search for everything,
+    which is the one thing this request must never be.
+    """
+    asked = VSRF_NUMBER_SUFFIX_RE.sub("", number.strip()) or number.strip()
+    return (
+        base.rstrip("/")
+        + VSRF_LISTING_PATH
+        + "?numberExact=true&actDateExact=off&number="
+        + urllib.parse.quote(asked, safe="")
+    )
+
+
+def vsrf_candidates(payload: bytes, listing_url: str) -> list[str]:
+    """The act addresses this listing prints — unique by address, in page order, capped (D-202)."""
+    seen: dict[str, None] = {}
+    for match in VSRF_ACT_PATH_RE.finditer(payload):
+        seen.setdefault(urllib.parse.urljoin(listing_url, match.group().decode("ascii")), None)
+    return list(seen)[: limits.RESOLVE_MAX_CANDIDATES]
+
+
+def resolve_vsrf(number: str, *, base: str, timeout: float) -> list[str]:
+    """Addresses of the acts the Supreme Court portal lists for `number`, in page order (D-202).
+
+    One GET of the practice index, through the same client as everything else: the allowlist on the
+    address and on every redirect hop, the politeness pause, the liveness headers.
+
+    A listing is **not** a document and is never judged as one. It is a React shell whose visible
+    text is 0.029 of its bytes — under `LIVENESS_MIN_TEXT_RATIO` — so the interstitial rule answers
+    «not the document» for the real portal, and a resolver that believed it would refuse every
+    search. `interstitial_suspected` is therefore the one error this function reads past: the body
+    is there, and the links in it are what it came for.
+
+    Every other transport failure raises `ChannelUnavailable` — the address was refused, the
+    request did not complete, the server answered with something that is not the index, or the body
+    was cut at the ceiling (a chain cut short may be missing exactly the act being looked for).
+    An empty list means the opposite: the index arrived whole and named no act at all.
+    """
+    hosts = allowlist_hosts()
+    url = vsrf_listing_url(number, base)
+    refused = fetch_refusal(url, hosts)
+    if refused is not None:
+        raise ChannelUnavailable(refused[0])
+    answer = fetch_allowed(url, hosts, timeout=timeout)
+    payload = answer.pop("payload")
+    error = answer["error"]
+    if error is not None and error != "interstitial_suspected":
+        raise ChannelUnavailable(error)
+    if answer["truncated"]:
+        raise ChannelUnavailable("truncated")
+    return vsrf_candidates(payload, url)
+
+
+def resolve_text_key(text: str) -> str:
+    """The digest that tells two candidates apart: the text layer, whitespace runs collapsed (D-202).
+
+    Never the bytes. On the measured chain every act is served under two ids with **different** PDF
+    bytes and the **same** text, so a byte digest would count one act twice and answer
+    `requisites_ambiguous` on every real search. The normalisation is the one `source_text.flatten`
+    applies to whitespace and nothing more — `\\s+` runs collapsed to one space, the ends stripped —
+    because case, letter spacing and dashes are what `flatten` folds to *match* a token, while here
+    two texts are being told apart and a fold can only hide a difference.
+    """
+    return state_io.sha256_bytes(" ".join(text.split()).encode("utf-8"))
+
+
+def certify_candidates(candidates: list, *, number: str, date: str, timeout: float) -> dict:
+    """Which candidates carry both requisites — one address per distinct act (D-202).
+
+    Each is fetched under the same politeness pause and the same allowlist as any other request,
+    and certified on its text layer alone: `source_text` must find the number as a whole token in
+    the number zone (the bracketed suffix is what tells the twins apart) and the date in the date
+    zone. A candidate with no text layer — a scan, a file `pypdf` cannot parse, a body that is not
+    a PDF at all, no `pypdf` in the environment — cannot be certified and is **skipped**, not
+    refused on: the caller lists the addresses instead, and the researcher decides with `--url`.
+    """
+    hosts = allowlist_hosts()
+    found = {"number": False, "date": False}
+    distinct: dict[str, str] = {}
+    for url in candidates:
+        if fetch_refusal(url, hosts) is not None:
+            continue
+        answer = fetch_allowed(url, hosts, timeout=timeout)
+        text = extract_pdf_text(answer.pop("payload"))
+        if text is None:
+            continue
+        carries_number = source_text.has_number(text, number, source_text.number_zone(text))
+        carries_date = source_text.has_date(text, date, source_text.date_zone(text))
+        found["number"] = found["number"] or carries_number
+        found["date"] = found["date"] or carries_date
+        if carries_number and carries_date:
+            distinct.setdefault(resolve_text_key(text), url)
+    return {"found": found, "distinct": list(distinct.values())}
+
+
+def run_save_resolved(args: argparse.Namespace) -> dict:
+    """`mf sources save --resolve vsrf` — from the requisites of an act to the address of it (D-202).
+
+    Acts of the **judicial chambers** of the Supreme Court. A Plenum or Presidium document is saved
+    with `--url` from its published page: the resolver refuses nothing for them, it is simply not
+    the way to them.
+
+    The resolver writes nothing and saves nothing. It chooses one address among the chain the
+    portal returns for the case number and hands it to the transaction of D-199 and D-201
+    unchanged — same lock discipline, same admission rules, same verdict, same
+    `retrieval_tool = "mf-save <host>"`, same refusal codes.
+
+    **The chosen document is therefore fetched twice, and that is deliberate — do not optimise it
+    away.** Threading the certified bytes into the save would mean a second entry into the save
+    path, which is the one thing this task refuses to build, and it would record a digest of bytes
+    the transaction never saw. As it stands the save certifies what *it* fetched, with the same
+    `--expect-number` and `--expect-date`, so a portal that served something else the second time
+    is refused by the verdict instead of stored uncertified. One extra request and one extra
+    politeness pause is the price, and it is the right one.
+
+    Both requisites are mandatory here, and missing one is refused before the first request: the
+    measured chain holds the judge's referral order of 11.07.2024 and the chamber's ruling of
+    14.08.2024 under the same number *and* the same bracketed suffix, so the number alone cannot
+    identify the act and the date alone cannot either.
+    """
+    number = str(getattr(args, "expect_number", "") or "").strip()
+    date = str(getattr(args, "expect_date", "") or "").strip()
+    missing = [flag for flag, value in (("--expect-number", number), ("--expect-date", date)) if not value]
+    if missing:
+        return {
+            "errors": [f"requisites_required: {', '.join(missing)}"],
+            "hint": RESOLVE_HINTS["requisites_required"],
+        }
+    work_dir = Path(args.workdir)
+    with sources_lock(work_dir):
+        frozen = is_frozen(work_dir)
+    if frozen:
+        # A cheap pre-check, not the guard: nine requests to a live portal answered by
+        # `sources_frozen` is work nobody needed and a portal nobody should have troubled. The
+        # authoritative refusal is still the one `run_save` makes under the lock at step 1 and
+        # again at step 3 — this answer may be stale by the time the network comes back, and a
+        # freeze that lands meanwhile is caught there, not here.
+        return {"errors": ["sources_frozen"], "hint": SOURCES_FROZEN_HINT}
+    timeout = float(getattr(args, "timeout", None) or limits.LIVENESS_TIMEOUT_SECONDS)
+    try:
+        candidates = resolve_vsrf(number, base=VSRF_BASE, timeout=timeout)
+    except ChannelUnavailable as exc:
+        return {
+            "errors": [f"channel_unavailable: {exc}"],
+            "hint": RESOLVE_HINTS["channel_unavailable"],
+            "candidates": [],
+        }
+    # An index that arrived and named no act is not a broken channel: it is a number that lists
+    # nothing, and it falls through to `requisites_mismatch` with no candidate and nothing found.
+    answer = certify_candidates(candidates, number=number, date=date, timeout=timeout)
+    distinct = answer["distinct"]
+    if len(distinct) > 1:
+        # Two documents that are not the same document carry the same requisites: the code cannot
+        # choose between them, and choosing the first would be a guess dressed as a certification.
+        return {
+            "errors": [f"requisites_ambiguous: {len(distinct)} distinct acts"],
+            "hint": RESOLVE_HINTS["requisites_ambiguous"],
+            "candidates": distinct,
+            "found": answer["found"],
+        }
+    if not distinct:
+        absent = ", ".join(name for name in ("number", "date") if not answer["found"][name])
+        return {
+            "errors": [f"requisites_mismatch: {absent}"],
+            "hint": RESOLVE_HINTS["requisites_mismatch"],
+            "candidates": candidates,
+            "found": answer["found"],
+        }
+    return run_save(argparse.Namespace(**{**vars(args), "url": distinct[0], "resolve": None}))
+
+
 def run_save(args: argparse.Namespace) -> dict:
     """`mf sources save` — one transaction from an address to a registered, certified text (D-199).
 
@@ -2819,6 +3054,9 @@ def run_save(args: argparse.Namespace) -> dict:
     `excerpt:pdf_text_unavailable`).
     """
     resolver = str(getattr(args, "resolve", "") or "").strip()
+    if resolver == "vsrf":
+        # D-202: the resolver only chooses an address, and comes back here with it.
+        return run_save_resolved(args)
     if resolver:
         return {
             "errors": [f"resolver_not_available: {resolver}"],

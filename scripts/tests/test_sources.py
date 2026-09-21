@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.server
+import io
 import json
 import multiprocessing
 import shutil
@@ -14,6 +16,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -236,6 +239,97 @@ SCAN_PDF_OTHER = SCAN_PDF + b"%edited\n"
 
 VSRF_PDF_OTHER = VSRF_PDF + b"%tampered\n"
 """Another PDF that **does** carry a text layer, so a save of it has both halves to offer."""
+
+VSRF_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "vsrf"
+"""D-202: the real `305-ЭС24-8702` chain as vsrf.ru served it — the listing and seven of the eight PDFs."""
+
+VSRF_LISTING = (VSRF_FIXTURES / "listing-305-es24-8702.html").read_bytes()
+"""`GET /lk/practice/acts?numberExact=true&actDateExact=off&number=305-ЭС24-8702`, gzip on the wire.
+
+349 776 bytes of React shell: eight unique `/lk/practice/stor_pdf_ec/<id>` links, each printed six
+times — three copies in the markup and three more inside the JSON the page hydrates from. Its
+visible-text ratio is 0.029, under `LIVENESS_MIN_TEXT_RATIO`, which is why a listing is never
+judged by the rules that judge a document.
+"""
+
+VSRF_CHAIN: tuple[str, ...] = (
+    "2394482",
+    "2394462",
+    "2394388",
+    "2394370",
+    "2383940",
+    "2383918",
+    "2383886",
+    "2383828",
+)
+"""The eight acts of the chain, in the order the real listing prints them (newest first).
+
+Four pairs: every act is served under two ids with **different bytes** and an **identical**
+normalised text layer — `2394482`/`2394462` are `(1,3)` of 14.08.2024, `2394388`/`2394370` are
+`(2,4)` of the same day, `2383940`/`2383828` are `(1,3)` of 11.07.2024, `2383918`/`2383886` are
+`(2,4)`. Deduplicating candidates by the byte digest would fail here every time.
+"""
+
+VSRF_TWIN = (VSRF_FIXTURES / "model-ambiguous-twin.pdf").read_bytes()
+"""The only model among the fixtures: `2394482` with its second page printed twice.
+
+It keeps the number, the date and the operative marker, so `verdict` answers `full_text` for it
+exactly as for the original while its normalised text differs — the one case the real chain does
+not hold: two genuinely different documents sharing both requisites.
+"""
+
+VSRF_CHAMBER_DATE = "2024-08-14"
+"""The chamber's ruling. `VSRF_PDF_DATE` (11.07.2024) is the judge's referral order in the same
+chain, carrying the same number **and** the same bracketed suffix: only the date tells them apart."""
+
+VSRF_CHAMBER_SHA256 = "09268f5db09c3cd3cca682b5bc09115920562c3309b1b4dec1b1c760355afb88"
+"""`2394482.pdf` — the bytes the winner of the twin trap must end up holding."""
+
+VSRF_REFERRAL_SHA256 = "d9061f7da360fd21471dace14c764c47cd86c12206e31e1e3ab05de8f815a049"
+"""`2383940.pdf` — the referral order of 11.07.2024 as the listing prints it first (before `2383828`)."""
+
+VSRF_ACT_TITLE = "ВС РФ, определение № 305-ЭС24-8702 (1,3) от 14.08.2024"
+VSRF_ACT_CITATION = "Определение ВС РФ от 14.08.2024 № 305-ЭС24-8702 (1,3)"
+
+
+def vsrf_path(act: str, kind: str = "stor_pdf_ec") -> str:
+    """The portal's address of one act's PDF; both `stor_pdf` and `stor_pdf_ec` are real (D-202)."""
+    return f"/lk/practice/{kind}/{act}"
+
+
+def vsrf_act(act: str) -> bytes:
+    """The PDF the portal serves under `<id>` (D-202).
+
+    `2383828` is not checked in twice: it is byte for byte the Task 5 fixture, and that file is
+    served for it.
+    """
+    if act == "2383828":
+        return VSRF_PDF
+    return (VSRF_FIXTURES / f"{act}.pdf").read_bytes()
+
+
+VSRF_CHAIN_BODIES: dict = {vsrf_path(act): vsrf_act(act) for act in VSRF_CHAIN}
+"""`<path>: <bytes>` of the whole chain, read once — what the `LocalServer` serves as the portal."""
+
+
+def vsrf_listing(*paths: str, repeat: int = 1) -> bytes:
+    """A hand-written listing page carrying exactly `paths`, in that order (D-202).
+
+    The real page is used wherever the portal's markup is the point; this one is for the rules that
+    are about the resolver — the cap, an empty answer — and not about the portal.
+    """
+    links = "".join(f'<a href="{path}" target="_blank">Определение</a>' * repeat for path in paths)
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Электронная справочная</title>'
+        "</head><body>" + links + "</body></html>"
+    ).encode("utf-8")
+
+
+def vsrf_routes(listing: bytes, bodies: dict) -> dict:
+    """`_Handler.routes` for one listing and the acts it points at (D-202)."""
+    routes = {sources.VSRF_LISTING_PATH: (listing, "text/html; charset=utf-8")}
+    routes.update({path: (body, "application/pdf") for path, body in bodies.items()})
+    return routes
 
 
 def save_namespace(work_dir: str, url: str, **overrides) -> dict:
@@ -519,7 +613,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     locations = {"/redirect": "/ok", "/loop": "/loop", "/badhop": "ftp://evil.example/x"}
     """D-151: the `Location` of each redirecting path; `/offsite` needs the live port, see `_respond`."""
 
+    routes: dict = {}
+    """D-202: `<path without its query>: (body, content type)` — one table per test, empty by default.
+
+    The resolver drives a whole portal rather than one address: a listing at `/lk/practice/acts`
+    whose query carries the case number, and the acts of the chain at `/lk/practice/stor_pdf_ec/<id>`.
+    The fixed `pages`/`types` tables cannot express that, and a path this table does not name falls
+    through to them unchanged.
+    """
+
+    def _route(self) -> tuple | None:
+        """The `routes` entry of this request; the query is the resolver's, not the address's."""
+        return type(self).routes.get(self.path.split("?")[0])
+
     def _payload(self) -> tuple[int, bytes]:
+        route = self._route()
+        if route is not None:
+            return 200, route[0]
         if self.path in ("/ok", "/short", "/served.pdf"):
             # D-199: `/short` declares this whole length and then sends two thirds of it.
             return 200, type(self).body
@@ -553,7 +663,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Location", offsite if self.path == "/offsite" else self.locations[self.path])
         for name, value in self.challenges.get(self.path, (None, {}))[1].items():
             self.send_header(name, value)
-        if self.path in self.types:
+        route = self._route()
+        if route is not None:
+            self.send_header("Content-Type", route[1])
+        elif self.path in self.types:
             self.send_header("Content-Type", self.types[self.path])
         self.send_header("Content-Length", str(len(payload)) + type(self).length_suffix)
         self.end_headers()
@@ -587,7 +700,12 @@ class LocalServer:
     """`http.server` on localhost — not an external network call (§9 allows the mock)."""
 
     def __init__(
-        self, body: bytes, variants: tuple = (), short_bytes: int | None = None, length_suffix: str = ""
+        self,
+        body: bytes,
+        variants: tuple = (),
+        short_bytes: int | None = None,
+        length_suffix: str = "",
+        routes: dict | None = None,
     ) -> None:
         _Handler.body = body
         _Handler.seen = []
@@ -596,6 +714,7 @@ class LocalServer:
         _Handler.served = 0
         _Handler.short_bytes = short_bytes
         _Handler.length_suffix = length_suffix
+        _Handler.routes = dict(routes or {})
         self.server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
         # `poll_interval` is what `shutdown()` waits for: the default 0.5 s was half a second of
         # sleep per server, and nearly every test in this file starts one.
@@ -2777,8 +2896,9 @@ class SaveTest(SaveTestCase):
         self.assertEqual({}, self.records())
 
     def test_a_resolver_is_declared_but_not_available_yet(self):
-        result = self.save("", resolve="vsrf")
-        self.assertEqual(["resolver_not_available: vsrf"], result["errors"])
+        """D-202: `vsrf` landed with task 6; `sudact` is the one still waiting for its own task."""
+        result = self.save("", resolve="sudact")
+        self.assertEqual(["resolver_not_available: sudact"], result["errors"])
         self.assertEqual({}, self.records())
 
     # --- the freeze ---------------------------------------------------------
@@ -3392,6 +3512,267 @@ class SavePdfTest(SaveTestCase):
             )["checked"][0]
         self.assertEqual("changed", row["status"])
         self.assertEqual("agent_saved", row["provenance"])
+
+
+class ResolveVsrfTest(SaveTestCase):
+    """D-202: from the requisites of a Supreme Court chamber act to the address of its own PDF.
+
+    Every fixture here is the real `305-ЭС24-8702` chain as vsrf.ru served it — the listing page
+    and seven of its eight PDFs, the eighth being the Task 5 fixture byte for byte — with one
+    labelled model (`model-ambiguous-twin.pdf`) for the case the chain does not contain. Nothing
+    leaves `127.0.0.1`: the portal is a `LocalServer` and the base address is injected.
+    """
+
+    def resolve(self, base: str, **overrides) -> dict:
+        """`mf sources save --resolve vsrf` against the `LocalServer` standing in for the portal."""
+        payload = {
+            "title": VSRF_ACT_TITLE,
+            "citation": VSRF_ACT_CITATION,
+            "expect_number": VSRF_PDF_NUMBER,
+            "expect_date": VSRF_CHAMBER_DATE,
+            "resolve": "vsrf",
+        }
+        payload.update(overrides)
+        with mock.patch.object(sources, "VSRF_BASE", base):
+            return self.save("", **payload)
+
+    def chain(self) -> LocalServer:
+        """The real listing page with the eight acts of the chain behind it."""
+        return LocalServer(b"", routes=vsrf_routes(VSRF_LISTING, VSRF_CHAIN_BODIES))
+
+    def paths(self) -> list:
+        return [row["path"] for row in _Handler.seen]
+
+    # --- the chain, the twins, the winner ------------------------------------
+
+    def test_the_chain_of_one_case_number_resolves_to_the_chamber_ruling(self):
+        """The trap of input 02: eight acts, two of them `(1,3)`, only the date telling them apart."""
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertTrue(result["created"])
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual("full_text", result["raw_kind"])
+        self.assertEqual(f"{base}{vsrf_path('2394482')}", result["url"])
+        source_id = result["source_id"]
+        record = self.records()[source_id]
+        self.assertEqual(1, len(self.records()))
+        self.assertEqual(f"mf-save {sources.url_host(base)}", record["retrieval_tool"])
+        # The chamber's ruling of 14.08.2024, not the referral order of 11.07.2024 that carries
+        # the very same number and the very same bracketed suffix.
+        self.assertEqual(VSRF_CHAMBER_SHA256, record["raw_original_sha256"])
+        self.assertNotIn(record["raw_original_sha256"], (VSRF_PDF_SHA256, VSRF_REFERRAL_SHA256))
+        self.assertEqual(sorted([f"{source_id}.md", f"{source_id}.pdf"]), self.raw_files())
+
+    def test_the_listing_is_asked_for_the_base_number_without_the_bracketed_suffix(self):
+        """Search broadly, certify precisely: the portal's index does not know the suffix.
+
+        Measured against vsrf.ru: `305-ЭС24-8702` answers with the whole chain of eight acts,
+        `305-ЭС24-8702 (1,3)` answers with none — so asking it verbatim would fail on exactly the
+        case the resolver exists to close.
+        """
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertIn(" (1,3)", VSRF_PDF_NUMBER, "the flag carries the suffix")
+        expected = (
+            sources.VSRF_LISTING_PATH
+            + "?numberExact=true&actDateExact=off&number="
+            + urllib.parse.quote("305-ЭС24-8702", safe="")
+        )
+        self.assertEqual(expected, self.paths()[0])
+        self.assertNotIn("%28", self.paths()[0], "no bracket reaches the portal")
+        self.assertEqual("full_text", result["save_outcome"], "and the chain is still resolved")
+
+    def test_the_listing_url_strips_only_a_trailing_bracketed_group(self):
+        """Stripped where the vsrf query is built and nowhere shared: brackets mean other things."""
+        cases = {
+            "305-ЭС24-8702 (1,3)": "305-ЭС24-8702",
+            "305-ЭС24-8702(1, 3)": "305-ЭС24-8702",
+            "5-КГ25-14-К2": "5-КГ25-14-К2",
+            "А40-1234/2024 (Б)": "А40-1234/2024 (Б)",
+            "(1,3)": "(1,3)",
+        }
+        for number, sent in cases.items():
+            with self.subTest(number=number):
+                url = sources.vsrf_listing_url(number, "https://www.vsrf.ru")
+                self.assertTrue(url.endswith("&number=" + urllib.parse.quote(sent, safe="")), url)
+
+    def test_the_candidates_are_read_in_page_order(self):
+        """Dedupe **before** the cap: the page prints its eight links six times each."""
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            self.resolve(base)
+        paths = self.paths()
+        self.assertEqual(sources.VSRF_LISTING_PATH, paths[0].split("?")[0])
+        self.assertEqual([vsrf_path(act) for act in VSRF_CHAIN], paths[1:9], "eight distinct acts, in page order")
+        self.assertEqual(vsrf_path("2394482"), paths[9], "the save fetches the address it was handed")
+        self.assertEqual(10, len(paths), "48 printed links, 8 candidates, 1 listing and 1 save")
+
+    def test_the_politeness_pause_is_owed_between_every_candidate(self):
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            self.resolve(base)
+        self.assertEqual(len(_Handler.seen) - 1, len(self.waits), "every request but the first waited")
+        self.assertEqual(9, len(self.waits))
+        self.assertTrue(all(pause > 0 for pause in self.waits), self.waits)
+
+    def test_the_date_alone_decides_between_the_twins(self):
+        """The same chain and the same number: 11.07.2024 picks the judge's referral order instead."""
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base, expect_date=VSRF_PDF_DATE, citation=VSRF_PDF_CITATION)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{vsrf_path('2383940')}", result["url"])
+        self.assertEqual(VSRF_REFERRAL_SHA256, self.records()[result["source_id"]]["raw_original_sha256"])
+
+    def test_a_duplicate_pair_of_one_act_is_saved_once(self):
+        """`2394462` and `2394482` are the same act under two ids: different bytes, one text."""
+        bodies = {path: VSRF_CHAIN_BODIES[path] for path in (vsrf_path("2394482"), vsrf_path("2394462"))}
+        listing = vsrf_listing(*bodies)
+        with LocalServer(b"", routes=vsrf_routes(listing, bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual([], result.get("errors", []), result)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{vsrf_path('2394482')}", result["url"], "the first of the pair in page order")
+        self.assertEqual(1, len(self.records()))
+
+    def test_two_different_acts_with_the_same_requisites_are_ambiguous(self):
+        """The model twin: the same number, the same date, another document — nothing is written."""
+        bodies = {
+            vsrf_path("2394482"): vsrf_act("2394482"),
+            vsrf_path("2394482", "stor_pdf"): VSRF_TWIN,
+        }
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            addresses = [f"{base}{path}" for path in bodies]
+        self.assertEqual(["requisites_ambiguous: 2 distinct acts"], result["errors"])
+        self.assertEqual(addresses, result["candidates"], "both shapes of the link are collected")
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files(), "nothing at all is written")
+
+    # --- nothing won ---------------------------------------------------------
+
+    def test_no_candidate_carrying_both_requisites_is_a_mismatch(self):
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base, expect_date="2024-09-01")
+        self.assertEqual(["requisites_mismatch: date"], result["errors"])
+        self.assertEqual({"number": True, "date": False}, result["found"])
+        self.assertEqual(8, len(result["candidates"]))
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_chain_with_no_text_layer_anywhere_lists_its_candidates(self):
+        """A candidate that cannot be certified is skipped, never refused on; the addresses remain."""
+        bodies = {path: SCAN_PDF for path in (vsrf_path("2394482"), vsrf_path("2394462"))}
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            addresses = [f"{base}{path}" for path in bodies]
+        self.assertEqual(["requisites_mismatch: number, date"], result["errors"])
+        self.assertEqual(addresses, result["candidates"], "the researcher can pass one of these to --url")
+        self.assertEqual({"number": False, "date": False}, result["found"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_an_unreadable_candidate_is_skipped_and_the_readable_one_still_wins(self):
+        bodies = {vsrf_path("2394370"): SCAN_PDF, vsrf_path("2394482"): vsrf_act("2394482")}
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual("full_text", result["save_outcome"])
+        self.assertEqual(f"{base}{vsrf_path('2394482')}", result["url"])
+
+    def test_a_number_that_lists_nothing_is_a_mismatch_and_not_a_broken_channel(self):
+        """The two send the researcher to different places: look at the number, or use a fallback."""
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(), {})) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual(["requisites_mismatch: number, date"], result["errors"])
+        self.assertEqual([], result["candidates"])
+        self.assertEqual({"number": False, "date": False}, result["found"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_channel_that_does_not_answer_with_a_listing_is_unavailable(self):
+        """Only a transport failure is `channel_unavailable`, and the answer says which one."""
+        with LocalServer(b"", routes={}) as base:
+            self.allow(sources.url_host(base))
+            not_served = self.resolve(base)
+        self.assertEqual(["channel_unavailable: http_404"], not_served["errors"])
+        self.assertEqual([], not_served["candidates"])
+        with self.chain() as base:
+            # D-151: the allowlist is asked before the address is called, here as everywhere.
+            self.allow("vsrf.ru")
+            refused = self.resolve(base)
+            self.assertEqual([], _Handler.seen, "an address off the allowlist is never requested")
+        self.assertEqual(["channel_unavailable: host_not_allowed"], refused["errors"])
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_listing_cut_at_the_ceiling_is_an_unavailable_channel(self):
+        """A chain cut short may be missing exactly the act that was looked for."""
+        original = limits.LIVENESS_MAX_BODY_BYTES
+        limits.LIVENESS_MAX_BODY_BYTES = 4096
+        self.addCleanup(setattr, limits, "LIVENESS_MAX_BODY_BYTES", original)
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual(["channel_unavailable: truncated"], result["errors"])
+        self.assertEqual(1, len(_Handler.seen), "no candidate is fetched from a partial chain")
+        self.assertEqual({}, self.records())
+        self.assertEqual([], self.raw_files())
+
+    def test_a_frozen_registry_is_found_out_before_the_portal_is_troubled(self):
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            self.register(layer="case_law", title=VSRF_ACT_TITLE, citation=VSRF_ACT_CITATION, url=f"{base}/ok")
+            self.write_findings([{"source_id": next(iter(self.records()))}], layer="case_law")
+            self.freeze()
+            _Handler.seen = []
+            result = self.resolve(base)
+            self.assertEqual([], _Handler.seen, "the freeze is checked before the first request")
+        self.assertEqual(["sources_frozen"], result["errors"])
+        self.assertEqual([], self.raw_files())
+
+    # --- the cap and the flags ----------------------------------------------
+
+    def test_only_ten_candidates_are_ever_fetched(self):
+        acts = [f"90000{index:02d}" for index in range(12)]
+        bodies = {vsrf_path(act): SCAN_PDF for act in acts}
+        with LocalServer(b"", routes=vsrf_routes(vsrf_listing(*bodies), bodies)) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+        self.assertEqual(10, limits.RESOLVE_MAX_CANDIDATES)
+        self.assertEqual(11, len(_Handler.seen), "the listing and ten of its twelve links")
+        self.assertEqual([vsrf_path(act) for act in acts[:10]], self.paths()[1:])
+        self.assertEqual(10, len(result["candidates"]))
+
+    def test_both_requisites_are_required_before_any_request_is_made(self):
+        cases = (({"expect_date": None}, "--expect-date"), ({"expect_number": None}, "--expect-number"))
+        with self.chain() as base:
+            self.allow(sources.url_host(base))
+            for overrides, flag in cases:
+                with self.subTest(missing=flag):
+                    _Handler.seen = []
+                    result = self.resolve(base, **overrides)
+                    self.assertEqual([f"requisites_required: {flag}"], result["errors"])
+                    self.assertEqual([], _Handler.seen, "refused before anything left the process")
+                    self.assertEqual({}, self.records())
+                    self.assertEqual([], self.raw_files())
+
+    def test_a_resolver_and_a_url_are_mutually_exclusive(self):
+        """Declared with the command in Task 4; the resolver never guesses beside a given address."""
+        parser = cli.build_parser()
+        base = ["sources", "save", "--workdir", ".", "--layer", "case_law", "--title", "t", "--citation", "c"]
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(base + ["--url", "https://www.vsrf.ru/x", "--resolve", "vsrf"])
+        self.assertEqual("vsrf", parser.parse_args(base + ["--resolve", "vsrf"]).resolve)
 
 
 class PackPdfOriginalTest(SaveTestCase):
