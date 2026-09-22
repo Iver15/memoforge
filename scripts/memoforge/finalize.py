@@ -460,6 +460,28 @@ def _same_file(a: Path, b: Path) -> bool:
 # --- summary --------------------------------------------------------------
 
 
+OPEN_FINDING_STATUSES: tuple[str, ...] = ("open", "left", "unresolved")
+"""D-210: the `open_substance_majors` statuses `summary.md` still lists as open findings."""
+
+
+def lists_open_finding(row: object) -> bool:
+    """D-210: does one `open_substance_majors` row belong in the «Open reviewer findings» section?
+
+    Decided by the row alone: a `citations` row of the loop left `unresolved` is the one the
+    readiness step moves into `remaining_blocking_issues`, so it is printed there and not twice.
+    """
+    if not isinstance(row, dict) or row.get("status") not in OPEN_FINDING_STATUSES:
+        return False
+    return not (row.get("class") == "citations" and row.get("origin") == "loop" and row.get("status") == "unresolved")
+
+
+def open_finding_line(row: dict) -> str:
+    """`class · origin · status · section_id · category · issue` — raw ids, like the blocker list."""
+    fields = ("class", "origin", "status", "section_id", "category", "issue")
+    parts = [" ".join(str(row.get(field) or "").split()) for field in fields]
+    return md_fallback.STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
+
+
 def build_summary(
     state: dict,
     work_dir: Path,
@@ -524,6 +546,15 @@ def build_summary(
     lines.append(md_fallback_summary("remaining_blocking_issues", language))
     lines.append("")
     lines.extend([f"- {row}" for row in blockers if row] or [md_fallback_summary("none", language)])
+    lines.append("")
+
+    # D-210: the substantive majors the review loop left open on the delivered version.
+    findings = [
+        open_finding_line(row) for row in (state.get("open_substance_majors") or []) if lists_open_finding(row)
+    ]
+    lines.append(md_fallback_summary("open_reviewer_findings", language))
+    lines.append("")
+    lines.extend([f"- {row}" for row in findings if row] or [md_fallback_summary("none", language)])
     lines.append("")
 
     lines.append(md_fallback_summary("paths", language))

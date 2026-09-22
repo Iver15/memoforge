@@ -154,7 +154,10 @@
       "step_loop": "une étape du pipeline s'est répétée sans progresser",
       "writer_failed": "le rédacteur n'a pas pu produire de projet révisé",
       "no_checked_draft": "aucune version du projet n'a passé les contrôles automatiques",
-      "export_reused_untouched": "un export antérieur a été remis sans modification"
+      "export_reused_untouched": "un export antérieur a été remis sans modification",
+      "open_substance_majors": "une observation sur l'usage des sources n'a pas été corrigée de façon vérifiable",
+      "polish_out_of_scope": "la relecture finale est sortie de son périmètre, le texte antérieur à celle-ci est donc remis",
+      "polish_recheck_blocker": "le contrôle de la relecture finale a relevé une observation bloquante"
     },
     "severity": {
       "blocker": "observation bloquante",
@@ -241,6 +244,7 @@
       "fallback_banners": "## Avis de repli",
       "mcp_calls": "## Appels MCP",
       "remaining_blocking_issues": "## Points bloquants restants",
+      "open_reviewer_findings": "## Remarques des relecteurs encore ouvertes",
       "paths": "## Chemins",
       "work_dir": "- Répertoire de travail : `{path}`",
       "deliverable": "- Livrable : `{name}`",

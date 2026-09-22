@@ -115,13 +115,34 @@ def select_draft(state: dict, work_dir: Path, draft_sha: str | None = None) -> d
     the choice falls back to the rule of §2.1 row 15 — the last version that passed lint **and**
     citations while still hashing to the sha those checks saw; when there is none, the last version
     is exported with `no_checked_draft` and the matching banner, because export never blocks.
+
+    D-211: without a `--draft-sha`, `state.export_pin` stands in for it — an out-of-scope polish put
+    its baseline back and pinned the export to it, so `finalize` selects the bytes `export` rendered
+    and the version the status names, whatever the check flags say. Whenever the sha is the pinned
+    one, the pinned version is matched first (version and sha), before an older version that happens
+    to hold the same bytes.
     """
+    pin = state.get("export_pin")
+    pinned_version = None
+    if isinstance(pin, dict) and pin.get("sha256") and (not draft_sha or draft_sha == str(pin["sha256"])):
+        draft_sha = str(pin["sha256"])
+        pinned_version = pin.get("version")
     candidates = _draft_candidates(state, work_dir)
     selection: dict | None = None
     matched = None
 
     if draft_sha:
-        matched = next((row for row in candidates if row["sha256"] == draft_sha), None)
+        if pinned_version is not None:
+            matched = next(
+                (
+                    row
+                    for row in candidates
+                    if row["sha256"] == draft_sha and int(row.get("version") or 0) == int(pinned_version)
+                ),
+                None,
+            )
+        if matched is None:
+            matched = next((row for row in candidates if row["sha256"] == draft_sha), None)
         if matched is None and (loose := _loose_candidate(state, work_dir)) is not None:
             matched = loose if loose["sha256"] == draft_sha else None
         selection = matched

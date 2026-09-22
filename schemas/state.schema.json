@@ -219,6 +219,51 @@
     "remaining_blocking_issues": {
       "type": "array"
     },
+    "open_substance_majors": {
+      "description": "D-210: the substantive majors (logic, citations, counterarguments) still open on the version the revision loop leaves on — written by `revision next` on every exit to client readiness and by the writer-failed exit. Absent in a state written before D-210.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/open_substance_major"
+      }
+    },
+    "polish_check": {
+      "description": "D-211: the scope check of the final polish against `reviews/v<N>-prepolish.md`, computed once, at the first entry after the polish writer — `draft_sha` of the polished draft and the `errors` (a changed section outside the readiness issues, a grown `[[src:]]` id set). Absent when the run had no open majors or no polish.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft_sha",
+        "errors"
+      ],
+      "properties": {
+        "draft_sha": {
+          "type": "string"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "export_pin": {
+      "description": "D-211: the version and sha `export` delivers whatever the check flags of `draft_versions[]` say — set when an out-of-scope polish was put back to its baseline. Absent otherwise.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
     "fallback_banners": {
       "type": "array",
       "items": {
@@ -703,6 +748,71 @@
         },
         "aggregated_at": {
           "$ref": "#/$defs/iso_datetime"
+        }
+      }
+    },
+    "open_substance_major": {
+      "type": "object",
+      "description": "One row of `open_substance_majors` (D-210): a stored major of a substance reviewer that no later review of its class closed. The loop writes `origin: loop`, `status: open`; the readiness step may add `origin: recheck` rows and settle `status`.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "class",
+        "reviewer",
+        "section_id",
+        "category",
+        "issue_category",
+        "issue",
+        "issue_client",
+        "suggestion",
+        "from_iteration",
+        "origin",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^om-[1-9][0-9]*$"
+        },
+        "class": {
+          "enum": ["logic", "citations", "counterarguments"]
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "section_id": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "issue_category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "issue": {
+          "type": "string"
+        },
+        "issue_client": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suggestion": {
+          "type": "string"
+        },
+        "from_iteration": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "origin": {
+          "enum": ["loop", "recheck"]
+        },
+        "status": {
+          "enum": ["open", "resolved", "unresolved", "manual_review", "left"]
         }
       }
     },

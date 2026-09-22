@@ -214,6 +214,10 @@ EN: dict = {
             "writer_failed": "the writer could not produce a revised draft",
             "no_checked_draft": "no draft version passed the automated checks",
             "export_reused_untouched": "an earlier export was delivered unchanged",
+            # D-211: the settlement of the open majors at the last reader.
+            "open_substance_majors": "a reviewer finding on the use of sources was not verifiably fixed",
+            "polish_out_of_scope": "the final polish went beyond its instructions, so the text before it is delivered",
+            "polish_recheck_blocker": "the check of the final polish found a blocking problem",
         },
         # D-197: the severity of a blocker row. English keeps today's words, which are already human.
         "severity": {
@@ -355,6 +359,8 @@ EN: dict = {
             "fallback_banners": "## Fallback banners",
             "mcp_calls": "## MCP calls",
             "remaining_blocking_issues": "## Remaining blocking issues",
+            # D-210: the substantive majors the review loop left open (`state.open_substance_majors`).
+            "open_reviewer_findings": "## Open reviewer findings",
             "paths": "## Paths",
             "work_dir": "- Work dir: `{path}`",
             "deliverable": "- Deliverable: `{name}`",

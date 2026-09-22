@@ -8,6 +8,7 @@ exactly one state write.
 from __future__ import annotations
 
 import argparse
+import copy
 import shutil
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from . import (
     i18n,
     i18n_en,
     limits,
+    lint,
     modes,
     phases,
     preflight,
@@ -33,6 +35,7 @@ from . import (
     stepctx,
     sufficiency,
 )
+from .docx import fallback as md_fallback
 
 KIND_DISPATCH = "dispatch"
 KIND_SCRIPT = "script"
@@ -2553,6 +2556,8 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
                 layer,
                 [(f"research/{layer}.json", "research-findings")],
                 inputs=[gates.PLAN_PATH, gates.MCP_PROBE_PATH, preflight.PREFLIGHT_PATH],
+                # D-209: `case_law` on `opus`; None keeps the agent's own model for the other layers.
+                model=dispatch.RESEARCH_LAYER_MODELS.get(layer),
                 layer=layer,
                 issues=issues,
                 jurisdictions=jurisdictions,
@@ -2594,9 +2599,12 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
                 lint_attachment=attachment,
                 claim_pairs=(
                     "pair every `[[src:<id>]]` claim of the draft with the finding in the research files "
-                    "whose `source_id` matches — its `proposition` and `pinpoint` are the record the draft "
-                    "must not go beyond"
+                    "whose `source_id` matches. The finding is the pairing key: its `proposition` and "
+                    "`pinpoint` say what the researcher recorded. For a `critical` source the saved text "
+                    "is the ceiling, and where the finding and the text disagree, the text wins"
                 ),
+                # D-208: the units a reviewer may spend reading saved texts; 0 for logic and form.
+                lookup_budget=str(limits.REVIEWER_LOOKUP_BUDGET.get(kind, 0)),
                 research_files=research_files,
                 retry_errors="none",
             )
@@ -3821,10 +3829,11 @@ def _after_revision_next(work_dir: Path, state: dict, row: dict, iteration: int)
             return step
         instructions = f"`{view_path(review.mediator_path(iteration))}` - edit only the named sections"
         if result.get("targeted"):
-            # D-165: branch 9 bought one pass for the missing `[[src:]]` tokens, nothing wider.
+            # D-165: branch 9 bought one pass for the missing `[[src:]]` tokens, nothing wider. D-208: a
+            # token only where a pack source holds the rule — otherwise the statement goes or is qualified.
             instructions += (
-                ". Targeted pass: add the missing source tokens named in the instructions; "
-                "change nothing else."
+                ". Targeted pass: for each named item, add the source token where a pack source contains "
+                "the rule; otherwise withdraw the statement or qualify it as unresolved. Change nothing else."
             )
         spec = writer_spec(
             work_dir,
@@ -3851,6 +3860,43 @@ CLIENT_READINESS_PATH = "reviews/final-client-readiness.json"
 POLISH_FIX_ROUNDS = 1
 """§2.2 `lint_fix{polish}`: exactly one writer fix is allowed after the client polish (D-57)."""
 
+POLISH_RECHECK = review.POLISH_RECHECK
+"""D-211: slot, path and budget key of the citations re-check of the polish — never a reviewer kind."""
+
+WHOLE_DOCUMENT = review.UNVERIFIED_SECTION_ID
+"""`section_id` of a finding or an issue that belongs to no one section (`document`)."""
+
+PREAMBLE_SECTION = "preamble"
+"""D-211: the owner of the lines of a draft above its first heading."""
+
+CROSS_REFERENCE_KINDS: tuple[str, ...] = ("executive_summary", "conclusion", "recommendations")
+"""D-211: the sections a polish keeps in step with the polished one (`agents/memo-writer.md`)."""
+
+DISPOSITION_ACTIONS: dict[str, tuple[str, ...]] = {
+    "citations": ("polish", "manual_review"),
+    "logic": ("polish", "leave"),
+    "counterarguments": ("polish", "leave"),
+}
+"""D-211: what the readiness reviewer may decide for an open major, by the class of its row."""
+
+DISPOSITION_DEFAULTS: dict[str, str] = {"citations": "manual_review", "logic": "leave", "counterarguments": "leave"}
+"""D-211: a missing disposition, or one the class does not allow, counts as this."""
+
+DISPOSITION_STATUS: dict[str, str] = {"manual_review": "manual_review", "leave": "left"}
+"""D-211: the status pass 1 settles at once; a `polish` row stays `open` until the polish is re-checked."""
+
+OPEN_MAJORS_REASON = "open_substance_majors"
+POLISH_OUT_OF_SCOPE_REASON = "polish_out_of_scope"
+RECHECK_BLOCKER_REASON = "polish_recheck_blocker"
+"""D-211: the `final_status_reasons[]` codes of the readiness step's settlement."""
+
+APPROVED_FAMILIES: tuple[str, ...] = ("approved", "accepted_early", "client_ready")
+"""D-211: the `final_status` families a settled finding turns into `manual_review_required_on_v<N>`."""
+
+OPEN_FINDINGS_NONE = "none"
+OPEN_FINDINGS_RECHECK = "raised by the polish re-check (for information, no disposition)"
+"""D-211: the `${open_findings}` of a run without open majors, and the mark of a re-check row."""
+
 
 def _client_verdict(work_dir: Path, state: dict) -> dict:
     """The readiness verdict, read against `published[]` — drift is no verdict at all (D-41)."""
@@ -3863,13 +3909,646 @@ def _client_verdict(work_dir: Path, state: dict) -> dict:
 
 def _readiness_degraded(work_dir: Path, state: dict, version: int) -> dict:
     """§2.1 row 14: no usable readiness verdict — leave for `export` under manual review (N-11)."""
-    return transition(
+    return _to_export(
         work_dir,
         state,
-        "export",
+        version,
         mutate=lambda current: _manual_review(current, "incomplete_review", version),
         banners=[("client_readiness_reviewer_failed", {})],
     )
+
+
+# --- D-211: the open majors at the last reader -----------------------------
+
+
+def prepolish_path(version: int) -> str:
+    """`reviews/v<N>-prepolish.md`: the draft as the polish writer found it, the baseline of D-211."""
+    return f"reviews/v{int(version)}-prepolish.md"
+
+
+def _open_majors(state: dict) -> list[dict]:
+    """The rows of `state.open_substance_majors` (D-210), the very dicts — a mutator edits them in place."""
+    return [row for row in (state.get("open_substance_majors") or []) if isinstance(row, dict)]
+
+
+def _polish_issued(state: dict) -> bool:
+    """True once the polish writer was dispatched: `attempts.client_polish` is spent with it (§2.2)."""
+    return int((state.get("attempts") or {}).get("client_polish") or 0) > 0
+
+
+def open_findings_text(state: dict) -> str:
+    """`${open_findings}` of the readiness prompt: one `id · class · section · issue · suggestion` line per row.
+
+    D-211: not gated on the draft sha, unlike `known_blockers_text` — the rows belong to the version the
+    loop left on, and the second pass after the polish needs them all the more. Once the polish was
+    issued, each loop row carries its status; a re-check row is marked as information only.
+    """
+    rows = _open_majors(state)
+    if not rows:
+        return OPEN_FINDINGS_NONE
+    polished = _polish_issued(state)
+    lines = []
+    for row in rows:
+        parts = [
+            " ".join(str(row.get(field) or "").split())
+            for field in ("id", "class", "section_id", "issue", "suggestion")
+        ]
+        line = "- " + " · ".join(part for part in parts if part)
+        if row.get("origin") == "recheck":
+            line += f" · {OPEN_FINDINGS_RECHECK}"
+        elif polished:
+            line += f" · status: {row.get('status')}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _unique_by_id(rows: object, field: str) -> dict[str, str]:
+    """`id -> row[field]` for the rows whose `id` occurs exactly once (D-211).
+
+    Two rows for one id contradict each other or say nothing new; either way neither is read, whatever
+    their order — the id falls back to what a missing row means. The other ids stay usable.
+    """
+    items = [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+    counts: dict[str, int] = {}
+    for row in items:
+        counts[str(row.get("id"))] = counts.get(str(row.get("id")), 0) + 1
+    return {str(row.get("id")): str(row.get(field)) for row in items if counts[str(row.get("id"))] == 1}
+
+
+def _apply_dispositions(current: dict, document: dict) -> None:
+    """D-211 pass 1: `manual_review` and `leave` settle a loop row at once; `polish` keeps it `open`.
+
+    A missing disposition, a duplicated id, or an action outside the row's class (`leave` on
+    `citations`, `manual_review` on `logic`) counts as the class default.
+    """
+    given = _unique_by_id(document.get("dispositions"), "action")
+    for row in _open_majors(current):
+        if row.get("origin") != "loop" or row.get("status") != "open":
+            continue
+        klass = str(row.get("class") or "")
+        action = given.get(str(row.get("id")))
+        if action not in DISPOSITION_ACTIONS.get(klass, ()):
+            action = DISPOSITION_DEFAULTS.get(klass, "leave")
+        if action in DISPOSITION_STATUS:
+            row["status"] = DISPOSITION_STATUS[action]
+
+
+def _owned_lines(document: dict) -> dict[str, list[str]]:
+    """Every line of a parsed draft under the innermost section holding it; a heading owns itself."""
+    owned: dict[str, list[str]] = {}
+    for number, line in enumerate(document["lines"], start=1):
+        owned.setdefault(lint.section_of(document, number) or PREAMBLE_SECTION, []).append(line)
+    return owned
+
+
+def _changed_sections(before: dict, after: dict) -> list[str]:
+    """The sections whose own lines differ between two parsed drafts, in the order of `after`."""
+    old, new = _owned_lines(before), _owned_lines(after)
+    order = list(new) + [section_id for section_id in old if section_id not in new]
+    return [section_id for section_id in order if old.get(section_id) != new.get(section_id)]
+
+
+def _subtree(documents: tuple, roots: set[str]) -> set[str]:
+    """`roots` plus every section below one of them, in any of the parsed drafts."""
+    found = set(roots)
+    for document in documents:
+        parents = {section["section_id"]: section.get("parent") for section in document["sections"]}
+        for section_id in parents:
+            seen: set[str] = set()
+            node = parents.get(section_id)
+            while node and node not in seen:
+                if node in roots:
+                    found.add(section_id)
+                    break
+                seen.add(node)
+                node = parents.get(node)
+    return found
+
+
+def _source_ids(document: dict, section_id: str) -> set[str]:
+    """The `[[src:]]` ids on the own lines of one section."""
+    return {
+        str(token["id"])
+        for token in document["src_tokens"]
+        if (token.get("section_id") or PREAMBLE_SECTION) == section_id
+    }
+
+
+def _parse_pair(before: str, after: str, language: str) -> tuple[dict, dict]:
+    """Both drafts under the memo language's grammar: English would give «Резюме» no `kind` at all."""
+    grammar = lint.grammar(language)
+    return lint.parse_draft(before, grammar), lint.parse_draft(after, grammar)
+
+
+def polish_scope_errors(
+    before: str, after: str, allowed: set[str] | None, *, language: str = i18n.DEFAULT
+) -> list[str]:
+    """D-211: what a polish changed outside its instructions, on non-overlapping section content.
+
+    `allowed` — the section ids of the readiness issues — widens to their descendants and to the
+    `executive_summary`/`conclusion`/`recommendations` sections the writer keeps in step; `None` (a
+    `document` issue) lifts the section restriction. A changed section whose `[[src:]]` id set grew is
+    an error in every case: a polish withdraws or softens, it never brings a new authority.
+    """
+    old, new = _parse_pair(before, after, language)
+    permitted: set[str] | None = None
+    if allowed is not None:
+        permitted = _subtree((old, new), {str(section_id) for section_id in allowed})
+        permitted |= {
+            section["section_id"]
+            for document in (old, new)
+            for section in document["sections"]
+            if section.get("kind") in CROSS_REFERENCE_KINDS
+        }
+    errors: list[str] = []
+    for section_id in _changed_sections(old, new):
+        if permitted is not None and section_id not in permitted:
+            errors.append(f"section_out_of_scope: {section_id}")
+        added = sorted(_source_ids(new, section_id) - _source_ids(old, section_id))
+        if added:
+            errors.append(f"new_source_token: {section_id}: {', '.join(added)}")
+    return errors
+
+
+def _held_rows(rows: list[dict], documents: tuple, changed: list[str]) -> list[dict]:
+    """The `polish` rows (loop, still `open`) that a changed section holds.
+
+    A row is held by its own section and every descendant; a `document` row by any changed section.
+    """
+    if not changed:
+        return []
+    held = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("origin") != "loop" or row.get("status") != "open":
+            continue
+        section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
+        if section_id == WHOLE_DOCUMENT or _subtree(documents, {section_id}) & set(changed):
+            held.append(row)
+    return held
+
+
+def polished_findings(rows: list[dict], before: str, after: str, *, language: str = i18n.DEFAULT) -> list[dict]:
+    """D-211: the `polish` rows the polish touched — the findings its citations re-check is about."""
+    documents = _parse_pair(before, after, language)
+    return _held_rows(rows, documents, _changed_sections(*documents))
+
+
+BASELINE_UNAVAILABLE = "baseline_unavailable"
+DRAFT_UNAVAILABLE = "draft_unavailable"
+"""D-211: the `polish_check` errors of a scope check that could not read its inputs — a failed check."""
+
+
+def _published_text(work_dir: Path, state: dict, path: str) -> str | None:
+    """The text of a canonical file `published[]` vouches for, or None: unpublished, missing or drifted."""
+    if stepctx.published_entry(state, path) is None:
+        return None
+    try:
+        return str(stepctx.read_published(work_dir, path, state=state))
+    except (stepctx.OutputModifiedAfterPublish, OSError, ValueError):
+        return None
+
+
+def _polish_inputs(work_dir: Path, state: dict, draft: str, version: int) -> tuple[tuple[str, str] | None, str | None]:
+    """`((baseline, current draft), None)`, or `(None, <the error>)` when one cannot be read as published."""
+    before = _published_text(work_dir, state, prepolish_path(version))
+    if before is None:
+        return None, BASELINE_UNAVAILABLE
+    after = _published_text(work_dir, state, draft)
+    if after is None:
+        return None, DRAFT_UNAVAILABLE
+    return (before, after), None
+
+
+def _polish_texts(work_dir: Path, state: dict, draft: str, version: int) -> tuple[str, str] | None:
+    """The published baseline and the current draft, or None when either cannot be read as published."""
+    return _polish_inputs(work_dir, state, draft, version)[0]
+
+
+def _publish_baseline(work_dir: Path, state: dict, draft: str, version: int, step_id: str) -> dict:
+    """D-211 step 2: the `published[]` entry of the baseline, written with the polish dispatch.
+
+    Idempotent: bytes the file already holds are not rewritten. It is never replaced once the polish
+    step exists — the polish is issued once — and every later reader takes the published copy.
+    """
+    canonical = prepolish_path(version)
+    payload = (work_dir / draft).read_bytes()
+    sha = state_io.sha256_bytes(payload)
+    target = work_dir / canonical
+    if target.is_file() and state_io.sha256_file(target) == sha:
+        return {"canonical_path": canonical, "sha256": sha, "by": "command", "step_id": step_id, "at": events.utc_now()}
+    return stepctx.publish_file(work_dir, draft, canonical, by="command", step_id=step_id)
+
+
+def _polish_step(state: dict) -> dict | None:
+    """The polish writer: the first `memo-writer` dispatch of the `client_readiness` episode."""
+    return next((row for row in episode(state) if purpose(row) == "dispatch:memo-writer"), None)
+
+
+def _polish_allowed(work_dir: Path, state: dict) -> set[str] | None:
+    """The sections of the pass-1 readiness issues the polish executed; None once one is `document`."""
+    issues = [issue for issue in (_client_verdict(work_dir, state).get("issues") or []) if isinstance(issue, dict)]
+    sections = {str(issue.get("section_id") or "") for issue in issues}
+    return None if WHOLE_DOCUMENT in sections else sections - {""}
+
+
+def _check_polish_scope(work_dir: Path, state: dict, draft: str, version: int) -> dict | None:
+    """D-211 step 3: the scope check of the polish output, once, before its lint round.
+
+    The first entry after the polish writer stores `polish_check` and plans again, so a re-entry —
+    the lint-fix writer's included — never recomputes it; the lint fix edits lint positions only and
+    stays outside the check by construction. A stored error leads to `_polish_out_of_scope`. A
+    baseline or a draft that cannot be read as published is a failed check, never a skipped one.
+    """
+    if not _open_majors(state) or _polish_step(state) is None:
+        return None
+    check = state.get("polish_check")
+    if not isinstance(check, dict):
+        texts, missing = _polish_inputs(work_dir, state, draft, version)
+        errors = (
+            [str(missing)]
+            if texts is None
+            else polish_scope_errors(
+                texts[0], texts[1], _polish_allowed(work_dir, state), language=md_fallback.memo_language(state)
+            )
+        )
+        return _store_polish_check(work_dir, state, errors)
+    if check.get("errors"):
+        return _polish_out_of_scope(work_dir, state, draft, version)
+    return None
+
+
+def _store_polish_check(work_dir: Path, state: dict, errors: list[str]) -> dict:
+    """Write `state.polish_check` for the current draft sha and plan again on the fresh state (D-211)."""
+    record = {"draft_sha": str(current_draft_sha(state) or ""), "errors": list(errors)}
+
+    def mutator(current: dict) -> None:
+        current["polish_check"] = record
+
+    state_io.write_state(work_dir, mutator)
+    return {"transition": str(state.get("current_phase"))}
+
+
+def _require_manual_review(current: dict, reasons: list[str], version: int) -> None:
+    """D-211: an approved, accepted or `client_ready` status — or none — becomes `manual_review_required_on_v<N>`.
+
+    Any other label (a forced exit, a manual review) is kept; either way the reasons are added once.
+    """
+    status = str(current.get("final_status") or "")
+    family, _ = md_fallback.status_family(status)
+    if not status or family in APPROVED_FAMILIES:
+        current["final_status"] = f"manual_review_required_on_v{max(int(version), 1)}"
+    for reason in reasons:
+        if reason not in current.setdefault("final_status_reasons", []):
+            current["final_status_reasons"].append(reason)
+
+
+def _reviewed_version(work_dir: Path, state: dict) -> tuple[int, str] | None:
+    """The last `draft_versions[]` row whose bytes on disk the review loop reviewed (`iterations[].draft_sha`)."""
+    reviewed = {
+        str(row.get("draft_sha"))
+        for row in (state.get("iterations") or [])
+        if isinstance(row, dict) and row.get("draft_sha")
+    }
+    rows = [row for row in (state.get("draft_versions") or []) if isinstance(row, dict) and row.get("path")]
+    for row in sorted(rows, key=lambda item: int(item.get("version") or 0), reverse=True):
+        path = work_dir / str(row["path"])
+        if path.is_file():
+            sha = state_io.sha256_file(path)
+            if sha in reviewed:
+                return int(row.get("version") or 1), sha
+    return None
+
+
+def _scope_inputs_lost(work_dir: Path, state: dict, draft: str, version: int) -> dict:
+    """D-211: a failed scope check with no baseline to put back — the same exit, reason `polish_out_of_scope`.
+
+    The pin names the last version whose bytes the review loop reviewed and that are still on disk.
+    With none, there is no pin: `export` makes its ordinary choice (the last version whose checks
+    passed on its current bytes, else the last version — the polished draft itself), under manual review.
+    """
+    fallback = _reviewed_version(work_dir, state)
+    row = next((item for item in (state.get("draft_versions") or []) if item.get("path") == draft), None)
+    label = fallback[0] if fallback is not None else (int(row["version"]) if row is not None else int(version))
+
+    def fail(current: dict) -> None:
+        if fallback is not None:
+            current["export_pin"] = {"version": fallback[0], "sha256": fallback[1]}
+        _require_manual_review(current, [POLISH_OUT_OF_SCOPE_REASON], label)
+
+    return _to_export(work_dir, state, version, mutate=fail)
+
+
+def _polish_out_of_scope(work_dir: Path, state: dict, draft: str, version: int) -> dict:
+    """D-211: the baseline goes back onto the polished canonical, and the run leaves for `export` pinned to it.
+
+    One state write: the republication, the re-aligned `draft_versions[]` row of that path (the
+    computation `sync_draft_versions` makes, which only runs at the top of `mf next`), the pin, the
+    manual review of that version (an existing non-approved label is kept) and the settlement. The
+    pin makes `export_draft_sha` name exactly these bytes even when an earlier version is the last one
+    checked clean. Without a readable baseline, `_scope_inputs_lost` takes the same exit.
+    """
+    if _published_text(work_dir, state, prepolish_path(version)) is None:
+        return _scope_inputs_lost(work_dir, state, draft, version)
+    polish = _polish_step(state)
+    entry = stepctx.publish_file(
+        work_dir,
+        prepolish_path(version),
+        draft,
+        by="command",
+        step_id=str(polish["step_id"]) if polish is not None else None,
+    )
+    sha = str(entry["sha256"])
+    flags = {
+        field: bool((report_for_draft(work_dir, state, DETERMINISTIC_REPORTS[key], sha) or {}).get("clean"))
+        for field, key in (("lint_clean", "draft.lint"), ("citations_clean", "draft.audit-citations"))
+    }
+    row = next((item for item in (state.get("draft_versions") or []) if item.get("path") == draft), None)
+    pinned = int(row["version"]) if row is not None else int(version)
+
+    def revert(current: dict) -> None:
+        stepctx.merge_published(current, [entry])
+        current["current_draft_sha"] = sha
+        for item in current.get("draft_versions") or []:
+            if item.get("path") == draft:
+                item["sha256"] = sha
+                item.update(flags)
+                item["checked_at"] = events.utc_now() if any(flags.values()) else None
+        current["export_pin"] = {"version": pinned, "sha256": sha}
+        _require_manual_review(current, [POLISH_OUT_OF_SCOPE_REASON], pinned)
+
+    return _to_export(work_dir, state, version, mutate=revert)
+
+
+def _polish_recheck_steps(state: dict, version: int) -> list[str]:
+    """The step ids that dispatched the polish re-check of `version`, counted by its canonical path."""
+    target = review.review_path(int(version), POLISH_RECHECK)
+    found: list[str] = []
+    for row in state.get("steps") or []:
+        if not isinstance(row, dict) or str(row.get("step_id")) in found:
+            continue
+        if any(
+            str(entry.get("canonical_path") or entry.get("canonical") or "") == target
+            for entry in (row.get("expected_outputs") or [])
+        ):
+            found.append(str(row.get("step_id")))
+    return found
+
+
+def _recheck_scope(rows: list[dict], changed: list[str]) -> str:
+    """`${recheck_scope}`: the sections to grade and the findings that were polished there."""
+    sections: list[str] = []
+    for row in rows:
+        section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
+        for candidate in changed if section_id == WHOLE_DOCUMENT else [section_id]:
+            if candidate not in sections:
+                sections.append(candidate)
+    sections.sort(key=review._section_order)  # noqa: SLF001 - the document order D-210 sorts rows by
+    findings = "; ".join(
+        f"{row.get('id')} · {row.get('class')} · {' '.join(str(row.get('issue') or '').split())}" for row in rows
+    )
+    return (
+        f"Scope: sections {', '.join(sections)}; the open findings {findings} were polished. "
+        "Grade CIT-01/02/04 on these sections. Record one `resolutions` row per listed id."
+    )
+
+
+def _dispatch_polish_recheck(work_dir: Path, state: dict, draft: str, version: int) -> dict | None:
+    """D-211 step 4: the one citations re-check of a polish that changed a section holding a `polish` row.
+
+    Class-independent: a softened `logic` or `counterarguments` sentence can still state law. The slot
+    and path are `citations_polish`, so `failure_retry_attempts(…, "citations_polish")` and the
+    `<N>:citations_polish` key of `reviewer_json_retry` carry its retries and leave `<N>:citations` alone.
+    """
+    rows = _open_majors(state)
+    if not rows or not _polish_issued(state):
+        return None
+    if len(_polish_recheck_steps(state, version)) >= limits.MAX_POLISH_RECHECK:
+        return None
+    if not any(row.get("origin") == "loop" and row.get("status") == "open" for row in rows):
+        return None  # no `polish` row: nothing for a re-check to judge
+    texts, missing = _polish_inputs(work_dir, state, draft, version)
+    if texts is None:
+        # A scope input lost after the scope check fails that check: the stored error takes the exit.
+        return _store_polish_check(work_dir, state, [str(missing)])
+    documents = _parse_pair(texts[0], texts[1], md_fallback.memo_language(state))
+    changed = _changed_sections(*documents)
+    polished = _held_rows(rows, documents, changed)
+    if not polished:
+        return None
+    base = reviewer_specs(work_dir, state, ["citations"], version)[0]
+    extra = dict(base["extra"], recheck_scope=_recheck_scope(polished, changed))
+    spec = dispatch.spec(
+        POLISH_RECHECK,
+        base["agent"],
+        f"citations re-check v{version}",
+        [(review.review_path(version, POLISH_RECHECK), "review")],
+        inputs=list(base["inputs"]),
+        **extra,
+    )
+    return issue_dispatch(work_dir, state, [spec], chat=_chat(state, "re-checking the polished findings"))
+
+
+def _polish_recheck(work_dir: Path, state: dict, version: int) -> dict:
+    """D-211 step 5: what the closed re-check says, read against the post-polish draft sha.
+
+    `blockers` are kept from every re-check that is published, not a stub, schema-valid and for this
+    sha — `downgraded` or not, the synthetic `unverified_hard_fail` blocker included. `usable` gates
+    only `resolutions`: a valid, not downgraded re-check with no `unverified_hard_fail` issue and no
+    `document` blocker. `majors` become the `origin: recheck` rows.
+    """
+    outcome: dict = {"ran": False, "usable": False, "resolutions": {}, "blockers": [], "majors": []}
+    if not _polish_recheck_steps(state, version):
+        return outcome
+    outcome["ran"] = True
+    sha = str(current_draft_sha(state) or "")
+    result = review.read_polish_recheck(work_dir, state, version, sha)
+    document = result.get("document")
+    if (
+        not isinstance(document, dict)
+        or result.get("stub")
+        or str(document.get("draft_sha") or "") != sha
+        or schema.validate(document, "review")
+    ):
+        return outcome
+    issues = [issue for issue in (document.get("issues") or []) if isinstance(issue, dict)]
+    outcome["blockers"] = [dict(issue) for issue in issues if issue.get("severity") == "blocker"]
+    outcome["majors"] = [dict(issue) for issue in issues if issue.get("severity") == "major"]
+    outcome["usable"] = (
+        bool(result.get("valid"))
+        and not result.get("downgraded")
+        and not any(issue.get("category") == review.UNVERIFIED_HARD_FAIL for issue in issues)
+        and not any(str(issue.get("section_id")) == WHOLE_DOCUMENT for issue in outcome["blockers"])
+    )
+    if outcome["usable"]:
+        # A duplicated id resolves nothing, whatever the order of its rows; the other ids stand.
+        outcome["resolutions"] = _unique_by_id(document.get("resolutions"), "status")
+    return outcome
+
+
+def _recheck_row(issue: dict, number: int, version: int) -> dict:
+    """A new major of the re-check as an `origin: recheck` row: `summary.md` only, never a disposition."""
+    return {
+        "id": f"om-{number}",
+        "class": "citations",
+        "reviewer": "citations",
+        "section_id": str(issue.get("section_id") or WHOLE_DOCUMENT),
+        "category": str(issue.get("category") or ""),
+        "issue_category": issue.get("issue_category"),
+        "issue": str(issue.get("issue") or ""),
+        "issue_client": issue.get("issue_client"),
+        "suggestion": str(issue.get("suggestion") or ""),
+        "from_iteration": max(int(version), 1),
+        "origin": "recheck",
+        "status": "open",
+    }
+
+
+def _row_number(row: dict) -> int:
+    text = str(row.get("id") or "")
+    return int(text[3:]) if text.startswith("om-") and text[3:].isdigit() else 0
+
+
+def _rows_after_polish(work_dir: Path, state: dict, draft: str, version: int) -> list[dict]:
+    """D-211 steps 5-6: the rows readiness pass 2 sees — every `polish` row settled, re-check majors added.
+
+    A `polish` row is `resolved` only when the polish touched it, the re-check is usable, its
+    `resolutions` marks the row `resolved`, and no re-check blocker sits in the row's section or below
+    it (anywhere, for a `document` row); otherwise it is `unresolved`.
+    """
+    rows = copy.deepcopy(_open_majors(state))
+    outcome = _polish_recheck(work_dir, state, version)
+    texts = _polish_texts(work_dir, state, draft, version) if outcome["ran"] else None
+    documents: tuple = ()
+    listed: set[str] = set()
+    if texts is not None:
+        documents = _parse_pair(texts[0], texts[1], md_fallback.memo_language(state))
+        listed = {str(row.get("id")) for row in _held_rows(rows, documents, _changed_sections(*documents))}
+    for row in rows:
+        if row.get("origin") != "loop" or row.get("status") != "open":
+            continue
+        section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
+        scope = _subtree(documents, {section_id})
+        blocked = any(
+            section_id == WHOLE_DOCUMENT or str(blocker.get("section_id")) in scope for blocker in outcome["blockers"]
+        )
+        resolved = (
+            str(row.get("id")) in listed
+            and outcome["usable"]
+            and outcome["resolutions"].get(str(row.get("id"))) == "resolved"
+            and not blocked
+        )
+        row["status"] = "resolved" if resolved else "unresolved"
+    if outcome["majors"] and not any(row.get("origin") == "recheck" for row in rows):
+        number = max((_row_number(row) for row in rows), default=0)
+        for issue in outcome["majors"]:
+            number += 1
+            rows.append(_recheck_row(issue, number, version))
+    return rows
+
+
+def _moved_finding(row: dict) -> dict:
+    """A settled `citations` row as a `remaining_blocking_issues[]` entry: `severity: major`, its client sentence."""
+    entry = {
+        "severity": "major",
+        "category": str(row.get("category") or ""),
+        "section_id": str(row.get("section_id") or WHOLE_DOCUMENT),
+        "issue": str(row.get("issue") or ""),
+        "suggestion": str(row.get("suggestion") or ""),
+        "source_reviewer": str(row.get("reviewer") or "citations"),
+    }
+    for field in ("issue_category", "issue_client"):
+        if row.get(field):
+            entry[field] = row[field]
+    return entry
+
+
+def _settle_open_majors(current: dict, blockers: list[dict], version: int) -> None:
+    """D-211 step 7: the open majors at the transition to `export`, inside that very state write.
+
+    A loop row still `open` had no completed polish with a usable re-check, so it is `unresolved`.
+    Every loop `citations` row left `manual_review` or `unresolved` joins `remaining_blocking_issues`
+    (reason `open_substance_majors`), and so does every re-check blocker as the reviewer wrote it
+    (reason `polish_recheck_blocker`). If anything joined, an approved, accepted or `client_ready`
+    status becomes `manual_review_required_on_v<its version>`; a forced exit or a manual review keeps
+    its label and only gains the reasons. `logic`/`counterarguments` rows and `origin: recheck` rows
+    stay for `summary.md` and never change the status. An empty list changes nothing.
+    """
+    rows = _open_majors(current)
+    if not rows and not blockers:
+        return
+    for row in rows:
+        if row.get("origin") == "loop" and row.get("status") == "open":
+            row["status"] = "unresolved"
+    remaining = current.setdefault("remaining_blocking_issues", [])
+    reasons: list[str] = []
+    moved = [
+        _moved_finding(row)
+        for row in rows
+        if row.get("origin") == "loop"
+        and row.get("class") == "citations"
+        and row.get("status") in ("manual_review", "unresolved")
+    ]
+    for group, reason in ((moved, OPEN_MAJORS_REASON), ([dict(row) for row in blockers], RECHECK_BLOCKER_REASON)):
+        for entry in group:
+            if entry not in remaining:
+                remaining.append(entry)
+        if group:
+            reasons.append(reason)
+    if not reasons:
+        return
+    _, number = md_fallback.status_family(str(current.get("final_status") or ""))
+    _require_manual_review(current, reasons, int(number) if number else version)
+
+
+def _settle_on_cancel(work_dir: Path, state: dict) -> None:
+    """D-211: a run cancelled inside `client_readiness` settles its open majors before `finalize` renders.
+
+    The same rows the second pass and the transition to `export` would settle — `polish` rows judged
+    against the re-check, re-check blockers kept — so a cancelled run never delivers an approval the
+    settlement would have withdrawn. Idempotent: an unchanged state is not written again.
+
+    A published polish is scope-checked first, by the planner's own `_check_polish_scope`: an unchecked
+    one is checked and stored, and a stored error takes the scope-error exit — baseline restored, export
+    pinned, `polish_out_of_scope`, settlement — in that exit's one write. No agent is dispatched, so the
+    re-check never runs on a cancel.
+    """
+    if str(state.get("current_phase")) != "client_readiness" or not _open_majors(state):
+        return
+    version = max(int(state.get("current_iteration") or 1), 1)
+    draft = str(state.get("current_draft_path") or f"{DRAFTS_DIR}/v{version}.md")
+    for _ in range(2):  # the first call may only store the check; the second acts on a stored error
+        if _check_polish_scope(work_dir, state, draft, version) is None:
+            break
+        state = state_io.read_state(work_dir)
+        if str(state.get("current_phase")) != "client_readiness":
+            return  # the scope-error exit restored the baseline, pinned the export and settled the majors
+    rows = _rows_after_polish(work_dir, state, draft, version) if _polish_issued(state) else None
+    blockers = _polish_recheck(work_dir, state, version)["blockers"]
+
+    def settle(current: dict) -> None:
+        if rows is not None:
+            current["open_substance_majors"] = copy.deepcopy(rows)
+        _settle_open_majors(current, blockers, version)
+
+    probe = copy.deepcopy(state)
+    settle(probe)
+    if probe != state:
+        state_io.write_state(work_dir, settle)
+
+
+def _to_export(work_dir: Path, state: dict, version: int, *, mutate=None, banners=()) -> dict:
+    """Every exit of `client_readiness` to `export`: the phase's own mutation, then the settlement (D-211).
+
+    With no open majors the settlement is a no-op and the write is what it always was.
+    """
+    blockers = _polish_recheck(work_dir, state, version)["blockers"] if _open_majors(state) else []
+
+    def settled(current: dict) -> None:
+        if mutate is not None:
+            mutate(current)
+        _settle_open_majors(current, blockers, version)
+
+    return transition(work_dir, state, "export", mutate=settled, banners=banners)
 
 
 def _writer_failed_exit(work_dir: Path, state: dict, iteration: int) -> dict:
@@ -3904,6 +4583,8 @@ def _writer_failed_exit(work_dir: Path, state: dict, iteration: int) -> dict:
             ]
         if record is not None:
             current["remaining_blocking_issues"] = revision._blockers(record)  # noqa: SLF001 - same rule as the loop exit
+        # D-210: the export delivers v<N>, so the majors its reviewers left open travel with it.
+        current["open_substance_majors"] = review.open_substance_majors(current, previous)
         _manual_review(current, "writer_failed", previous)
 
     return transition(work_dir, state, "export", mutate=mutate, banners=[("revision_writer_failed", {})])
@@ -3916,22 +4597,32 @@ def _manual_review(current: dict, reason: str, version: int) -> None:
 
 
 def _after_client_write(work_dir: Path, state: dict, draft: str, version: int) -> dict:
-    """§2.1 row 14 / D-57: lint + citations on the new bytes, one fix round, then the reviewer again."""
+    """§2.1 row 14 / D-57: lint + citations on the new bytes, one fix round, then the reviewer again.
+
+    D-211: with open majors the polish output is first checked for scope, and a clean draft goes
+    through the one citations re-check before the second readiness pass.
+    """
+    step = _check_polish_scope(work_dir, state, draft, version)
+    if step is not None:
+        return step
     step = _lint_steps(work_dir, state, draft, "client_readiness")
     if step is not None:
         return step
     lint_clean, citations_clean = _draft_checks(work_dir, state)
     if lint_clean and citations_clean:
+        step = _dispatch_polish_recheck(work_dir, state, draft, version)
+        if step is not None:
+            return step
         return _dispatch_readiness(work_dir, state, draft, version)
     step = lint_fix_dispatch(
         work_dir, state, draft=draft, version=version, counter="polish", rounds=POLISH_FIX_ROUNDS
     )
     if step is not None:
         return step
-    return transition(
+    return _to_export(
         work_dir,
         state,
-        "export",
+        version,
         mutate=lambda current: _manual_review(current, "unresolved_blockers", version),
         banners=[("client_polish_budget_consumed", {})],
     )
@@ -3952,6 +4643,10 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
         # §2.1 row 14: the polish (and the one fix round it may need) is re-checked on the new
         # bytes; only a draft that passes both checks goes back to the readiness reviewer.
         return _after_client_write(work_dir, state, draft, version)
+    if key == "dispatch:citation-auditor":
+        # D-211: the polish re-check, `ok` or `fail`, is read by the second readiness pass — never
+        # by the generic branch below, which would degrade the run for a failed re-check.
+        return _dispatch_readiness(work_dir, state, draft, version)
 
     if last.get("status") == "fail":
         return _readiness_degraded(work_dir, state, version)
@@ -3965,6 +4660,7 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
             return _dispatch_readiness(work_dir, state, draft, version)
         return _readiness_degraded(work_dir, state, version)
     verdict = str(document.get("verdict") or "manual_review_required")
+    used = int((state.get("attempts") or {}).get("client_polish") or 0)
 
     def store(current: dict) -> None:
         current["client_readiness"] = {
@@ -3973,6 +4669,9 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
             "version_reviewed": version,
             "at": events.utc_now(),
         }
+        if used == 0:
+            # D-211: the dispositions of pass 1 are read; the second pass is "as today".
+            _apply_dispositions(current, document)
 
     if verdict == "client_ready":
         def ready(current: dict) -> None:
@@ -3980,8 +4679,7 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
             if not current.get("final_status"):
                 current["final_status"] = f"client_ready_on_v{version}"
 
-        return transition(work_dir, state, "export", mutate=ready)
-    used = int((state.get("attempts") or {}).get("client_polish") or 0)
+        return _to_export(work_dir, state, version, mutate=ready)
     allowed = int(config.get("max_client_polish") or 0)
     if verdict == "needs_final_polish" and used < allowed:
         spec = writer_spec(
@@ -3993,16 +4691,22 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
             instructions=f"`{CLIENT_READINESS_PATH}` - the `issues[]` list, section by section",
             seed=True,
         )
+        step_id = next_step_id(state)
+        # D-211: the baseline of the scope check and of the re-check, published with the polish step.
+        baseline = _publish_baseline(work_dir, state, draft, version, step_id) if _open_majors(state) else None
 
         def mutate(current: dict) -> None:
             store(current)
             current.setdefault("attempts", {})["client_polish"] = used + 1
+            if baseline is not None:
+                stepctx.merge_published(current, [baseline])
 
         return issue_dispatch(
             work_dir,
             state,
             [spec],
             chat=_chat(state, "final polish"),
+            step_id=step_id,
             seeds={"writer": draft},
             mutate=mutate,
         )
@@ -4011,10 +4715,10 @@ def plan_client_readiness(work_dir: Path, state: dict) -> dict:
         store(current)
         _manual_review(current, "unresolved_blockers", version)
 
-    return transition(
+    return _to_export(
         work_dir,
         state,
-        "export",
+        version,
         mutate=manual,
         banners=[("client_readiness_manual_review", {})],
     )
@@ -4060,9 +4764,24 @@ def known_blockers_text(state: dict, draft_sha: str) -> str:
 
 
 def _dispatch_readiness(work_dir: Path, state: dict, draft: str, version: int) -> dict:
+    """The readiness reviewer; D-211: with the open majors, and after the polish with their statuses.
+
+    Once the polish was issued, the rows are settled for the second pass in the dispatch's own state
+    write: every `polish` row `resolved` or `unresolved`, the re-check's new majors appended.
+    """
     config = state.get("config") or {}
     used = int((state.get("attempts") or {}).get("client_polish") or 0)
     draft_sha = str(current_draft_sha(state) or "")
+    extra: dict = {}
+    rows: list[dict] | None = None
+    if _open_majors(state):
+        if used > 0:
+            rows = _rows_after_polish(work_dir, state, draft, version)
+        extra["open_findings"] = open_findings_text(state if rows is None else dict(state, open_substance_majors=rows))
+
+    def settle_rows(current: dict) -> None:
+        current["open_substance_majors"] = rows
+
     spec = dispatch.spec(
         "client_readiness",
         "client-readiness-reviewer",
@@ -4076,12 +4795,26 @@ def _dispatch_readiness(work_dir: Path, state: dict, draft: str, version: int) -
         polish_budget=str(max(int(config.get("max_client_polish") or 0) - used, 0)),
         known_blockers=known_blockers_text(state, draft_sha),
         retry_errors="none",
+        **extra,
     )
-    return issue_dispatch(work_dir, state, [spec], chat=_chat(state, "final delivery review"))
+    return issue_dispatch(
+        work_dir,
+        state,
+        [spec],
+        chat=_chat(state, "final delivery review"),
+        mutate=settle_rows if rows is not None else None,
+    )
 
 
 def export_draft_sha(state: dict) -> tuple[str | None, int]:
-    """Last version that passed lint and citations; `no_checked_draft` when there is none (§2.1 row 15)."""
+    """Last version that passed lint and citations; `no_checked_draft` when there is none (§2.1 row 15).
+
+    D-211: `export_pin` comes first, whatever the check flags say — an out-of-scope polish put its
+    baseline back, and the exported bytes and the version the status names must be those.
+    """
+    pin = state.get("export_pin")
+    if isinstance(pin, dict) and pin.get("sha256"):
+        return str(pin["sha256"]), max(int(pin.get("version") or 1), 1)
     checked = [
         row
         for row in (state.get("draft_versions") or [])
@@ -4103,16 +4836,18 @@ def export_inputs(work_dir: Path, state: dict, sha: str | None) -> tuple:
     Render reads the selected draft and validates its own output in the same step (D-117), so the
     draft is the whole input. It is recorded when the step is issued, so an unchanged export is
     never re-issued as a `rerun` and the phase walks on to `finalize` (M9).
+
+    D-211: when `sha` is the pinned one, the pinned version's row wins over an older one with the same bytes.
     """
-    draft = next(
-        (
-            str(row.get("path"))
-            for row in (state.get("draft_versions") or [])
-            if isinstance(row, dict) and row.get("path") and str(row.get("sha256")) == str(sha)
-        ),
-        str(state.get("current_draft_path") or ""),
-    )
-    return (draft,)
+    rows = [
+        row
+        for row in (state.get("draft_versions") or [])
+        if isinstance(row, dict) and row.get("path") and str(row.get("sha256")) == str(sha)
+    ]
+    pin = state.get("export_pin")
+    if isinstance(pin, dict) and str(pin.get("sha256")) == str(sha):
+        rows = [row for row in rows if int(row.get("version") or 0) == int(pin.get("version") or 0)] + rows
+    return (str(rows[0]["path"]) if rows else str(state.get("current_draft_path") or ""),)
 
 
 def plan_export(work_dir: Path, state: dict) -> dict:
@@ -4392,7 +5127,10 @@ def _next_action(work_dir: Path) -> dict:
         if phases.is_terminal(str(state.get("current_phase"))):
             return terminal_response(work_dir, state)
         if state.get("cancel_requested"):
-            # §2.4 (d): no new dispatch or script steps except the always-deliver finalize.
+            # §2.4 (d): no new dispatch or script steps except the always-deliver finalize. D-211: a
+            # cancelled readiness step settles its open majors first, as its exit to `export` would.
+            _settle_on_cancel(work_dir, state)
+            state = state_io.read_state(work_dir)
             step = finalize_step(work_dir, state, None)
             if step is not None:
                 return step

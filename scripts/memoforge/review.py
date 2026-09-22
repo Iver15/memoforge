@@ -14,6 +14,13 @@ REVIEWER_KINDS: tuple[str, ...] = ("logic", "form", "citations", "counterargumen
 CLIENT_READINESS_KIND = "client-readiness"
 KINDS: tuple[str, ...] = REVIEWER_KINDS + (CLIENT_READINESS_KIND,)
 
+POLISH_RECHECK = "citations_polish"
+"""D-211: slot and path name of the one `citations` re-check of the final polish — never a kind.
+
+It is validated as `citations` against `lib/checklists/citations.json`; adding it to `KINDS` would
+send `checklist_path` looking for a checklist of its own.
+"""
+
 DETERMINISTIC = "deterministic"
 """Source label of lint/citations blockers folded into the issue set (§4.5 п.3)."""
 
@@ -517,8 +524,16 @@ def _stub_document(kind: str, reason: str, iteration: int, draft_sha: str | None
     return stub
 
 
-def _read_review(work_dir: Path, state: dict, iteration: int, kind: str, draft_sha: str | None) -> dict:
-    canonical = review_path(iteration, kind)
+def _read_review(
+    work_dir: Path,
+    state: dict,
+    iteration: int,
+    kind: str,
+    draft_sha: str | None,
+    *,
+    canonical: str | None = None,
+) -> dict:
+    canonical = canonical or review_path(iteration, kind)
     if not (work_dir / canonical).is_file():
         return {"valid": False, "errors": ["missing_review_file"], "stub": False, "document": None}
     try:
@@ -529,6 +544,21 @@ def _read_review(work_dir: Path, state: dict, iteration: int, kind: str, draft_s
     if not isinstance(document, dict):
         return {"valid": False, "errors": ["review_not_an_object"], "stub": False, "document": None}
     return validate_document(kind, document, current_draft_sha=draft_sha, language=_memo_language(state))
+
+
+def read_polish_recheck(work_dir: Path, state: dict, version: int, draft_sha: str) -> dict:
+    """D-211: `reviews/v<N>-citations_polish.json`, read like a loop review and validated as `citations`.
+
+    Same shape as `_read_review`. A file `published[]` does not list is no review at all, and a drifted
+    one is answered as unusable rather than raised: the readiness step has no recovery branch for it.
+    """
+    canonical = review_path(int(version), POLISH_RECHECK)
+    if stepctx.published_entry(state, canonical) is None:
+        return {"valid": False, "errors": ["unpublished_review_file"], "stub": False, "document": None}
+    try:
+        return _read_review(work_dir, state, int(version), "citations", draft_sha, canonical=canonical)
+    except stepctx.OutputModifiedAfterPublish:
+        return {"valid": False, "errors": [stepctx.OUTPUT_MODIFIED], "stub": False, "document": None}
 
 
 def run_aggregate(args: argparse.Namespace) -> dict:
@@ -754,6 +784,73 @@ def run_mediator_from_issues(args: argparse.Namespace) -> dict:
         work_dir, args.step, args.attempt, result, args_key=args_key, published=[entry]
     )
     return result
+
+
+# --- open substantive majors at the loop exit (D-210) ----------------------
+
+OPEN_MAJOR_CLASSES: tuple[str, ...] = ("logic", "citations", "counterarguments")
+"""D-210: the substance reviewers whose open majors reach the last reader; `form` is not one of them."""
+
+
+def _section_order(section_id: object) -> list:
+    """Document order of section ids: their numbers compare as numbers, so `s-9` comes before `s-10-3`."""
+    parts = re.split(r"(\d+)", str(section_id or ""))
+    return [int(part) if index % 2 else part for index, part in enumerate(parts)]
+
+
+def open_substance_majors(state: dict, version: int) -> list[dict]:
+    """D-210: the substantive majors still open on `version`, one row per stored issue.
+
+    Only the records up to `version` count. For each class the superseding record is the latest of
+    them whose `coverage` holds it, so a class that failed later, or that a targeted pass did not
+    re-run, keeps the majors it raised last: absence from a review is not closure. A row's `class` is
+    a participant this record supersedes for, the first by `SOURCE_PRECEDENCE` (`citations` when it
+    holds); `reviewer` is the stored `source_reviewer`. Rows run by `from_iteration`, section, position.
+    """
+    from . import revision  # noqa: PLC0415 - `revision` imports this module
+
+    records = sorted(
+        (
+            row
+            for row in state.get("iterations") or []
+            if isinstance(row, dict) and 0 < int(row.get("iteration") or 0) <= int(version)
+        ),
+        key=lambda row: int(row["iteration"]),
+    )
+    superseding: dict[str, dict] = {}
+    for record in records:
+        for kind in OPEN_MAJOR_CLASSES:
+            if kind in (record.get("coverage") or []):
+                superseding[kind] = record
+
+    found: list[tuple[tuple, dict]] = []
+    for record in records:
+        owned = {kind for kind, latest in superseding.items() if latest is record}
+        if not owned:
+            continue
+        iteration = int(record["iteration"])
+        for position, issue in enumerate(record.get("issues") or []):
+            if not isinstance(issue, dict) or issue.get("severity") != "major" or issue.get("tier") != "substance":
+                continue
+            live = revision._participants(issue) & owned  # noqa: SLF001 - the loop's own participant rule
+            if not live:
+                continue
+            row = {
+                "class": next(source for source in SOURCE_PRECEDENCE if source in live),
+                "reviewer": str(issue.get("source_reviewer") or ""),
+                "section_id": str(issue.get("section_id") or UNVERIFIED_SECTION_ID),
+                "category": str(issue.get("category") or ""),
+                "issue_category": issue.get("issue_category"),
+                "issue": str(issue.get("issue") or ""),
+                "issue_client": issue.get("issue_client"),
+                "suggestion": str(issue.get("suggestion") or ""),
+                "from_iteration": iteration,
+                "origin": "loop",
+                "status": "open",
+            }
+            found.append(((iteration, _section_order(row["section_id"]), position), row))
+    found.sort(key=lambda item: item[0])
+    return [{"id": f"om-{number}", **row} for number, (_, row) in enumerate(found, start=1)]
 
 
 # --- validate (§4.5 п.2) ---------------------------------------------------

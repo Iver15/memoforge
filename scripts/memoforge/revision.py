@@ -377,6 +377,10 @@ def run_next(args: argparse.Namespace) -> dict:
                     break
         if decision["next"] == NEXT_CLIENT_READINESS:
             current["remaining_blocking_issues"] = _blockers(record)
+            # D-210: the substantive majors still open on the version the loop leaves on.
+            current["open_substance_majors"] = review.open_substance_majors(
+                current, decision.get("regression_to") or iteration
+            )
         if draft_row is not None and published is not None:
             _record_draft_version(current, draft_row)
             current["current_iteration"] = draft_row["version"]

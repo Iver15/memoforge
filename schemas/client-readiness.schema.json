@@ -26,10 +26,26 @@
     "issues": {
       "type": "array",
       "items": { "$ref": "#/$defs/issue" }
+    },
+    "dispositions": {
+      "description": "D-211: one row per open substantive finding of the review loop (`state.open_substance_majors`, `origin: loop`) listed in the prompt. Optional: a report without open findings, or written before D-211, has none.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/disposition" }
     }
   },
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "disposition": {
+      "description": "D-211: `polish` asks the polish pass to withdraw or soften the flagged statement (any class); `manual_review` hands a `citations` finding to a lawyer; `leave` keeps a `logic` or `counterarguments` finding for `summary.md`. An action the row's class does not allow counts as the class default.",
+      "type": "object",
+      "required": ["id", "action", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^om-[1-9][0-9]*$" },
+        "action": { "enum": ["polish", "manual_review", "leave"] },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
     "checklist_item": {
       "type": "object",
       "required": ["id", "pass", "evidence"],
