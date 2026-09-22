@@ -82,6 +82,10 @@ One file at the path the prompt names — your attempt's working directory; the 
 - `role` says what the finding does for its issue: `rule` for the provision or holding itself, `application` for how it was applied to comparable facts, `risk` for the exposure or sanction it creates, `background` for context that no conclusion rests on, `contrary` for authority pulling the other way.
 - `weight` describes the authority itself — `binding`, `persuasive` or `non_binding` — and is independent of how useful you found it.
 - `quote_short` is one contiguous run of at most 15 words copied verbatim from the source, or empty — no ellipses, no joins; when the passage is longer, take the shorter contiguous run that carries the point. The memo's real quotations are extracted later from the text saved for the source.
+- What a court held or applied rests on the court's own statement. A clause, a party's position or a lower court's view that the act recites is described as such, and the `quote_short` of a holding comes from the court's own words; a conclusion the text does not carry is not written as the court's.
+- Before the `--state done` log, look up the `quote_short` of every `critical` finding in its saved text with `<mf> quote locate`, as your prompt shows. On `not_found` or `ambiguous`, replace it with an exact run the answer shows, or empty it and lower `confidence`.
+- Findings about one source under different issues are read together before you finish, and they do not contradict each other.
+- A higher-court act that a finding's own `proposition` names as the basis of the court's reasoning is saved or entered in `considered_excluded` with the reason; acts the decision cites that no finding names are left alone.
 - Contrary authority is part of the job. Where an issue has a serious opposing reading, record it as a `contrary` finding with `contrary_point`, rather than leaving it for a reviewer to discover.
 - Do not interpret, do not apply the law to the user's facts, and do not write for another layer. A US case-status question in a statutes dispatch is a note in your findings, not a detour.
 

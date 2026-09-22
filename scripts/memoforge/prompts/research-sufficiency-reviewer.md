@@ -36,6 +36,14 @@ The provisions that decide each issue's risk verdict — the offence, the sancti
 liability basis — must be present in the record as findings, not only as cases that mention them;
 every provision the memo will have to state must be recorded by some layer — one that is not is a
 `missing` gap, whatever the cases say about it.
+Each right, duty or remedy a planned issue asks about needs a finding that carries the provision
+establishing it; one without such a finding is a `missing` gap for `statutes`.
+You may spot-check up to 5 `critical` case-law findings against the text saved for their source,
+one lookup each and 5 lookups at most:
+`${mf} quote locate --workdir ${work_dir} --source <source_id> --text "<quote_short>"`
+The answer shows the passage around the words. A holding you locate only in a clause the act
+recites — a contract term, a party's position, a lower court's view — and not in the court's own
+reasoning is a gap for `case_law`.
 Judge sufficiency against the layers this mode researches: a gap in any other layer is one
 sentence in `out_of_scope_gaps[]`, which the memo carries as a caveat, and not a `blocking_gaps`
 entry — this mode runs no researcher for it.

@@ -28,6 +28,13 @@ AGENT_MODELS: dict[str, dict] = {
     "style-extractor": {"model": "opus", "effort": "high"},
 }
 
+RESEARCH_LAYER_MODELS: dict[str, str] = {"case_law": "opus"}
+"""D-209: the model of a `legal-researcher` slot whose layer departs from the agent's row above.
+
+Since plan 68 the `case_law` researcher reads whole court acts and states their holdings, which is
+interpretation; `statutes` and `doctrine` keep `sonnet`. `lib/models.md` names the override in its row.
+"""
+
 REVIEWER_AGENTS: dict[str, str] = {
     "logic": "logic-reviewer",
     "form": "form-reviewer",
@@ -236,6 +243,7 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "retry_errors": "none",
     "max_questions": "10",
     "research_files": "`research/`",
+    "lookup_budget": "0",  # D-208: only the citations and counterarguments reviewers read saved texts
     "drafting_warnings": "none",
     "verify_report": "`research/sources.json`",
     "sources_list": "see `research/sources.json`",
@@ -254,6 +262,8 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "quote_max_words": str(limits.QUOTE_DEFAULT_MAX_WORDS),
     "polish_budget": "0",
     "known_blockers": "none",  # D-119: filled in only when the review loop already aggregated some
+    "open_findings": "none",  # D-211: filled in only when the review loop left open substantive majors
+    "recheck_scope": "none",  # D-211: filled in only for the citations re-check of the final polish
 }
 
 

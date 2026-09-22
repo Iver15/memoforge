@@ -1,4 +1,4 @@
-"""`mf quote extract|skip` — the exact, sentence-bounded quote contract (ТЗ §5.3, M5)."""
+"""`mf quote extract|skip|locate` — the exact, sentence-bounded quote contract (ТЗ §5.3, M5); `locate` reads."""
 
 from __future__ import annotations
 
@@ -326,6 +326,21 @@ def raw_state(work_dir: str | Path, source_id: str) -> dict:
     }
 
 
+def _find(raw: str, text: str) -> list[tuple[int, int]]:
+    """Raw `[start, end)` of every exact occurrence of `text` after the narrow normalisation (§5.3)."""
+    haystack, index = normalize(raw)
+    needle = normalized_text(text)
+    if not needle:
+        return []
+    matches: list[tuple[int, int]] = []
+    position = haystack.find(needle)
+    while position != -1:
+        end = position + len(needle)
+        matches.append((index[position], index[end - 1] + 1))
+        position = haystack.find(needle, position + 1)
+    return matches
+
+
 def extract_quote(
     work_dir: str | Path,
     source_id: str,
@@ -348,16 +363,8 @@ def extract_quote(
         return result
 
     raw = resolved["text"]
-    haystack, index = normalize(raw)
-    needle = normalized_text(text)
     spans = sentence_spans(raw)
-
-    matches: list[tuple[int, int]] = []
-    position = haystack.find(needle)
-    while position != -1:
-        end = position + len(needle)
-        matches.append((index[position], index[end - 1] + 1))
-        position = haystack.find(needle, position + 1)
+    matches = _find(raw, text)
 
     if not matches:
         return {
@@ -425,6 +432,112 @@ def run_extract(args: argparse.Namespace) -> dict:
     if text is None:
         return {"errors": ["missing_text"], "hint": "pass --text or --text-file"}
     return extract_quote(args.workdir, args.source, text, max_words=args.max_words, lang=args.lang)
+
+
+# --- locate (D-207) -------------------------------------------------------
+
+_TOKEN = re.compile(r"\w{3,}")
+_LAST_SPACE = re.compile(r"\s\S*\Z")
+
+
+def _tokens(text: str) -> list[str]:
+    """Word tokens of three or more characters of the normalised, case-folded text, in order."""
+    return _TOKEN.findall(normalized_text(text).casefold())
+
+
+def _fragment_end(raw: str, start: int, end: int) -> int:
+    """A candidate is its sentence, or the sentence's first `LOCATE_CANDIDATE_MAX_CHARS` cut at a word boundary."""
+    limit = limits.LOCATE_CANDIDATE_MAX_CHARS
+    if end - start <= limit:
+        return end
+    # One character past the limit, so a space standing right at it is the boundary.
+    boundary = _LAST_SPACE.search(raw[start : start + limit + 1])
+    return start + (boundary.start() if boundary else limit)
+
+
+def locate_candidates(raw: str, spans: list[tuple[int, int]], text: str) -> list[dict]:
+    """The `QUOTE_CANDIDATES_MAX` sentence-bounded fragments holding most of the words of `text`, best first.
+
+    Length-insensitive, unlike `nearest_candidates`: the score is the share of the request's word tokens,
+    each occurrence counted, found in the fragment, so a court sentence of 50-60 words competes on equal
+    terms. `_ratio`, whose stdlib fallback penalises a long fragment, only breaks ties; then the position does.
+    """
+    wanted = _tokens(text)
+    target = normalized_text(text)
+    scored = []
+    for start, end in spans:
+        end = _fragment_end(raw, start, end)
+        fragment = raw[start:end]
+        present = set(_tokens(fragment))
+        share = sum(token in present for token in wanted) / len(wanted) if wanted else 0.0
+        scored.append((share, _ratio(target, normalized_text(fragment)), start, end))
+    scored.sort(key=lambda row: (-row[0], -row[1], row[2]))
+    return [_candidate(raw, start, end) for _, _, start, end in scored[: limits.QUOTE_CANDIDATES_MAX]]
+
+
+def _passage(raw: str, spans: list[tuple[int, int]], start: int, end: int, context: int) -> dict:
+    """The window of `context` characters around a match, trimmed to sentence edges without ever cutting it.
+
+    The left edge is the first sentence start in `[window_start, start]`, the right edge the last
+    sentence end in `[end, window_end]`; a side without one keeps the window's own edge.
+    """
+    window_start = max(0, start - context)
+    window_end = min(len(raw), end + context)
+    left = next((edge for edge, _ in spans if window_start <= edge <= start), window_start)
+    right = next((edge for _, edge in reversed(spans) if end <= edge <= window_end), window_end)
+    return {
+        "char_start": left,
+        "char_end": right,
+        "match_start": start,
+        "match_end": end,
+        "text": raw[left:right],
+    }
+
+
+def locate_passage(
+    work_dir: str | Path,
+    source_id: str,
+    text: str,
+    *,
+    context: int | None = None,
+    max_passages: int | None = None,
+) -> dict:
+    """`mf quote locate` (D-207): where words stand in the saved text, with the text around them.
+
+    Read-only: nothing is registered and `quotes.json` is never written. Every status is an answer —
+    `found`/`ambiguous` carry `matches` and at most `max_passages` passages (0 gives the count alone),
+    `not_found` the candidates, and `no_raw`/`raw_changed`/`unknown_source` come from `raw_state`, with its
+    digests. A blank `text` is `not_found` without candidates whatever the source's state.
+    """
+    context = limits.LOCATE_CONTEXT_CHARS if context is None else int(context)
+    context = max(0, min(context, limits.LOCATE_CONTEXT_MAX))
+    max_passages = limits.LOCATE_MAX_PASSAGES if max_passages is None else max(0, int(max_passages))
+    record = sources.read_registry(work_dir)["sources"].get(source_id) or {}
+
+    def answer(status: str, **fields) -> dict:
+        return {"source_id": source_id, "status": status, "raw_kind": sources.raw_kind_of(record), **fields}
+
+    if not str(text).strip():
+        return answer("not_found", candidates=[])
+    resolved = raw_state(work_dir, source_id)
+    if resolved.get("error"):
+        return answer(resolved["error"], **{key: resolved[key] for key in ("expected", "actual") if key in resolved})
+
+    raw = resolved["text"]
+    spans = sentence_spans(raw)
+    matches = _find(raw, text)
+    if not matches:
+        return answer("not_found", candidates=locate_candidates(raw, spans, text))
+    return answer(
+        "found" if len(matches) == 1 else "ambiguous",
+        matches=len(matches),
+        passages=[_passage(raw, spans, start, end, context) for start, end in matches[:max_passages]],
+    )
+
+
+def run_locate(args: argparse.Namespace) -> dict:
+    """`mf quote locate --source <id> --text "<words>" [--context N] [--max-passages K]`."""
+    return locate_passage(args.workdir, args.source, args.text, context=args.context, max_passages=args.max_passages)
 
 
 # --- skip -----------------------------------------------------------------
@@ -515,3 +628,23 @@ def register(subparsers) -> None:
     skip.add_argument("--reason", required=True, choices=list(SKIP_REASONS))
     skip.add_argument("--note", default=None, help="mandatory when --reason other")
     skip.set_defaults(func=run_skip)
+
+    locate = group.add_parser("locate", help="find words in the saved raw text and read around them; writes nothing")
+    locate.add_argument("--workdir", required=True)
+    locate.add_argument("--source", required=True)
+    locate.add_argument("--text", required=True, help="words to find in the raw file")
+    locate.add_argument(
+        "--context",
+        type=int,
+        default=None,
+        help=f"characters read on each side of a match (default {limits.LOCATE_CONTEXT_CHARS}, "
+        f"at most {limits.LOCATE_CONTEXT_MAX})",
+    )
+    locate.add_argument(
+        "--max-passages",
+        dest="max_passages",
+        type=int,
+        default=None,
+        help=f"passages returned when the words occur more than once (default {limits.LOCATE_MAX_PASSAGES})",
+    )
+    locate.set_defaults(func=run_locate)

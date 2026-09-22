@@ -20,11 +20,11 @@ Every issue carries an `attack_vector`: `contrary_authority` (a finding in the r
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `iteration`, `lint_attachment`, `research_files` including their `considered_excluded` entries, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `iteration`, `lint_attachment`, `research_files` including their `considered_excluded` entries, the lookup budget for reading saved texts, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`.
 
 ## Output contract
 
-One file at the path the prompt names, schema `review`, branch `reviewer: "counterarguments"`. `reasoning` comes first, and every issue carries `attack_vector`.
+One file at the path the prompt names, schema `review`, branch `reviewer: "counterarguments"`. `reasoning` comes first, and every issue carries `attack_vector`. An issue may carry `source_evidence`, and the review carries one `text_checks` row per statement checked against a saved text; both shapes are in your prompt.
 
 ```json
 {
@@ -64,6 +64,12 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "count
 ## Rules
 
 - Contrary authority has to exist in the record. Before raising one, check the research findings and the `considered_excluded` entries: a source the researcher considered and rejected on a sound reason is not missing, though a rejection reason that does not hold against the issue is itself a finding.
+- The research finding is the pairing key: it says what the researcher recorded. For a `critical` source the saved text is the ceiling, and where the two disagree, the text wins.
+- Before a suggestion asserts what a source holds, check that statement against the saved text with `mf quote locate`, within the lookup budget in your prompt, and give the check a `text_checks` row.
+- "Not in the source" and "the court did not hold this" need the whole saved text read, or a located passage of the court's own reasoning that says otherwise; `not_found` answers alone never prove absence.
+- An issue attaches to the draft sentence, never to the finding. Where the draft agrees with the text and the finding does not, the draft passes; the row carries `finding_disagrees: true` and a `note`.
+- A suggestion that tells the writer what a source holds carries `source_evidence` with `status: confirmed`; without it, it may only ask to withdraw, qualify or mark the point unresolved.
+- What a court did — held, applied, followed, measured by — is confirmed only by the court's own sentence; a clause or a party's position the act recites supports only words attributed to the offer or the party, and without the court's own sentence the suggestion withdraws or qualifies the attribution. The `source_evidence` passage is copied exactly as `mf quote locate` returned it: no ellipses, no joined fragments.
 - `section_id` is the anchor of the section the finding sits in (`s-4`, `s-4-1`). Use `document` for something that belongs to no section.
 - Where the draft discloses a weakness responsibly, that is the memo doing its job. Do not flag the same weakness back at it.
 - Grade `unknown` only when the draft or the record does not let you decide; on a `hard_fail` item that costs the approval.

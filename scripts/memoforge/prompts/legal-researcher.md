@@ -80,6 +80,22 @@ any web source. Commercial re-uploads of the same file are not the citation.
 To read one provision back out of a raw file you already saved:
 `${mf} sources slice --workdir ${work_dir} --source <source_id> --article <N>`
 
+## What a court held
+
+- A finding that says what a court held or applied rests on the court's own statement. A clause, a party's position or a lower court's view that the act recites is described as such ("суд воспроизвёл условие оферты …", "истец полагал …"), and `quote_short` for a holding comes from the court's own words.
+- A conclusion the text does not carry is not written as the court's.
+- Findings about one source under different issues are read together before you finish, and they do not contradict each other.
+- A higher-court act that a finding's own `proposition` names as the basis of the court's reasoning is saved with `sources save` — `--resolve vsrf` for a Supreme Court chamber act, `--url` for a review of practice or a Plenum act — or entered in `considered_excluded` with the reason. Acts the decision cites that no finding names are left alone.
+
+## Check the quotes before you finish
+
+Before the `--state done` line below, look up the `quote_short` of every `critical` finding in the text saved for its source:
+`${mf} quote locate --workdir ${work_dir} --source <source_id> --text "<quote_short>"`
+- `found` — the quote stands.
+- `not_found` or `ambiguous` — replace the quote with an exact contiguous run the answer shows (a `candidates` sentence for `not_found`; for `ambiguous`, a run from the `passages` that occurs once), at most 15 words and, for a holding, the court's own words; or leave `quote_short` empty and lower `confidence`.
+
+One lookup per `critical` finding, plus one retry of a quote you replaced.
+
 ## Write
 
 ${outputs}

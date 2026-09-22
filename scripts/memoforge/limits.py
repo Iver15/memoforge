@@ -52,6 +52,13 @@ The 2026-09-16 run ended with exactly one; beyond a couple of missing tokens the
 whole iteration, which the budget already refused.
 """
 
+MAX_POLISH_RECHECK = 1
+"""Dispatches of the `citations` re-check of the final polish per run (D-211).
+
+Its JSON retries are the ordinary `reviewer_json_retry` of `<N>:citations_polish`; this caps the
+dispatch itself, so a restart after a spent budget never issues a second re-check.
+"""
+
 MAX_SINGLE_DISPATCH_RETRY = 1
 """`attempts.single_dispatch_retry{step_id}` for dispatch(1) steps (§2.2)."""
 
@@ -193,6 +200,24 @@ QUOTE_DEFAULT_MAX_WORDS = 30  # S3
 
 QUOTE_CANDIDATES_MAX = 5  # S3
 """`quote extract` returns at most this many `candidates` on `too_long`/`not_found` (§5.3)."""
+
+LOCATE_CONTEXT_CHARS = 1500
+"""`quote locate --context` default: characters of saved text read on each side of a match (D-207)."""
+
+LOCATE_CONTEXT_MAX = 4000
+"""The ceiling of `quote locate --context`; a larger value is clamped to it, never refused (D-207)."""
+
+LOCATE_MAX_PASSAGES = 3
+"""`quote locate --max-passages` default: passages returned when the words occur more than once (D-207)."""
+
+LOCATE_CANDIDATE_MAX_CHARS = 1500
+"""A `quote locate` candidate longer than this is its sentence's head, cut at a word boundary (D-207)."""
+
+REVIEWER_LOOKUP_BUDGET: dict[str, int] = {"citations": 20, "counterarguments": 8}
+"""`${lookup_budget}` per reviewer kind (D-208): a lookup or a whole-article read costs 1, a whole court act 3.
+
+Only these two reviewers check a claim against the saved text; every other reviewer and agent gets 0.
+"""
 
 # --- MCP budget (§4.3) ---------------------------------------------------
 RETRY_AFTER_CAP = 60  # S3

@@ -22,6 +22,51 @@
       "minLength": 1,
       "maxLength": 400
     },
+    "source_evidence": {
+      "description": "D-208: the passage of the source's saved text an issue rests on, found with `mf quote locate` or a whole read. `confirmed` backs a suggestion that tells the writer what the source holds; `contradicted` backs a blocker on a draft sentence that the text contradicts.",
+      "type": "object",
+      "required": ["source_id", "status", "passage"],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["confirmed", "contradicted"] },
+        "passage": { "type": "string", "minLength": 1, "maxLength": 600 }
+      }
+    },
+    "text_check": {
+      "description": "D-208: one statement about a source checked against its saved text. `confirmed` is no issue; `contradicted` has its blocker; `inconclusive` (looked up, not settled, not read whole) and `not_reached` (the lookup budget ran out first) are no issue either, and the row tells the next reader what was not text-checked. `finding_disagrees` is true when the research finding departs from the text; a draft that agrees with the text passes all the same.",
+      "type": "object",
+      "required": ["source_id", "section_id", "status", "finding_disagrees", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "section_id": { "$ref": "#/$defs/section_id" },
+        "status": { "enum": ["confirmed", "contradicted", "inconclusive", "not_reached"] },
+        "finding_disagrees": { "type": "boolean" },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "text_checks": {
+      "description": "D-208: the rows of every statement the reviewer checked against a saved text, or ran out of budget before checking. Optional: a review without it is a pre-plan-72 review.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/text_check" }
+    },
+    "resolution": {
+      "description": "D-211: the verdict of the citations re-check of the final polish on one open finding it was given: `resolved` when the polished text no longer carries the problem, `open` when it still does.",
+      "type": "object",
+      "required": ["id", "status", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^om-[1-9][0-9]*$" },
+        "status": { "enum": ["resolved", "open"] },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "resolutions": {
+      "description": "D-211: one row per open finding the polish re-check was asked about (`reviews/v<N>-citations_polish.json`). Optional: an ordinary citations review has none.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/resolution" }
+    },
     "verdict": { "enum": ["approved", "needs_revision"] },
     "reviewer_kind": { "enum": ["logic", "form", "citations", "counterarguments"] },
     "checklist_item": {
@@ -82,7 +127,8 @@
         "issue_category": {
           "description": "Only the three judgement calls left to the LLM. Existence, verbatim accuracy, currency and Sources-section coverage are decided by `mf draft audit-citations` (C-01..C-07) before the reviewer sees the draft, so the v1 categories ignored_blocking_currency, missing_in_sources_section, unverified_against_source and length_overflow_disclosure are gone (TZ section 4.1, section 5.4).",
           "enum": ["source_drift", "source_pack_mismatch", "unsupported_claim"]
-        }
+        },
+        "source_evidence": { "$ref": "#/$defs/source_evidence" }
       }
     },
     "unverified_hard_fail_issue": {
@@ -120,7 +166,8 @@
             "weak_application",
             "understated_risk"
           ]
-        }
+        },
+        "source_evidence": { "$ref": "#/$defs/source_evidence" }
       }
     },
     "logic_review": {
@@ -186,6 +233,8 @@
             ]
           }
         },
+        "text_checks": { "$ref": "#/$defs/text_checks" },
+        "resolutions": { "$ref": "#/$defs/resolutions" },
         "verdict": { "$ref": "#/$defs/verdict" }
       }
     },
@@ -208,6 +257,7 @@
             ]
           }
         },
+        "text_checks": { "$ref": "#/$defs/text_checks" },
         "verdict": { "$ref": "#/$defs/verdict" }
       }
     },

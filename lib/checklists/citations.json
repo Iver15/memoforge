@@ -1,13 +1,13 @@
 [
   {
     "id": "CIT-01",
-    "text": "Every statement of law — a rule, an obligation, a holding, a regulator position — carries a source token; no legal proposition stands on the writer's authority alone. Evidence: quote the unsourced proposition.",
+    "text": "Every statement of law — a rule, an obligation, a holding, a regulator position — rests on a source whose research record or saved text contains that rule. A token on a source that does not contain it is a fail here (`unsupported_claim`), not a pinpoint problem; absence is concluded only after reading the cited article or the court's reasoning. Evidence: quote the proposition and the passage read.",
     "tier": "substance",
     "hard_fail": true
   },
   {
     "id": "CIT-02",
-    "text": "Each paraphrase says what the research record says the source says: not broader, not stronger, not reversed. Evidence: quote the draft sentence next to the finding it drifted from.",
+    "text": "Each paraphrase says what the source says. The research finding is the pairing key; for a `critical` source checked against its saved text, the text is the ceiling and wins over the finding. A court act's holding is what the court itself says, not a clause or a position the act recites. Evidence: quote the draft sentence next to the passage or the finding it departs from.",
     "tier": "substance",
     "hard_fail": true
   },
@@ -19,7 +19,7 @@
   },
   {
     "id": "CIT-04",
-    "text": "The pinpoint sends the reader to the provision or paragraph that actually contains the proposition. Evidence: quote the citation and name where the proposition really sits.",
+    "text": "The rule is in the cited source, and the pinpoint sends the reader to the provision or paragraph that actually contains it. Evidence: quote the citation and name where the proposition really sits.",
     "tier": "substance",
     "hard_fail": false
   },
