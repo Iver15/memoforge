@@ -1,0 +1,48 @@
+{
+  "reasoning": "Every [[src]] claim was paired with its research finding and pack row. The paraphrases stay within the record almost throughout. Contrary authority is cited: VS 305-ES25-11730, the TPP fire listing, GK 421(4), A40-18912/2022, and both readings of the FBO acceptance clause. The 289-FZ material carries its manual_check qualification, the encyclopedia entry on force majeure carries its 2025 caveat, and the 290-FZ amendment to ZoZPP art. 13 matches the currency note. Every recorded gap is admitted honestly. No blockers. One major issue: in section 9 the principal's right to call in the buyers' money from Ozon is pinned to GK 1005(1). The record gives that article only for who acquires rights under the agent's deals, and the duty to hand over receipts is not in the research. Minor issues: the reading of A40-630/2025 as having applied the offer formula as the measure goes slightly past the record, and single commentary examples are written as plural court practice.",
+  "reviewer": "citations",
+  "draft_sha": "50ec54ec1eeb61b6b88bc2dcc81ecf96a412e35e22fd7a35b9d5c7b7e3438470",
+  "iteration": 3,
+  "checklist": [
+    {"id": "CIT-01", "pass": true, "evidence": "Every rule, holding and regulator statement carries a token. The unsourced sentences are applications to the facts or the parties' arguments, for example 4: 'Ozon принимает товар продавцов на собственные склады по УПД и хранит его до продажи...' and 7.2: 'продавец, продолжающий работу после изменения, считается принявшим новую редакцию' (given as Ozon's argument). The opening conclusion of 9 is sourced in the body, though see CIT-04."},
+    {"id": "CIT-02", "pass": true, "evidence": "The paraphrases track the findings. Example, 4: 'если хранение входит в комплексное обязательство, последствия нарушения оцениваются по нормам этого договора... а не механически по ст. 901 и 902' matches the VS 305-ES25-11730 finding. Example, 5.1: 'отверг ссылку на непреодолимую силу, когда пожар был связан с причинами в сфере контроля' matches the 309-ES14-4692 finding. Example, 8: the scope of art. 14 of 289-FZ ('мер гражданско-правовой ответственности, ограничений карточек, доступа к кабинету и рейтинга') matches ch. 1 art. 14. The remaining drift is minor and sits under CIT-04 and CIT-07."},
+    {"id": "CIT-03", "pass": true, "evidence": "Each quoted passage carries the proposition it is attached to. q-gk-rf-st-902-1 supports the art. 393 measure. q-apk-rf-st-37-1 supports contractual venue. q-vs-rf...842-1 ('суд может не применить соответствующее условие') supports weak-party control in 7.1. The A40 clause fragment ('произошедшие по вине Ozon, кроме случаев, когда:') is read together with the exception discussed in the next paragraph."},
+    {"id": "CIT-04", "pass": false, "evidence": "Section 9: 'Деньги покупателей получены агентом за счёт АНО, поэтому АНО вправе требовать от Ozon подтвердить возврат по каждому заказу либо перечислить эти суммы [[src:gk-rf-st-1005 п. 1 ст. 1005]]'. The record gives p. 1 art. 1005 only for who acquires rights and duties under the agent's deals with third parties (statutes i1/i6). The agent's duty to hand over what it received sits in other provisions, and the research does not cover them."},
+    {"id": "CIT-05", "pass": true, "evidence": "Pack roles are respected. A40-630/2025 (application) is repeatedly written as an isolated first-instance act whose fate is unknown (4, 5.2, 7.3, 10.3). The Suvorova 1998 article (non_binding) is limited to general points checked against the GK. The 289fz-st19-scan (background) finding itself states the negative scope it is used for. The KonsultantPlus reference and the GARANT surveys are named as reference material, not as law."},
+    {"id": "CIT-06", "pass": true, "evidence": "The manual_check status of 289-FZ is reflected in 8 and 10.1 ('требует ручной проверки'). The encyclopedia on force majeure is flagged in 5.1 as the 2025 edition to be re-checked. The outdated_but_usable doctrine is disclosed in the limitations section (3). The currency note on zozpp-st-13 (the 290-FZ amendment) is reflected in 9."},
+    {"id": "CIT-07", "pass": false, "evidence": "5.2: 'Суд не выбирал сам между ценой продажи и закупочной ценой, а применил условие договора'. The record says the A40 court awarded the seller's figures, drawn from Ozon's own data under Plenum 7 pp. 4-5, and only took the formula into account. Also 10.3: 'Продавцы с надлежащими документами получали и убытки, и возмещение пошлины' rests on a single case (A41-41643/2022)."},
+    {"id": "CIT-08", "pass": true, "evidence": "Every claimed silence matches a recorded gap. FBO as a mixed contract, a single measure of compensation, the venue clause, the pre-trial procedure and the built-in compensation all appear as 'не найдена' in considered_excluded of case_law. The CC 4-P ruling is expressly set aside in 3 and 7.2, and the 'в исследованных источниках не разрешено' statements are framed as research limits."},
+    {"id": "CIT-09", "pass": true, "evidence": "Client facts and the unconfirmed assumptions (FBO model, the warehouse stamp on the consignment note, the cost cap) are listed in 3 and flagged conditionally in the analysis ('по нашему допущению'). Offer terms are attributed to the version recorded in case A40-630/25-100-1, not to the August 2026 offer."},
+    {"id": "CIT-10", "pass": true, "evidence": "The opposing sources are cited: VS 305-ES25-11730 (4), the TPP listing of fire (5.1), GK 421(4) (7.1), A40-18912/2022 on the lost-profit exclusion (5.2), the marketplace-practice survey on acceptance acts (6.1, 6.2, 10.3), and both readings of the acceptance-stage exception (6.1)."}
+  ],
+  "issues": [
+    {
+      "severity": "major",
+      "category": "pinpoint_mismatch",
+      "section_id": "s-9",
+      "issue": "'Деньги покупателей получены агентом за счёт АНО, поэтому АНО вправе требовать от Ozon подтвердить возврат по каждому заказу либо перечислить эти суммы [[src:gk-rf-st-1005 п. 1 ст. 1005]]'. The section's opening sentence 'Ozon должен вернуть их покупателям либо перечислить АНО' also rests on this token alone. In the record (statutes i1-contract-nature and i6-buyers-money) p. 1 art. 1005 only governs who acquires rights and duties under the agent's deals with third parties. It does not give the principal a right to call in sums the agent received, and no finding covers that duty.",
+      "suggestion": "Present the claim against Ozon for the buyers' money as the draft's inference from Ozon acting 'за счёт' AНО under art. 1005, and say the provisions on the agent's duty to account for and hand over receipts were not researched. Alternatively, add the correct provision to the pack before relying on it.",
+      "checklist_id": "CIT-04",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "holding_overstated",
+      "section_id": "s-5-2",
+      "issue": "'применил формулу оферты «действительная стоимость товара (цена продажи за период) минус вознаграждения Ozon» как согласованную сторонами договорную меру возмещения... Суд не выбирал сам между ценой продажи и закупочной ценой, а применил условие договора'. The case_law finding for A40-630/2025 (I2) records something narrower: the court awarded the amount claimed by the seller, based on data from Ozon's systems, under the reasonable-certainty standard of Plenum 7 pp. 4-5. It rejected Ozon's counter-calculation and only 'took into account' the offer formula as the agreed way to value the goods.",
+      "suggestion": "Say the court awarded the seller's figures drawn from Ozon's data and took the offer formula into account, without saying it applied the formula as the measure of damages.",
+      "checklist_id": "CIT-07",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "practice_overstated",
+      "section_id": "s-10-3",
+      "issue": "'Продавцы с надлежащими документами получали и убытки, и возмещение пошлины и расходов на представителя' rests on one example in the torgovlia-na-marketpleisakh finding (A41-41643/2022). Likewise, 5.2 says 'Суды уже оставляли в силе стандартную оговорку маркетплейса' where the record has a single case (A40-18912/2022, first and appellate instance) and says 'on at least one occasion'.",
+      "suggestion": "Write 'в одном из дел' or 'по меньшей мере в одном деле' so the weight matches the single example in the record.",
+      "checklist_id": "CIT-07",
+      "issue_category": "source_drift"
+    }
+  ],
+  "verdict": "approved"
+}

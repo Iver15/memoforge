@@ -1,0 +1,390 @@
+{
+ "iterations": [
+  {
+   "iteration": 1,
+   "reviewers": [
+    "logic",
+    "form",
+    "citations",
+    "counterarguments"
+   ],
+   "substance_blockers": 5,
+   "form_blockers": 0,
+   "open_issues": [
+    {
+     "severity": "blocker",
+     "category": "unexplained_rule",
+     "section_id": "s-7-2",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-02"
+    },
+    {
+     "severity": "blocker",
+     "category": "unexplained_rule",
+     "section_id": "s-10-2",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-02"
+    },
+    {
+     "severity": "major",
+     "category": "internal_inconsistency",
+     "section_id": "s-10-3",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-06"
+    },
+    {
+     "severity": "major",
+     "category": "unmapped_assumption",
+     "section_id": "s-3",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-07"
+    },
+    {
+     "severity": "major",
+     "category": "support_mischaracterized",
+     "section_id": "s-4",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": null
+    },
+    {
+     "severity": "minor",
+     "category": "silent_fact_assumption",
+     "section_id": "s-10-2",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-08"
+    },
+    {
+     "severity": "major",
+     "category": "undefined_term",
+     "section_id": "s-5-1",
+     "source_reviewer": "form",
+     "tier": "form",
+     "checklist_id": "FRM-06"
+    },
+    {
+     "severity": "major",
+     "category": "undefined_term",
+     "section_id": "s-9",
+     "source_reviewer": "form",
+     "tier": "form",
+     "checklist_id": "FRM-06"
+    },
+    {
+     "severity": "blocker",
+     "category": "selective_paraphrase",
+     "section_id": "s-6-1",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-02"
+    },
+    {
+     "severity": "blocker",
+     "category": "unsupported_law",
+     "section_id": "s-10-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-01"
+    },
+    {
+     "severity": "major",
+     "category": "scope_overstated",
+     "section_id": "s-8",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-02"
+    },
+    {
+     "severity": "major",
+     "category": "holding_broadened",
+     "section_id": "s-5-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-02"
+    },
+    {
+     "severity": "major",
+     "category": "authority_overstated",
+     "section_id": "s-5-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-07"
+    },
+    {
+     "severity": "major",
+     "category": "authority_overstated",
+     "section_id": "s-7-1",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-07"
+    },
+    {
+     "severity": "minor",
+     "category": "holding_shifted",
+     "section_id": "s-5-1",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-02"
+    },
+    {
+     "severity": "minor",
+     "category": "paraphrase_narrowed",
+     "section_id": "s-4",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-02"
+    },
+    {
+     "severity": "minor",
+     "category": "missing_token",
+     "section_id": "s-10-3",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-01"
+    },
+    {
+     "severity": "minor",
+     "category": "missing_token",
+     "section_id": "s-7-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-01"
+    },
+    {
+     "severity": "blocker",
+     "category": "omitted_contrary_authority",
+     "section_id": "s-5-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-02"
+    },
+    {
+     "severity": "major",
+     "category": "weak_answer_to_counterargument",
+     "section_id": "s-4",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-06"
+    },
+    {
+     "severity": "major",
+     "category": "record_contradicts_assumption",
+     "section_id": "s-5-2",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-08"
+    },
+    {
+     "severity": "major",
+     "category": "risk_grade_overstated",
+     "section_id": "s-6-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-04"
+    },
+    {
+     "severity": "minor",
+     "category": "generic_trigger",
+     "section_id": "s-5-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-03"
+    },
+    {
+     "severity": "minor",
+     "category": "unaddressed_recourse",
+     "section_id": "s-9",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-07"
+    }
+   ]
+  },
+  {
+   "iteration": 2,
+   "reviewers": [
+    "logic",
+    "form",
+    "citations",
+    "counterarguments"
+   ],
+   "substance_blockers": 1,
+   "form_blockers": 0,
+   "open_issues": [
+    {
+     "severity": "major",
+     "category": "unsupported_conclusion",
+     "section_id": "s-10-3",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-04"
+    },
+    {
+     "severity": "minor",
+     "category": "weak_application",
+     "section_id": "s-6-2",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-03"
+    },
+    {
+     "severity": "minor",
+     "category": "causation_gap",
+     "section_id": "s-9",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": null
+    },
+    {
+     "severity": "minor",
+     "category": "weak_application",
+     "section_id": "s-7-1",
+     "source_reviewer": "logic",
+     "tier": "substance",
+     "checklist_id": "LOG-03"
+    },
+    {
+     "severity": "major",
+     "category": "unexplained_term",
+     "section_id": "s-5-1",
+     "source_reviewer": "form",
+     "tier": "form",
+     "checklist_id": "FRM-06"
+    },
+    {
+     "severity": "major",
+     "category": "vague_recommendation",
+     "section_id": "s-7-3",
+     "source_reviewer": "form",
+     "tier": "form",
+     "checklist_id": "FRM-08"
+    },
+    {
+     "severity": "blocker",
+     "category": "unsupported_law",
+     "section_id": "s-5-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-01"
+    },
+    {
+     "severity": "minor",
+     "category": "quote_out_of_context",
+     "section_id": "s-9",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-03"
+    },
+    {
+     "severity": "minor",
+     "category": "pinpoint_mismatch",
+     "section_id": "s-9",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-04"
+    },
+    {
+     "severity": "major",
+     "category": "unaddressed_statutory_limitation",
+     "section_id": "s-7-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-04"
+    },
+    {
+     "severity": "major",
+     "category": "narrow_trigger",
+     "section_id": "s-5-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-03"
+    },
+    {
+     "severity": "major",
+     "category": "hidden_assumption",
+     "section_id": "s-5-1",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-05"
+    },
+    {
+     "severity": "major",
+     "category": "overstated_recourse",
+     "section_id": "s-9",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-07"
+    },
+    {
+     "severity": "minor",
+     "category": "cost_exposure",
+     "section_id": "s-10-3",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-07"
+    },
+    {
+     "severity": "minor",
+     "category": "overread_evidence",
+     "section_id": "s-6-2",
+     "source_reviewer": "counterarguments",
+     "tier": "substance",
+     "checklist_id": "CTR-04"
+    }
+   ]
+  },
+  {
+   "iteration": 3,
+   "reviewers": [
+    "citations"
+   ],
+   "substance_blockers": 0,
+   "form_blockers": 0,
+   "open_issues": [
+    {
+     "severity": "major",
+     "category": "pinpoint_mismatch",
+     "section_id": "s-9",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-04"
+    },
+    {
+     "severity": "minor",
+     "category": "holding_overstated",
+     "section_id": "s-5-2",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-07"
+    },
+    {
+     "severity": "minor",
+     "category": "practice_overstated",
+     "section_id": "s-10-3",
+     "source_reviewer": "citations",
+     "tier": "substance",
+     "checklist_id": "CIT-07"
+    }
+   ]
+  }
+ ],
+ "targeted_fix": {
+  "iteration": 3,
+  "reviewers": [
+   "citations"
+  ]
+ },
+ "final_status": "approved_on_v3",
+ "client_readiness": {
+  "verdict": "client_ready",
+  "draft_sha": "617bce59df1a0ec3538770acbf6bd7a488c8401e7c00a4d5da96d3989f0a5966",
+  "version_reviewed": 3,
+  "at": "2026-09-21T22:47:00.743Z"
+ },
+ "config_max_iterations": 2
+}

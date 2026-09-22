@@ -1,0 +1,49 @@
+{
+  "reasoning": "Every [[src:]] claim was paired with its finding in the case_law, doctrine and statutes files. Most paraphrases stay within the record, sources are used in their pack roles, and the currency qualifications and admitted gaps match the pack and the research-sufficiency warnings. One statement of law in 5.2 carries no source: that a keeper who proves force majeure keeps a proportionate fee (Art. 896, which is not in the pack). This fails the hard-fail item CIT-01. There are also two minor fit problems. First, the s-9 lead and the attached quote from Art. 12(2.2) of the Consumer Protection Law read as an unconditional duty on the aggregator to refund. Second, Art. 1005(1) of the Civil Code is cited for the agent's duty to hand over buyers' money, which that provision does not contain.",
+  "reviewer": "citations",
+  "draft_sha": "5610043adfc9c4d215fbb0c54ea17f99d2c86d610cac29504bb0ca52c4b1f9c2",
+  "iteration": 2,
+  "checklist": [
+    {"id": "CIT-01", "pass": false, "evidence": "5.2: 'Если же Ozon докажет непреодолимую силу, за ним сохранится соразмерная часть вознаграждения за время хранения до пожара.' carries no source token. The only nearby authority, 301-ЭС19-5994, is recorded (case_law I2) for the opposite limb only: a keeper responsible for the loss is not entitled to a fee. Art. 896 of the Civil Code is not in the pack."},
+    {"id": "CIT-02", "pass": true, "evidence": "Paraphrases match the findings. 5.1 on 309-ЭС14-4692 ('пожар был связан с причинами в сфере контроля ответственного лица') matches case_law I2. 4 on 305-ЭС25-11730 ('не механически по ст. 901 и 902') matches I1. 5.2 on А40-630 ('применил формулу оферты ... как согласованную сторонами договорную меру') matches I2. 8 on Art. 14 of Law 289-FZ ('оспаривания мер, принятых оператором против партнёра') matches the statutes i7 finding and Part 1 of the article."},
+    {"id": "CIT-03", "pass": false, "evidence": "9: the quote [[q:q-zpp-st-12-1]] 'Потребитель вправе предъявить требование к владельцу агрегатора о возврате суммы произведенной им предварительной оплаты' supports the lead sentence 'Ozon как владелец агрегатора обязан вернуть предоплату по требованию покупателя'. Read whole, Art. 12(2.2) makes the refund depend on two conditions: late delivery and notice to the seller (statutes i6 finding). The other quotes (Plenum No. 7, 305-ЭС25-842, the clause from the А40-630 offer, Art. 37 of the Arbitration Procedure Code, Art. 23 of Law 289-FZ) carry their propositions in context."},
+    {"id": "CIT-04", "pass": false, "evidence": "9: 'АНО вправе требовать от Ozon подтвердить возврат по каждому заказу либо перечислить эти суммы [[src:gk-rf-st-1005 п. 1 ст. 1005]]'. Art. 1005(1) only defines agency and says who acquires rights under the agent's deals (statutes i1 and i6 findings). The agent's duty to account for and hand over what it received is not in that provision. Other pinpoints match their findings."},
+    {"id": "CIT-05", "pass": true, "evidence": "Roles match the pack. The А40-630 first-instance decision is written as a single first-instance act of unknown fate (4, 5.2, 10.3), not as settled law. 305-ЭС25-842 is expressly limited to an insurance analogy (7.1). The background sources 289fz-st19-scan and gk-rf-st-779 only reinforce conclusions that rest on binding rules. The non_binding GARANT overview is used descriptively ('Суды уже оставляли в силе...')."},
+    {"id": "CIT-06", "pass": true, "evidence": "The pack's qualifications are carried into the text. Law 289-FZ (manual_check): 'требует ручной проверки' in 8 and 10.1. The force-majeure encyclopedia (outdated_but_usable): 'сохранён в редакции 2025 г. и ... подлежит сверке' in 5.1. The 1998 Suvorova article: 'используется только в части общих положений'. The А40-630 decision (unchecked): 'судьба в вышестоящих судах неизвестна'. The 2025 edition of the reference material is also disclosed in section 3."},
+    {"id": "CIT-07", "pass": true, "evidence": "No authority is described as more current, settled or on point than the record allows. For example, 5.2 says 'Единой позиции высших судов о цене возмещения нет', and 7.3 says 'этот довод практикой не подтверждён'."},
+    {"id": "CIT-08", "pass": true, "evidence": "The claims of silence in 3, 5.2, 7.3, 10.1 and 10.2 match the drafting_warnings in research-sufficiency.json. 'Практики применения ст. 14 пока нет' matches the casuslegal Constitutional Court finding (I5). The 7.2 statement 'в исследованных источниках нет' is limited to what the research covered."},
+    {"id": "CIT-09", "pass": true, "evidence": "Client facts and assumptions (the waybill mark, cost-price compensation, the offer wording from the А40-630 case) are labelled as assumptions in 3 and in the text ('по нашему допущению'). Source content is not presented as fact."},
+    {"id": "CIT-10", "pass": true, "evidence": "Contrary material is cited. Art. 421(4) of the Civil Code appears in 7.1. The GARANT overview on the lost-profit exclusion (A40-18912/2022) appears in 5.2. The Chamber of Commerce regulation listing fire appears in 5.1. 305-ЭС25-11730 appears in 4. The case_law I2 and I3 findings read the A40-630 acceptance exception in opposite ways, and 6.1 gives both readings."}
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "unsupported_law",
+      "section_id": "s-5-2",
+      "issue": "'Если же Ozon докажет непреодолимую силу, за ним сохранится соразмерная часть вознаграждения за время хранения до пожара.' states a rule on the keeper's fee with no source. The cited 301-ЭС19-5994 (case_law I2 finding) covers only a keeper responsible for the loss, and Art. 896 of the Civil Code is not in the frozen pack.",
+      "suggestion": "Either drop the sentence or reword it as an unresolved point. Do not cite Art. 896 unless it is first added to the source pack.",
+      "checklist_id": "CIT-01",
+      "issue_category": "unsupported_claim",
+      "issue_client": "Перед тем как полагаться на вывод раздела 5.2 о том, что при доказанной непреодолимой силе Ozon сохраняет часть платы за хранение, проверьте этот вывод по ст. 896 ГК РФ: в меморандуме он не подкреплён источником."
+    },
+    {
+      "severity": "minor",
+      "category": "quote_out_of_context",
+      "section_id": "s-9",
+      "issue": "The s-9 lead 'Ozon как владелец агрегатора обязан вернуть предоплату по требованию покупателя' and the attached quote from Art. 12(2.2) of the Consumer Protection Law present the aggregator's refund duty as unconditional. The zpp-st-12 п. 2.2 finding makes it depend on late delivery plus the buyer's notice of refusal to the seller. The summary bullet in s-1 repeats the unconditional form.",
+      "suggestion": "Add 'при непередаче товара в срок и уведомлении продавца об отказе от договора' to the s-9 lead and the s-1 bullet. Alternatively, move the quote next to the 2.2 paraphrase that already states the conditions.",
+      "checklist_id": "CIT-03",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "pinpoint_mismatch",
+      "section_id": "s-9",
+      "issue": "'Деньги покупателей получены агентом за счёт АНО, поэтому АНО вправе требовать от Ozon подтвердить возврат по каждому заказу либо перечислить эти суммы [[src:gk-rf-st-1005 п. 1 ст. 1005]]'. Art. 1005(1) says only who acquires rights and obligations under the agent's deals (statutes i1 and i6 findings). It does not say that the agent must account for or hand over what it received.",
+      "suggestion": "Cite Art. 1005(1) only for 'за счёт принципала' and present the right to demand transfer as an inference. Alternatively, add the agency accounting provision to the pack before citing it.",
+      "checklist_id": "CIT-04",
+      "issue_category": "source_drift"
+    }
+  ],
+  "verdict": "needs_revision"
+}

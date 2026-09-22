@@ -1,0 +1,76 @@
+{
+  "reasoning": "Every analytical subsection has a counterargument beat with a resolution and, mostly, a named trigger, and gaps in the authorities are disclosed openly. The failure comes from the record itself. The research records the Ozon FBO offer text (p. 8.1 of Annex 1, as quoted in case A40-630/25-100-1): Ozon is liable for loss 'по вине Ozon'. Read together with VS RF 305-ES25-11730, which says a complex obligation is judged by its own contract terms, this is Ozon's first line of defence. The draft treats it only as a hypothetical trigger ('если оферта ... ставит ответственность Ozon в зависимость только от его вины') and states in 5.1 that ANO need not prove fault. The same record gives the offer's compensation formula as 'действительная стоимость товара' (sale price minus Ozon fees). The draft instead assumes a себестоимость cap, which skews 5.2 and 10.2. Section 6.1 grades the shoppers' claim at low risk even though it rests on an unconfirmed assumption about a warehouse mark.",
+  "reviewer": "counterarguments",
+  "draft_sha": "32fac93dda2f8ec6867903b277476966e08010a80075ca4e4de8008bf50252ac",
+  "iteration": 1,
+  "checklist": [
+    {"id": "CTR-01", "pass": true, "evidence": "Every analytical subsection (4, 5.1, 5.2, 6.1, 6.2, 7.1-7.3, 8, 9, 10.1-10.3) has a 'Сильнейший довод ...' paragraph followed by its resolution, e.g. 5.1: 'Положение ТПП РФ прямо называет пожар ... Этот довод спор не решает, потому что суд проверяет каждый пожар по критериям чрезвычайности и непредотвратимости'."},
+    {"id": "CTR-02", "pass": false, "evidence": "The case_law finding on A40-630/25-100-1 for I2 records p. 8.1 of Annex 1 of the Ozon offer: Ozon is liable for loss of seller goods 'произошедшие по вине Ozon'. This bears on the conclusions in 4, 5.1 and 6.1 that Ozon is liable regardless of fault. The draft never surfaces it. Section 6.1 cites the same clause only for its pre-transfer exception, and section 4 treats a fault-based clause as a hypothetical trigger."},
+    {"id": "CTR-03", "pass": true, "evidence": "Resolutions name what would flip them, e.g. 7.2: 'Вывод изменился бы, если ограничение, на которое сошлётся Ozon, было введено до 24 августа'; 6.2: 'Вывод изменился бы, если отметки склада нет'. The generic trigger in 5.1 is noted as a minor issue."},
+    {"id": "CTR-04", "pass": false, "evidence": "5.1: 'Для АНО это означает, что доказывать вину Ozon или причину пожара не требуется' rests on st. 901/401 p. 3, both of which yield to contract terms, and the recorded offer makes liability fault-based. 6.1: 'Риск: низкий' rests on an assumed warehouse mark that the client has not confirmed."},
+    {"id": "CTR-05", "pass": true, "evidence": "Section 3 lists the load-bearing assumptions (FBO model, warehouse mark on the waybill, the себестоимость cap, the Enem warehouse being in Adygea) and ties each to a section. 5.2 flags that lost profit on the 420 unsold mugs is harder to prove than on the 60 prepaid ones."},
+    {"id": "CTR-06", "pass": false, "evidence": "4: VS RF 305-ES25-11730 is answered with 'в модели FBO хранение не обслуживает перевозку'. That avoids the stronger form of the holding: when storage is one part of a complex obligation, the contract terms govern. Here those terms are the recorded fault-based clause and the offer's own compensation formula."},
+    {"id": "CTR-07", "pass": true, "evidence": "9 names the consumer penalty and fine exposure ('неустойка может дойти до той же суммы, не считая штрафа'). 10.3 names the cost-shifting loss if only purchase cost is awarded ('около 59% пошлины и расходов останутся на АНО')."},
+    {"id": "CTR-08", "pass": false, "evidence": "Ozon's first answer to the claim will be that under the offer (p. 8.1 of Annex 1) it is liable only for fault-based loss, paid by the offer's formula. The draft meets the formula only through a different assumed cap (себестоимость) and does not meet the fault limb at all."},
+    {"id": "CTR-09", "pass": true, "evidence": "The draft says so openly where it relies on the absence of authority, e.g. 7.3: 'Практики высших судов, признающей такую оговорку недействительной ... не найдено, поэтому этот довод практикой не подтверждён'; 10.2: 'Судебной практики ... мы не нашли'."},
+    {"id": "CTR-10", "pass": true, "evidence": "Section 3 says KS RF 4-P is excluded because it could not be verified ('проверить по первоисточнику не удалось, поэтому в анализе оно не используется'). It also discloses the missing high-court practice on FBO qualification and on the jurisdiction clause rather than implying none exists."}
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "omitted_contrary_authority",
+      "section_id": "s-5-1",
+      "issue": "The record quotes the Ozon FBO offer (p. 8.1 of Annex 1, via A40-630/25-100-1): Ozon is liable for loss of seller goods 'по вине Ozon'. The draft never mentions this. Instead, 5.1 says ANO need not prove Ozon's fault. Section 4 relies on st. 401 p. 3 (no-fault liability for entrepreneurs), which yields to contract, and treats a fault-based clause as a hypothetical ('Вывод изменился бы, если оферта ... ставит ответственность Ozon в зависимость только от его вины'). Section 6.1 cites the same clause only for its pre-transfer exception. Combined with VS RF 305-ES25-11730 (a complex obligation is judged by its contract terms), this is Ozon's strongest answer on the basis of liability for both shipments.",
+      "suggestion": "Bring p. 8.1 into 4 and 5.1 as the counterargument. Say whether st. 901 p. 1 on professional custodians can be displaced by contract. Explain why, even under a fault standard, Ozon still carries the burden of proving no fault (st. 401 p. 2; the 32-KG18-38 and 66-KG18-9 findings), and why the clause is open to challenge under st. 428 p. 2. Then recalibrate the 'вину доказывать не требуется' sentence and the 6.1 statement about the offer.",
+      "checklist_id": "CTR-02",
+      "attack_vector": "contrary_authority",
+      "issue_client": "До направления претензии проверьте в оферте Ozon, не ограничена ли ответственность Ozon за утрату товара случаями его вины: в известной редакции оферты (п. 8.1 Приложения № 1) это так, и меморандум этот довод Ozon пока не разбирает."
+    },
+    {
+      "severity": "major",
+      "category": "weak_answer_to_counterargument",
+      "section_id": "s-4",
+      "issue": "The draft sets VS RF 305-ES25-11730 aside because FBO storage is not incidental to carriage. It never engages the holding's operative point: in a complex obligation, liability follows the contract's terms. The fallback 'даже по общим нормам предприниматель отвечает независимо от вины' is also undercut by the contract, because st. 401 p. 3 applies only 'если иное не предусмотрено законом или договором'.",
+      "suggestion": "State the stronger form (contract terms govern, and here they are fault-based and formula-based), then answer it on that footing, e.g. through the st. 428 p. 2 / Plenum 16 challenge and the burden of proof under st. 401 p. 2.",
+      "checklist_id": "CTR-06",
+      "attack_vector": "overconfidence"
+    },
+    {
+      "severity": "major",
+      "category": "record_contradicts_assumption",
+      "section_id": "s-5-2",
+      "issue": "5.2 and 10.2 frame Ozon's strongest point on quantum as a себестоимость cap, taken as an assumption, and put the fallback at ~297 600 / ~390 600 RUB. The record shows the offer's own formula: 'действительная стоимость товара (цена продажи за период) минус вознаграждения Ozon'. A40-630 applied that formula as the agreed method of valuation. The draft cites the case only as a court's choice of measure and does not tie it to the offer text. That leaves the lower bound, the 10.2 figure and the 10.3 cost-exposure maths resting on an assumption the record contradicts.",
+      "suggestion": "Take the recorded formula as the likely contractual measure (subject to checking the August 2026 text). Reframe the себестоимость cap as the alternative scenario and restate the ranges and the Ozon counterargument accordingly.",
+      "checklist_id": "CTR-08",
+      "attack_vector": "contrary_authority"
+    },
+    {
+      "severity": "major",
+      "category": "risk_grade_overstated",
+      "section_id": "s-6-1",
+      "issue": "6.1 and the summary grade the shoppers' storage obligation at 'Риск: низкий'. That grade rests on an unconfirmed assumption (a waybill with a warehouse acceptance mark), on a fault-based offer clause the section does not engage, and on a doctrine finding that courts treated the signed acceptance act as the sole proof and dismissed sellers who lacked it. The draft recasts that line of cases as merely evidentiary. On these facts, however, the 'moment of formation' question and the proof question cannot be separated.",
+      "suggestion": "Tie the grade to the assumption: low only if the warehouse mark exists, otherwise high. Say that without the mark the argument over when the obligation arose will not help, and bring the summary bullet into line.",
+      "checklist_id": "CTR-04",
+      "attack_vector": "overconfidence"
+    },
+    {
+      "severity": "minor",
+      "category": "generic_trigger",
+      "section_id": "s-5-1",
+      "issue": "The force-majeure trigger is generic ('если Ozon докажет внешнюю причину пожара'). The research flagged, as a considered-excluded discovery lead (Право.ру), the live scenario of warehouse fires caused by UAV attacks, where the force-majeure question is genuinely contested. The draft does not name this.",
+      "suggestion": "Name the specific trigger: a fire caused by a drone attack or other hostile act. Add that it would put the 480-mug claim at high risk, and fold it into the 10-day request for the cause of the fire.",
+      "checklist_id": "CTR-03",
+      "attack_vector": "understated_risk"
+    },
+    {
+      "severity": "minor",
+      "category": "unaddressed_recourse",
+      "section_id": "s-9",
+      "issue": "Section 9 tells ANO to refund buyers from its own funds and names the penalty (неустойка) and 50% fine exposure. It does not say whether those sums can be recovered from Ozon as losses caused by the fire, so part of the exposure may simply stay with ANO.",
+      "suggestion": "Add a sentence on whether ANO can claim consumer penalties and refunds from Ozon (st. 15, 393 GK RF; agent's duty under st. 1005), and include them in the claim in 10.1 if so.",
+      "checklist_id": "CTR-07",
+      "attack_vector": "understated_risk"
+    }
+  ],
+  "verdict": "needs_revision"
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import sys
@@ -30,6 +31,7 @@ from memoforge import (  # noqa: E402
     preflight,
     probe,
     review,
+    schema,
     sources,
     state_io,
     stepctx,
@@ -486,6 +488,35 @@ class CompletionTest(unittest.TestCase):
         ]
         self.assertTrue(delivered, "M9: the run still delivers")
 
+    def test_a_stuck_writer_hands_over_the_open_majors_of_the_version_it_delivers(self):
+        # D-210: the writer-failed exit delivers v1, so the majors v1's reviewers left open go with it.
+        driver = Driver(temp_root(self), slug="writer-stuck-majors")
+        reviewers = driver.run_until("revision_loop")
+        major = {
+            "severity": "major",
+            "category": "unsupported_conclusion",
+            "section_id": "s-4",
+            "issue": "The conclusion of 4 does not follow from the rule it applies.",
+            "suggestion": "Tie the conclusion to the facts the rule needs.",
+        }
+        self._act_reviewers_with_blocker(driver, reviewers, major=major)
+        self._spend_the_writer_on_the_seed(driver)
+        driver.next()  # the writer step closes `fail` and the loop exits to `export`
+
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"])
+        self.assertIn("writer_failed", state["final_status_reasons"])
+        rows = state["open_substance_majors"]
+        self.assertEqual(
+            [("om-1", "logic", 1, "s-4", "unsupported_conclusion", major["issue"], "open")],
+            [
+                (row["id"], row["class"], row["from_iteration"], row["section_id"], row["category"], row["issue"],
+                 row["status"])
+                for row in rows
+            ],
+        )
+        self.assertEqual(review.open_substance_majors(state, 1), rows)
+
     def _spend_the_writer_on_the_seed(self, driver: Driver) -> None:
         """Both writer attempts return `drafts/v2.md` exactly as `revision next` seeded it (D-153)."""
         writer = None
@@ -507,8 +538,8 @@ class CompletionTest(unittest.TestCase):
                 step = {"step_id": retry["step_id"], "attempt": retry["attempt"]}
 
     @staticmethod
-    def _act_reviewers_with_blocker(driver: Driver, action: dict) -> None:
-        """Every reviewer approves except `logic`, which raises a grounded hard-fail blocker."""
+    def _act_reviewers_with_blocker(driver: Driver, action: dict, *, major: dict | None = None) -> None:
+        """Every reviewer approves except `logic`, which raises a grounded hard-fail blocker (and `major`)."""
         from memoforge import review as review_module
 
         hard_fail = next(item["id"] for item in review_module.load_checklist("logic") if item["hard_fail"])
@@ -531,7 +562,7 @@ class CompletionTest(unittest.TestCase):
                         "suggestion": "Explain the provision before applying it.",
                         "checklist_id": hard_fail,
                     }
-                ]
+                ] + ([major] if major else [])
                 document["verdict"] = "needs_revision"
                 state_io.write_json_atomic(target, document)
                 machine.run_agent_log(
@@ -613,6 +644,12 @@ class TargetedCitationFixTest(unittest.TestCase):
 
         writer = _next_writer_dispatch(driver)
         self.assertEqual("drafts/v3.md", writer["agents"][0]["expected_outputs"][0]["canonical"])
+        # D-208: a token only where a pack source holds the rule; otherwise withdraw or qualify.
+        self.assertIn(
+            ". Targeted pass: for each named item, add the source token where a pack source contains the rule; "
+            "otherwise withdraw the statement or qualify it as unresolved. Change nothing else.",
+            writer["agents"][0]["prompt"],
+        )
         state = driver.state()
         self.assertEqual(1, state["attempts"]["targeted_fix"])
         self.assertEqual({"iteration": 3, "reviewers": ["citations"]}, state["targeted_fix"])
@@ -2079,6 +2116,57 @@ class SufficiencyBudgetCombinationsTest(unittest.TestCase):
         self.assertEqual(["case_law"], machine.missing_layers(legacy))
 
 
+class ResearchLayerModelTest(unittest.TestCase):
+    """D-209: the `case_law` researcher is dispatched on `opus`; `statutes` and `doctrine` keep `sonnet`."""
+
+    SUFFICIENCY = {
+        "reviewer": "research_sufficiency",
+        "overall_verdict": "targeted_followup_needed",
+        "blocking_gaps": [
+            {
+                "gap": "The holding relied on for issue i1 stands only in a clause the judgment recites.",
+                "target": "case_law",
+                "status": "missing",
+                "why_blocking": "The conclusion for issue i1 rests on that holding.",
+            }
+        ],
+        "drafting_warnings": [],
+    }
+
+    @staticmethod
+    def _models(action: dict) -> dict:
+        return {item["slot"]: item["model"] for item in action["agents"]}
+
+    def test_the_researcher_specs_override_only_the_case_law_slot(self):
+        driver = Driver(temp_root(self), mode="full", slug="layer-model-specs")
+        driver.run_until("plan_approval_pending")
+        specs = machine.researcher_specs(driver.work_dir, driver.state(), ["statutes", "case_law", "doctrine"])
+        self.assertEqual(
+            {"statutes": None, "case_law": "opus", "doctrine": None},
+            {spec["slot"]: spec["model"] for spec in specs},
+        )
+
+    def test_the_first_research_dispatch_runs_case_law_on_opus(self):
+        driver = Driver(temp_root(self), mode="full", slug="layer-models")
+        action = driver.run_until("research")
+        self.assertEqual("dispatch", action["kind"])
+        self.assertEqual({"statutes": "sonnet", "case_law": "opus", "doctrine": "sonnet"}, self._models(action))
+
+    def test_a_followup_for_case_law_alone_runs_on_opus(self):
+        driver = Driver(temp_root(self), mode="full", slug="layer-models-followup")
+        action = driver.run_until("research_sufficiency")
+        agent = action["agents"][0]
+        target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        state_io.write_json_atomic(target, self.SUFFICIENCY)
+        _agent_done(driver, action, agent["slot"])
+        driver.report(action["step_id"], action["attempt"], agent=agent["slot"])
+
+        research = driver.run_until("research")
+        self.assertEqual("dispatch", research["kind"])
+        self.assertEqual({"case_law": "opus"}, self._models(research))
+
+
 class RenderViewsTest(unittest.TestCase):
     """D-57: the md views are script steps in front of the agents that read them (Codex 13)."""
 
@@ -2942,6 +3030,1088 @@ class KnownBlockersTest(unittest.TestCase):
         self.assertIn("NEW", text)
         self.assertNotEqual(machine.KNOWN_BLOCKERS_NONE, text)
         self.assertIsNotNone(action)
+
+
+# --- D-211: the last reader acts on the open substantive majors ------------------------------
+
+
+def _major(row_id: str, klass: str, section_id: str = "s-3", **overrides) -> dict:
+    """One `open_substance_majors` row, shaped as `review.open_substance_majors` writes it (D-210)."""
+    row = {
+        "id": row_id,
+        "class": klass,
+        "reviewer": klass,
+        "section_id": section_id,
+        "category": "pinpoint_mismatch" if klass == "citations" else "overstated_recourse",
+        "issue_category": "source_drift" if klass == "citations" else None,
+        "issue": f"The retention rule in {section_id} is stated more firmly than its source allows ({row_id}).",
+        "issue_client": None,
+        "suggestion": "Soften the statement or withdraw it.",
+        "from_iteration": 1,
+        "origin": "loop",
+        "status": "open",
+    }
+    row.update(overrides)
+    return row
+
+
+SOFTEN_S3 = {
+    "section_id": "s-3",
+    "severity": "major",
+    "issue": "The retention rule is stated more firmly than the source allows.",
+    "suggestion": "Soften the statement of the rule; add no new statement of law and no new authority.",
+}
+"""The readiness issue a `polish` disposition of a row in s-3 turns into (D-211)."""
+
+OUT_OF_SCOPE_EDIT = (
+    "The client keeps customer records for seven years. We assume",
+    "The client keeps customer records for seven years under its own policy. We assume",
+)
+"""A polish edit in s-2 (facts), which no readiness issue names and which is no cross-reference section."""
+
+RECHECK_BLOCKER = {
+    "severity": "blocker",
+    "category": "unsupported_law",
+    "section_id": "s-3",
+    "issue": "The polished sentence still states a rule the cited article does not contain.",
+    "suggestion": "Withdraw the rule or mark it as unresolved.",
+    "checklist_id": "CIT-01",
+    "issue_category": "unsupported_claim",
+    "issue_client": "Норма, изложенная в разделе 3, не подтверждается указанной статьёй.",
+}
+"""A blocker the citations re-check of the polish raises in s-3 (D-211)."""
+
+
+def _to_readiness(case, slug: str, rows: list[dict], *, mode: str = "full", language: str = "en") -> tuple:
+    """Drive a run to its first client-readiness dispatch with `rows` as the loop's open majors."""
+    driver = Driver(temp_root(case), mode=mode, slug=slug)
+    if language != "en":
+        state_io.write_state(driver.work_dir, lambda current: current.update({"language": language}))
+    with mock.patch.object(review, "open_substance_majors", side_effect=lambda *_: copy.deepcopy(rows)):
+        action = driver.run_until("client_readiness")
+    return driver, action
+
+
+def _answer(driver: Driver, action: dict, document: dict) -> dict:
+    """Write `document` as the slot's output, mark it done and report it."""
+    agent = action["agents"][0]
+    target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    state_io.write_json_atomic(target, document)
+    _agent_done(driver, action, agent["slot"])
+    return driver.report(action["step_id"], action["attempt"], agent=agent["slot"])
+
+
+def _readiness_document(driver: Driver, verdict: str, *, issues=(), dispositions=None) -> dict:
+    state = driver.state()
+    document = probe.fixture_client_readiness(
+        str(machine.current_draft_sha(state)), int(state["current_iteration"])
+    )
+    document["verdict"] = verdict
+    document["issues"] = [dict(issue) for issue in issues]
+    if dispositions is not None:
+        document["dispositions"] = [
+            {"id": row_id, "action": action, "note": "Fixture disposition."} for row_id, action in dispositions
+        ]
+    return document
+
+
+def _recheck_document(driver: Driver, *, resolutions=(), issues=(), unknown=(), failed=()) -> dict:
+    """A `citations` review of the post-polish draft, as the re-check agent writes it."""
+    state = driver.state()
+    document = probe.fixture_review(
+        "citations", str(machine.current_draft_sha(state)), int(state["current_iteration"])
+    )
+    for item in document["checklist"]:
+        if item["id"] in unknown:
+            item["pass"] = "unknown"
+        if item["id"] in failed:
+            item["pass"] = False
+    document["issues"] = [dict(issue) for issue in issues]
+    if any(issue["severity"] == "blocker" for issue in issues):
+        document["verdict"] = "needs_revision"
+    if resolutions:
+        document["resolutions"] = [
+            {"id": row_id, "status": status, "note": "Fixture resolution."} for row_id, status in resolutions
+        ]
+    return document
+
+
+def _next_dispatch_of(driver: Driver, agent: str, *, limit: int = 10) -> dict:
+    """Advance, acting on everything else, until `next` dispatches `agent`; that action is not acted on."""
+    for _ in range(limit):
+        action = driver.next()
+        if action.get("errors"):
+            raise AssertionError(f"next failed: {action['errors']}")
+        if action["kind"] == "dispatch" and action["agents"][0]["subagent_type"].endswith(agent):
+            return action
+        if action["kind"] == "terminal":
+            raise AssertionError(f"the run ended before {agent} was dispatched")
+        driver.act(action)
+    raise AssertionError(f"{agent} was never dispatched")
+
+
+def _to_recheck(case, slug: str, rows: list[dict], *, dispositions, language: str = "en") -> tuple:
+    """Pass 1 asks for the polish, the fixture writer edits s-3, and the run stops on the re-check."""
+    driver, first = _to_readiness(case, slug, rows, language=language)
+    _answer(
+        driver,
+        first,
+        _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=dispositions),
+    )
+    polish = driver.next()
+    if not polish["agents"][0]["subagent_type"].endswith("memo-writer"):
+        raise AssertionError(f"no polish dispatch: {polish}")
+    _act_writer(driver, polish)
+    return driver, _next_dispatch_of(driver, "citation-auditor")
+
+
+def _phase_purposes(state: dict, phase: str) -> list[str]:
+    """The purpose of every step issued in `phase`, one per step id, in issue order."""
+    seen: list[str] = []
+    purposes: list[str] = []
+    for row in state.get("steps") or []:
+        if row.get("phase") == phase and row["step_id"] not in seen:
+            seen.append(row["step_id"])
+            purposes.append(machine.purpose(row))
+    return purposes
+
+
+def _row(state: dict, row_id: str) -> dict:
+    return next(row for row in state["open_substance_majors"] if row["id"] == row_id)
+
+
+def _finding_line(row: dict) -> str:
+    return f"- {row['id']} · {row['class']} · {row['section_id']} · {row['issue']} · {row['suggestion']}"
+
+
+PREPOLISH_V1 = "reviews/v1-prepolish.md"
+
+
+class OpenMajorsReadinessTest(unittest.TestCase):
+    """D-211: the readiness reviewer disposes of the open majors; the polish is kept in scope and re-checked."""
+
+    def test_an_empty_list_leaves_the_readiness_steps_as_they_were(self):
+        driver = Driver(temp_root(self), slug="om-empty")
+        first = driver.run_until("client_readiness")
+        self.assertIn("## Open reviewer findings\n\nnone\n", first["agents"][0]["prompt"])
+        _answer(driver, first, _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual(
+            [
+                "dispatch:client-readiness-reviewer",
+                "dispatch:memo-writer",
+                "script:draft.finish",
+                "dispatch:client-readiness-reviewer",
+            ],
+            _phase_purposes(state, "client_readiness"),
+        )
+        self.assertEqual("approved_on_v1", state["final_status"])
+        for field in ("polish_check", "export_pin"):
+            self.assertNotIn(field, state)
+        self.assertIsNone(stepctx.published_entry(state, PREPOLISH_V1))
+        self.assertFalse((driver.work_dir / PREPOLISH_V1).exists())
+
+    def test_a_polished_citations_row_the_recheck_resolves_keeps_the_approval(self):
+        rows = [_major("om-1", "citations")]
+        driver, first = _to_readiness(self, "om-resolved", rows)
+        line = _finding_line(rows[0])
+        self.assertIn(line + "\n", first["agents"][0]["prompt"])
+        baseline = (driver.work_dir / "drafts/v1.md").read_bytes()
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+
+        polish = driver.next()
+        self.assertTrue(polish["agents"][0]["subagent_type"].endswith("memo-writer"))
+        state = driver.state()
+        entry = stepctx.published_entry(state, PREPOLISH_V1)
+        self.assertEqual(
+            (state_io.sha256_bytes(baseline), "command", polish["step_id"]),
+            (entry["sha256"], entry["by"], entry["step_id"]),
+        )
+        self.assertEqual(baseline, (driver.work_dir / PREPOLISH_V1).read_bytes())
+        self.assertEqual("open", _row(state, "om-1")["status"])
+        _act_writer(driver, polish)  # the fixture writer rewrites one sentence of s-3
+
+        finish = driver.next()
+        self.assertEqual("draft.finish", machine.command_key(finish["command"]))
+        state = driver.state()
+        self.assertEqual({"draft_sha": machine.current_draft_sha(state), "errors": []}, state["polish_check"])
+        driver.act(finish)
+
+        recheck = driver.next()
+        agent = recheck["agents"][0]
+        self.assertEqual(("citations_polish", "memoforge:citation-auditor"), (agent["slot"], agent["subagent_type"]))
+        self.assertEqual("reviews/v1-citations_polish.json", agent["expected_outputs"][0]["canonical"])
+        self.assertIn(
+            f"Scope: sections s-3; the open findings om-1 · citations · {rows[0]['issue']} were polished. "
+            "Grade CIT-01/02/04 on these sections. Record one `resolutions` row per listed id.",
+            agent["prompt"],
+        )
+        self.assertIn("Lookup budget: 20 units", agent["prompt"])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+
+        second = driver.next()
+        self.assertTrue(second["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        # The list reaches the second pass although the draft sha moved, each row with its status.
+        self.assertNotEqual(state_io.sha256_bytes(baseline), driver.state()["current_draft_sha"])
+        self.assertIn(line + " · status: resolved", second["agents"][0]["prompt"])
+        driver.act(second)  # the fixture reviewer answers `client_ready`
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("approved_on_v1", state["final_status"])
+        self.assertEqual("resolved", _row(state, "om-1")["status"])
+        self.assertEqual([], state["remaining_blocking_issues"])
+        self.assertNotIn("open_substance_majors", state["final_status_reasons"])
+        self.assertEqual([], schema.validate(state, "state"))
+
+    def test_a_row_the_recheck_leaves_open_sends_the_memo_to_manual_review(self):
+        rows = [_major("om-1", "citations")]
+        driver, recheck = _to_recheck(self, "om-left-open", rows, dispositions=[("om-1", "polish")])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "open")]))
+        second = driver.next()
+        self.assertIn(_finding_line(rows[0]) + " · status: unresolved", second["agents"][0]["prompt"])
+        driver.act(second)
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        moved = [row for row in state["remaining_blocking_issues"] if row.get("issue") == rows[0]["issue"]]
+        self.assertEqual(1, len(moved))
+        self.assertEqual(("major", "s-3"), (moved[0]["severity"], moved[0]["section_id"]))
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        self.assertIn(f"- major · section 3 · {rows[0]['issue']}", status)
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        findings = summary.partition("## Open reviewer findings")[2]
+        self.assertNotIn(rows[0]["issue"], findings, "a row moved into the blockers is not printed twice")
+
+    def test_an_unusable_recheck_resolves_nothing_whatever_its_resolutions_say(self):
+        cases = {
+            "stub": lambda driver: {
+                "reviewer": "citations",
+                "status": "failed",
+                "reason": "The auditor gave up.",
+                "draft_sha": str(driver.state()["current_draft_sha"]),
+                "iteration": 1,
+            },
+            "invalid": lambda driver: dict(
+                _recheck_document(driver, resolutions=[("om-1", "resolved")]),
+                checklist=[
+                    item
+                    for item in _recheck_document(driver)["checklist"]
+                    if item["id"] != "CIT-10"
+                ],
+            ),
+            "downgraded": lambda driver: _recheck_document(
+                driver, resolutions=[("om-1", "resolved")], unknown=("CIT-02",)
+            ),
+        }
+        for name, build in cases.items():
+            with self.subTest(recheck=name):
+                rows = [_major("om-1", "citations")]
+                driver, recheck = _to_recheck(self, f"om-{name}", rows, dispositions=[("om-1", "polish")])
+                _answer(driver, recheck, build(driver))
+                driver.run_to_end()
+                state = driver.state()
+                self.assertEqual("unresolved", _row(state, "om-1")["status"])
+                self.assertEqual("manual_review_required_on_v1", state["final_status"])
+                self.assertIn("open_substance_majors", state["final_status_reasons"])
+                if name == "downgraded":
+                    # The synthetic `document` blocker of the unverified CIT-02 is kept all the same.
+                    kept = [row for row in state["remaining_blocking_issues"] if row.get("checklist_id") == "CIT-02"]
+                    self.assertEqual(["unverified_hard_fail"], [row["category"] for row in kept])
+                    self.assertIn("polish_recheck_blocker", state["final_status_reasons"])
+
+    def test_a_recheck_blocker_under_a_polished_counterarguments_row_reaches_the_russian_status(self):
+        rows = [_major("om-1", "counterarguments")]
+        driver, recheck = _to_recheck(
+            self, "om-ru-blocker", rows, dispositions=[("om-1", "polish")], language="ru"
+        )
+        # Class-independent: a softened counterarguments sentence is re-checked by the citations agent.
+        self.assertEqual("citations_polish", recheck["agents"][0]["slot"])
+        self.assertIn("the open findings om-1 · counterarguments · ", recheck["agents"][0]["prompt"])
+        _answer(
+            driver,
+            recheck,
+            _recheck_document(
+                driver, resolutions=[("om-1", "resolved")], issues=[RECHECK_BLOCKER], failed=("CIT-01",)
+            ),
+        )
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("polish_recheck_blocker", state["final_status_reasons"])
+        self.assertNotIn("open_substance_majors", state["final_status_reasons"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertIn(RECHECK_BLOCKER, state["remaining_blocking_issues"])
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        self.assertIn(f"- блокирующее замечание · раздел 3 · {RECHECK_BLOCKER['issue_client']}", status)
+
+    def test_a_downgraded_recheck_keeps_its_own_blocker_and_the_synthetic_one(self):
+        rows = [_major("om-1", "counterarguments")]
+        driver, recheck = _to_recheck(self, "om-both-blockers", rows, dispositions=[("om-1", "polish")])
+        blocker = {key: value for key, value in RECHECK_BLOCKER.items() if key != "issue_client"}
+        _answer(
+            driver,
+            recheck,
+            _recheck_document(
+                driver,
+                resolutions=[("om-1", "resolved")],
+                issues=[blocker],
+                failed=("CIT-01",),
+                unknown=("CIT-05",),
+            ),
+        )
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        kept = [
+            (row.get("category"), row.get("section_id"))
+            for row in state["remaining_blocking_issues"]
+            if row.get("checklist_id") in ("CIT-01", "CIT-05")
+        ]
+        self.assertEqual([("unsupported_law", "s-3"), ("unverified_hard_fail", "document")], kept)
+
+    def test_an_out_of_scope_polish_puts_the_baseline_back_and_pins_the_export(self):
+        rows = [_major("om-1", "citations")]
+        driver, first = _to_readiness(self, "om-out-of-scope", rows)
+        baseline = (driver.work_dir / "drafts/v1.md").read_bytes()
+        baseline_sha = state_io.sha256_bytes(baseline)
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        polish = driver.next()
+        _act_writer(driver, polish, edit=OUT_OF_SCOPE_EDIT)
+        self.assertNotEqual(baseline, (driver.work_dir / "drafts/v1.md").read_bytes())
+
+        render = driver.next()
+        self.assertEqual("docx.render", machine.command_key(render["command"]))
+        self.assertEqual(baseline_sha, render["command"][render["command"].index("--draft-sha") + 1])
+        state = driver.state()
+        self.assertEqual(baseline, (driver.work_dir / "drafts/v1.md").read_bytes())
+        self.assertEqual(baseline_sha, stepctx.published_sha(state, "drafts/v1.md"))
+        self.assertEqual(baseline_sha, state["current_draft_sha"])
+        self.assertEqual({"version": 1, "sha256": baseline_sha}, state["export_pin"])
+        self.assertEqual((baseline_sha, 1), machine.export_draft_sha(state))
+        version = next(row for row in state["draft_versions"] if row["version"] == 1)
+        self.assertEqual(
+            (baseline_sha, True, True), (version["sha256"], version["lint_clean"], version["citations_clean"])
+        )
+        self.assertEqual(["section_out_of_scope: s-2"], state["polish_check"]["errors"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("polish_out_of_scope", state["final_status_reasons"])
+        # No re-check ran, so the polished row is unresolved and its citations finding goes to the Status.
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
+        self.assertEqual([], schema.validate(state, "state"))
+
+    def test_an_out_of_scope_polish_after_a_forced_exit_on_v2_keeps_the_label_and_pins_v2(self):
+        # Fix round 1 (5): the scope error follows the settlement rule - a forced exit keeps its label.
+        rows = [_major("om-1", "citations")]
+        driver = Driver(temp_root(self), slug="om-pin-v2")
+        with mock.patch.object(review, "open_substance_majors", side_effect=lambda *_: copy.deepcopy(rows)):
+            first = driver.run_until("revision_loop")
+            CompletionTest._act_reviewers_with_blocker(driver, first)
+            writer = _next_writer_dispatch(driver)
+            _act_writer(driver, writer, edit=BREAK_RISK)  # v2 fails L-07 and is never checked clean
+            readiness = driver.run_until("client_readiness")
+        state = driver.state()
+        versions = {row["version"]: row for row in state["draft_versions"]}
+        self.assertTrue(versions[1]["lint_clean"] and versions[1]["citations_clean"])
+        self.assertFalse(versions[2]["lint_clean"])
+        self.assertEqual("drafts/v2.md", state["current_draft_path"])
+        baseline_sha = str(machine.current_draft_sha(state))
+        _answer(
+            driver,
+            readiness,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        polish = driver.next()
+        _act_writer(driver, polish, edit=OUT_OF_SCOPE_EDIT)
+
+        render = driver.next()  # the same `mf next` reverts, pins and issues the export
+        self.assertEqual("docx.render", machine.command_key(render["command"]))
+        self.assertEqual(baseline_sha, render["command"][render["command"].index("--draft-sha") + 1])
+        state = driver.state()
+        self.assertEqual({"version": 2, "sha256": baseline_sha}, state["export_pin"])
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", state["final_status"])
+        self.assertIn("polish_out_of_scope", state["final_status_reasons"])
+        unpinned = {key: value for key, value in state.items() if key != "export_pin"}
+        self.assertEqual(1, machine.export_draft_sha(unpinned)[1], "without the pin the checked v1 would go out")
+
+        # `finalize` selects without a sha: the pin binds it too, so the delivered memo is v2's baseline.
+        driver.act(render)
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual(baseline_sha, docx_export.select_draft(state, driver.work_dir)["sha256"])
+        memo = docx_export.memo_md_path(driver.work_dir, docx_export.slug_of(state, driver.work_dir))
+        text = memo.read_text(encoding="utf-8")
+        self.assertIn("(v2 review)", text)
+        self.assertNotIn("under its own policy", text)
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", state["final_status"])
+
+    def test_an_unavailable_baseline_is_a_failed_scope_check(self):
+        # Fix round 1 (1): a logic polish would otherwise pass unchecked and leave the run approved.
+        def delete(path: Path) -> None:
+            path.unlink()
+
+        def drift(path: Path) -> None:
+            path.write_bytes(path.read_bytes() + b"\nEdited after publication.\n")
+
+        for name, damage, before_check in (
+            ("deleted", delete, True),
+            ("drifted", drift, True),
+            ("deleted-after-the-check", delete, False),
+        ):
+            with self.subTest(baseline=name):
+                rows = [_major("om-1", "logic")]
+                driver, first = _to_readiness(self, f"om-no-baseline-{name}", rows)
+                _answer(
+                    driver,
+                    first,
+                    _readiness_document(
+                        driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]
+                    ),
+                )
+                _act_writer(driver, driver.next())  # the fixture writer rewrites one sentence of s-3
+                if before_check:
+                    damage(driver.work_dir / PREPOLISH_V1)
+                    render = driver.next()
+                else:
+                    finish = driver.next()
+                    self.assertEqual([], driver.state()["polish_check"]["errors"])
+                    damage(driver.work_dir / PREPOLISH_V1)
+                    driver.act(finish)
+                    render = driver.next()  # the re-check cannot read the baseline: no re-check, no approval
+                self.assertEqual("docx.render", machine.command_key(render["command"]))
+                state = driver.state()
+                self.assertEqual(["baseline_unavailable"], state["polish_check"]["errors"])
+                self.assertEqual("manual_review_required_on_v1", state["final_status"])
+                self.assertIn("polish_out_of_scope", state["final_status_reasons"])
+                self.assertEqual("unresolved", _row(state, "om-1")["status"])
+                # No version whose bytes the loop reviewed is left (v1 was polished in place): no pin, and
+                # the export carries the polished v1 under manual review.
+                self.assertNotIn("export_pin", state)
+                self.assertEqual(
+                    machine.current_draft_sha(state), render["command"][render["command"].index("--draft-sha") + 1]
+                )
+                self.assertEqual([], machine._polish_recheck_steps(state, 1))  # noqa: SLF001
+
+    def test_an_unavailable_baseline_pins_the_last_version_the_loop_reviewed(self):
+        # Fix round 1 (1): v2 is polished in place with no baseline to restore; v1's bytes were reviewed.
+        rows = [_major("om-1", "counterarguments")]
+        driver = Driver(temp_root(self), slug="om-no-baseline-v2")
+        with mock.patch.object(review, "open_substance_majors", side_effect=lambda *_: copy.deepcopy(rows)):
+            first = driver.run_until("revision_loop")
+            CompletionTest._act_reviewers_with_blocker(driver, first)
+            driver.act(_next_writer_dispatch(driver))
+            readiness = driver.run_until("client_readiness")
+        state = driver.state()
+        self.assertEqual("approved_on_v2", state["final_status"])
+        v1_sha = next(row["sha256"] for row in state["draft_versions"] if row["version"] == 1)
+        _answer(
+            driver,
+            readiness,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        _act_writer(driver, driver.next())
+        (driver.work_dir / "reviews/v2-prepolish.md").unlink()
+
+        render = driver.next()
+        self.assertEqual(v1_sha, render["command"][render["command"].index("--draft-sha") + 1])
+        state = driver.state()
+        self.assertEqual({"version": 1, "sha256": v1_sha}, state["export_pin"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("polish_out_of_scope", state["final_status_reasons"])
+
+    def test_a_duplicated_resolution_id_resolves_nothing_whatever_the_order(self):
+        # Fix round 1 (2): the rest of the re-check stays usable, and its blockers are kept.
+        blocker = dict(
+            {key: value for key, value in RECHECK_BLOCKER.items() if key != "issue_client"}, section_id="s-2"
+        )
+        for order in (("open", "resolved"), ("resolved", "open")):
+            with self.subTest(order=order):
+                rows = [_major("om-1", "citations"), _major("om-2", "logic")]
+                driver, recheck = _to_recheck(
+                    self, f"om-dup-{order[0]}", rows, dispositions=[("om-1", "polish"), ("om-2", "polish")]
+                )
+                resolutions = [("om-1", order[0]), ("om-2", "resolved"), ("om-1", order[1])]
+                _answer(
+                    driver,
+                    recheck,
+                    _recheck_document(driver, resolutions=resolutions, issues=[blocker], failed=("CIT-01",)),
+                )
+                driver.run_to_end()
+                state = driver.state()
+                self.assertEqual("unresolved", _row(state, "om-1")["status"])
+                self.assertEqual("resolved", _row(state, "om-2")["status"])
+                self.assertEqual("manual_review_required_on_v1", state["final_status"])
+                self.assertIn("open_substance_majors", state["final_status_reasons"])
+                self.assertIn("polish_recheck_blocker", state["final_status_reasons"])
+                self.assertIn(blocker, state["remaining_blocking_issues"])
+
+    def test_a_cancel_after_the_recheck_still_settles_its_blocker(self):
+        # Fix round 1 (4): cancellation goes straight to `finalize`; the readiness settlement runs first.
+        rows = [_major("om-1", "counterarguments")]
+        driver, recheck = _to_recheck(self, "om-cancel", rows, dispositions=[("om-1", "polish")])
+        blocker = {key: value for key, value in RECHECK_BLOCKER.items() if key != "issue_client"}
+        _answer(
+            driver,
+            recheck,
+            _recheck_document(driver, resolutions=[("om-1", "resolved")], issues=[blocker], failed=("CIT-01",)),
+        )
+        second = driver.next()
+        self.assertTrue(second["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        self.assertEqual("approved_on_v1", driver.state()["final_status"])
+        state_io.write_state(driver.work_dir, lambda current: current.update({"cancel_requested": True}))
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("cancelled_by_user", state["current_phase"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("polish_recheck_blocker", state["final_status_reasons"])
+        self.assertIn(blocker, state["remaining_blocking_issues"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertIn(f"- blocker · s-3 · {blocker['issue']}", summary)
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        self.assertIn(f"- blocker · section 3 · {blocker['issue']}", status)
+
+    def _cancel_after_polish(self, slug: str, rows: list[dict], edit: tuple[str, str] | None) -> tuple:
+        """Pass 1 asks for the polish, the writer publishes it, and the run is cancelled at once."""
+        driver, first = _to_readiness(self, slug, rows)
+        baseline = (driver.work_dir / "drafts/v1.md").read_bytes()
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        _act_writer(driver, driver.next(), edit=edit)
+        polished = driver.state()["current_draft_sha"]
+        self.assertNotEqual(state_io.sha256_bytes(baseline), polished)
+        self.assertNotIn("polish_check", driver.state())
+        state_io.write_state(driver.work_dir, lambda current: current.update({"cancel_requested": True}))
+        return driver, baseline, polished
+
+    def test_a_cancel_right_after_an_out_of_scope_polish_restores_the_baseline(self):
+        # Final fix wave: a cancellation must not deliver an unchecked polish under the loop's approval.
+        driver, baseline, _ = self._cancel_after_polish("om-cancel-out", [_major("om-1", "logic")], OUT_OF_SCOPE_EDIT)
+        baseline_sha = state_io.sha256_bytes(baseline)
+        finalize = driver.next()  # no agent: the scope decision, then the always-deliver finalize
+        self.assertEqual("finalize", machine.command_key(finalize["command"]))
+        state = driver.state()
+        self.assertEqual(["section_out_of_scope: s-2"], state["polish_check"]["errors"])
+        self.assertEqual(baseline, (driver.work_dir / "drafts/v1.md").read_bytes())
+        self.assertEqual({"version": 1, "sha256": baseline_sha}, state["export_pin"])
+        self.assertEqual((baseline_sha, 1), machine.export_draft_sha(state))
+        self.assertEqual(baseline_sha, docx_export.select_draft(state, driver.work_dir)["sha256"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("polish_out_of_scope", state["final_status_reasons"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertEqual([], machine._polish_recheck_steps(state, 1))  # noqa: SLF001
+        driver.act(finalize)
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("cancelled_by_user", state["current_phase"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        memo = docx_export.memo_md_path(driver.work_dir, docx_export.slug_of(state, driver.work_dir))
+        self.assertNotIn("under its own policy", memo.read_text(encoding="utf-8"))
+
+    def test_a_cancel_right_after_an_in_scope_polish_settles_as_before(self):
+        # Final fix wave: the check passes, nothing is restored or pinned, and the settlement runs as it did.
+        rows = [_major("om-1", "citations")]
+        driver, _, polished = self._cancel_after_polish("om-cancel-in", rows, None)  # the fixture edits s-3
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual("cancelled_by_user", state["current_phase"])
+        self.assertEqual({"draft_sha": polished, "errors": []}, state["polish_check"])
+        self.assertNotIn("export_pin", state)
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
+        self.assertNotIn("polish_out_of_scope", state["final_status_reasons"])
+        self.assertEqual([rows[0]["issue"]], [row["issue"] for row in state["remaining_blocking_issues"]])
+
+    def test_a_lint_fix_after_the_polish_is_outside_the_scope_check(self):
+        rows = [_major("om-1", "logic")]
+        driver, first = _to_readiness(self, "om-lint-fix", rows)
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "leave")]),
+        )
+        polish = driver.next()
+        _act_writer(driver, polish, edit=BREAK_RISK)  # in s-3, inside the scope, but it breaks L-07
+        driver.act(driver.next())  # draft finish: not clean
+        fix = driver.next()
+        self.assertTrue(fix["agents"][0]["subagent_type"].endswith("memo-writer"))
+        self.assertEqual(1, driver.state()["attempts"]["lint_fix"]["polish"])
+        agent = fix["agents"][0]
+        identity = {"step_id": fix["step_id"], "attempt": fix["attempt"]}
+        probe.run_fixture_agent(driver.work_dir, driver.state(), identity, agent)
+        target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
+        text = target.read_text(encoding="utf-8").replace(BREAK_RISK[1], BREAK_RISK[0], 1)
+        target.write_bytes(text.replace(OUT_OF_SCOPE_EDIT[0], OUT_OF_SCOPE_EDIT[1], 1).encode("utf-8"))
+        _agent_done(driver, fix, agent["slot"])
+        driver.report(fix["step_id"], fix["attempt"], agent=agent["slot"])
+
+        second = _next_dispatch_of(driver, "client-readiness-reviewer")
+        state = driver.state()
+        self.assertEqual("client_readiness", state["current_phase"])
+        self.assertEqual([], state["polish_check"]["errors"])
+        self.assertNotIn("polish_out_of_scope", state["final_status_reasons"])
+        self.assertIn(_finding_line(rows[0]) + " · status: left", second["agents"][0]["prompt"])
+
+    def test_a_citations_row_left_or_without_a_disposition_goes_to_manual_review(self):
+        for name, dispositions in (("leave", [("om-1", "leave")]), ("missing", None)):
+            with self.subTest(disposition=name):
+                rows = [_major("om-1", "citations")]
+                driver, first = _to_readiness(self, f"om-cit-{name}", rows)
+                _answer(driver, first, _readiness_document(driver, "client_ready", dispositions=dispositions))
+                driver.next()
+                state = driver.state()
+                self.assertEqual("export", state["current_phase"])
+                self.assertEqual("manual_review", _row(state, "om-1")["status"])
+                self.assertEqual("manual_review_required_on_v1", state["final_status"])
+                self.assertIn("open_substance_majors", state["final_status_reasons"])
+                self.assertEqual(
+                    [rows[0]["issue"]], [row["issue"] for row in state["remaining_blocking_issues"]]
+                )
+
+    def test_a_polish_row_without_a_polish_budget_is_unresolved(self):
+        rows = [_major("om-1", "citations")]
+        driver, first = _to_readiness(self, "om-no-budget", rows, mode="brief")
+        self.assertEqual(0, driver.state()["config"]["max_client_polish"])
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        driver.next()
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
+        self.assertIsNone(stepctx.published_entry(state, PREPOLISH_V1))
+
+    def test_a_logic_row_left_keeps_the_status_and_reaches_the_summary(self):
+        rows = [_major("om-1", "logic")]
+        driver, first = _to_readiness(self, "om-logic-left", rows)
+        _answer(driver, first, _readiness_document(driver, "client_ready", dispositions=[("om-1", "leave")]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("approved_on_v1", state["final_status"])
+        self.assertEqual("left", _row(state, "om-1")["status"])
+        self.assertEqual([], state["remaining_blocking_issues"])
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertIn("- logic · loop · left · s-3 · overstated_recourse · ", summary)
+
+    def test_a_new_major_of_the_recheck_is_summary_only_and_asks_no_disposition(self):
+        rows = [_major("om-1", "citations")]
+        driver, recheck = _to_recheck(self, "om-recheck-major", rows, dispositions=[("om-1", "polish")])
+        major = {
+            "severity": "major",
+            "category": "overstated_currency",
+            "section_id": "s-3",
+            "issue": "The guidance is described as settled practice.",
+            "suggestion": "Describe it as guidance.",
+            "issue_category": "source_drift",
+        }
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")], issues=[major]))
+        second = driver.next()
+        prompt = second["agents"][0]["prompt"]
+        self.assertIn(_finding_line(rows[0]) + " · status: resolved", prompt)
+        self.assertIn(
+            f"- om-2 · citations · s-3 · {major['issue']} · {major['suggestion']} · "
+            "raised by the polish re-check (for information, no disposition)",
+            prompt,
+        )
+        driver.act(second)
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("approved_on_v1", state["final_status"])
+        added = _row(state, "om-2")
+        self.assertEqual(("recheck", "open", 1), (added["origin"], added["status"], added["from_iteration"]))
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertIn(f"- citations · recheck · open · s-3 · overstated_currency · {major['issue']}", summary)
+
+    def test_a_recheck_that_fails_twice_spends_its_own_budget_once(self):
+        rows = [_major("om-1", "citations")]
+        driver, recheck = _to_recheck(self, "om-recheck-fails", rows, dispositions=[("om-1", "polish")])
+        baseline = stepctx.published_entry(driver.state(), PREPOLISH_V1)
+        driver.report(recheck["step_id"], recheck["attempt"], agent="citations_polish", status="fail")
+        retry = driver.next()
+        self.assertEqual((recheck["step_id"], 2, "failure"), (retry["step_id"], retry["attempt"], retry["reason"]))
+        driver.report(retry["step_id"], retry["attempt"], agent="citations_polish", status="fail")
+        state = driver.state()
+        self.assertEqual(1, review.failure_retry_attempts(state, 1, "citations_polish"))
+        self.assertEqual(1, review.json_retry_used(state, 1, "citations_polish"))
+        self.assertEqual(0, review.json_retry_used(state, 1, "citations"), "the loop's own budget is untouched")
+
+        second = driver.next()  # the budget is spent: the re-check closes `fail`, pass 2 is dispatched
+        self.assertTrue(second["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        self.assertIn(_finding_line(rows[0]) + " · status: unresolved", second["agents"][0]["prompt"])
+        again = driver.next()  # a restart re-issues the open readiness step, never a third re-check
+        self.assertTrue(again["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        state = driver.state()
+        rechecks = {
+            row["step_id"]
+            for row in state["steps"]
+            for entry in row.get("expected_outputs") or []
+            if entry.get("canonical_path") == "reviews/v1-citations_polish.json"
+        }
+        self.assertEqual({recheck["step_id"]}, rechecks)
+        self.assertEqual(baseline, stepctx.published_entry(state, PREPOLISH_V1))
+        driver.act(again)
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+
+
+POLISH_DRAFT_EN = "\n".join(
+    [
+        "# Retention of customer records",
+        "",
+        "Date: 2026-09-22.",
+        "",
+        "## 1. Executive summary",
+        "",
+        "- Records may not be kept beyond their purpose [[src:gdpr art 5(1)(e)]]. Risk: medium.",
+        "",
+        "## 2. Facts, assumptions and limitations",
+        "",
+        "The client keeps customer records for seven years.",
+        "",
+        "## 5. Analysis of the retention period",
+        "",
+        "The provision governs every record the client keeps.",
+        "",
+        "### 5.1 The purpose test",
+        "",
+        "The purpose ends when the contract ends [[src:gdpr art 5(1)(b)]].",
+        "",
+        "### 5.2 The tax carve-out",
+        "",
+        "Tax law compels a longer period [[src:tax-code s 147]].",
+        "",
+        "## 6. Conclusion and recommendations",
+        "",
+        "- Confirm the tax basis before the next audit; owner: counsel.",
+        "",
+    ]
+)
+"""A classical draft with nested sections: s-1 summary, s-2 facts, s-5 with s-5-1 and s-5-2, s-6 conclusion."""
+
+POLISH_DRAFT_RU = "\n".join(
+    [
+        "# Хранение клиентских записей",
+        "",
+        "## 1. Резюме",
+        "",
+        "- Записи нельзя хранить дольше цели обработки [[src:fz-152 ст 5]]. Риск: средний.",
+        "",
+        "## 2. Факты, допущения и ограничения",
+        "",
+        "Клиент хранит записи семь лет.",
+        "",
+        "## 9. Срок хранения",
+        "",
+        "Норма обязывает удалить записи по достижении цели [[src:fz-152 ст 5 ч 7]].",
+        "",
+        "## 10. Налоговое исключение",
+        "",
+        "Налоговый закон может требовать более долгого хранения.",
+        "",
+        "## 11. Выводы и рекомендации",
+        "",
+        "- Подтвердить налоговое основание до следующей проверки; ответственный: юрист.",
+        "",
+    ]
+)
+"""The Russian shape of the 2026-09-21 run: «Резюме» is s-1, the polished section s-9, «Выводы и рекомендации» s-11."""
+
+
+def _edit(text: str, *pairs: tuple[str, str]) -> str:
+    for old, new in pairs:
+        if old not in text:
+            raise AssertionError(f"not in the draft: {old!r}")
+        text = text.replace(old, new, 1)
+    return text
+
+
+class PolishScopeTest(unittest.TestCase):
+    """D-211: `polish_scope_errors` — changed sections outside the readiness issues, and grown token sets."""
+
+    SUMMARY = ("their purpose [[src:gdpr art 5(1)(e)]].", "their purpose, as a rule [[src:gdpr art 5(1)(e)]].")
+    CONCLUSION = ("before the next audit;", "before the next audit, in writing;")
+    CHILD = ("Tax law compels a longer period", "Tax law may compel a longer period")
+    SIBLING = ("The purpose ends when", "The purpose arguably ends when")
+
+    def test_the_polished_section_and_the_cross_reference_sections_are_in_scope(self):
+        after = _edit(POLISH_DRAFT_EN, self.CHILD, self.SUMMARY, self.CONCLUSION)
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"}))
+
+    def test_a_sibling_of_the_polished_section_is_out_of_scope(self):
+        after = _edit(POLISH_DRAFT_EN, self.CHILD, self.SIBLING)
+        self.assertEqual(
+            ["section_out_of_scope: s-5-1"], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"})
+        )
+
+    def test_an_issue_on_a_parent_allows_its_children(self):
+        after = _edit(POLISH_DRAFT_EN, self.CHILD, self.SIBLING)
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5"}))
+        facts = _edit(POLISH_DRAFT_EN, ("seven years.", "seven years under its policy."))
+        self.assertEqual(["section_out_of_scope: s-2"], machine.polish_scope_errors(POLISH_DRAFT_EN, facts, {"s-5"}))
+
+    def test_a_new_source_id_is_refused_even_in_a_cross_reference_section(self):
+        after = _edit(POLISH_DRAFT_EN, ("Risk: medium.", "See also [[src:tax-guidance p 4]]. Risk: medium."))
+        self.assertEqual(
+            ["new_source_token: s-1: tax-guidance"], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"})
+        )
+
+    def test_a_document_issue_lifts_the_sections_but_not_the_token_rule(self):
+        anywhere = _edit(POLISH_DRAFT_EN, self.SIBLING, ("seven years.", "seven years under its policy."))
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, anywhere, None))
+        token = _edit(POLISH_DRAFT_EN, ("seven years.", "seven years [[src:tax-code s 147]]."))
+        self.assertEqual(["new_source_token: s-2: tax-code"], machine.polish_scope_errors(POLISH_DRAFT_EN, token, None))
+
+    def test_dropping_a_pinpoint_and_keeping_the_id_is_a_softening(self):
+        after = _edit(POLISH_DRAFT_EN, ("[[src:tax-code s 147]]", "[[src:tax-code]]"))
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"}))
+
+    def test_an_unchanged_draft_has_no_errors(self):
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, POLISH_DRAFT_EN, set()))
+
+    def test_the_russian_summary_and_conclusion_are_cross_references_under_the_memo_grammar(self):
+        after = _edit(
+            POLISH_DRAFT_RU,
+            ("Норма обязывает удалить", "Норма, по-видимому, обязывает удалить"),
+            ("дольше цели обработки", "дольше цели обработки, как правило,"),
+            ("до следующей проверки;", "до следующей проверки, письменно;"),
+        )
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_RU, after, {"s-9"}, language="ru"))
+        # The English default grammar gives «Резюме» and «Выводы и рекомендации» no kind at all.
+        self.assertEqual(
+            ["section_out_of_scope: s-1", "section_out_of_scope: s-11"],
+            machine.polish_scope_errors(POLISH_DRAFT_RU, after, {"s-9"}),
+        )
+        token = _edit(after, ("Риск: средний.", "См. [[src:nk-rf ст 23]]. Риск: средний."))
+        self.assertEqual(
+            ["new_source_token: s-1: nk-rf"],
+            machine.polish_scope_errors(POLISH_DRAFT_RU, token, {"s-9"}, language="ru"),
+        )
+
+    def test_a_row_is_held_by_its_section_and_every_descendant(self):
+        rows = [
+            _major("om-1", "citations", "s-5"),
+            _major("om-2", "logic", "s-2"),
+            _major("om-3", "counterarguments", "document"),
+            _major("om-4", "citations", "s-5-2", status="manual_review"),
+        ]
+        child_only = _edit(POLISH_DRAFT_EN, self.CHILD)
+        self.assertEqual(
+            ["om-1", "om-3"],
+            [row["id"] for row in machine.polished_findings(rows, POLISH_DRAFT_EN, child_only)],
+        )
+        self.assertEqual([], machine.polished_findings(rows, POLISH_DRAFT_EN, POLISH_DRAFT_EN))
+
+
+class SettleOpenMajorsTest(unittest.TestCase):
+    """D-211: what the transition to `export` does with the open majors and the re-check blockers."""
+
+    BLOCKER = {"severity": "blocker", "category": "unsupported_law", "section_id": "s-3", "issue": "No rule."}
+
+    @staticmethod
+    def state(final_status: str, *rows: dict) -> dict:
+        return {
+            "final_status": final_status,
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": [dict(row) for row in rows],
+        }
+
+    def test_an_approval_becomes_manual_review_of_its_own_version(self):
+        for status in ("approved_on_v3", "accepted_early_on_v3", "client_ready_on_v3"):
+            with self.subTest(final_status=status):
+                current = self.state(status, _major("om-1", "citations", status="manual_review"))
+                machine._settle_open_majors(current, [], 3)  # noqa: SLF001
+                self.assertEqual("manual_review_required_on_v3", current["final_status"])
+                self.assertEqual(["open_substance_majors"], current["final_status_reasons"])
+
+    def test_a_forced_exit_keeps_its_label_and_gains_the_reason(self):
+        for status in ("forced_exit_on_v2_with_remaining_issues", "manual_review_required_on_v2"):
+            with self.subTest(final_status=status):
+                current = self.state(status, _major("om-1", "citations"))
+                machine._settle_open_majors(current, [dict(self.BLOCKER)], 2)  # noqa: SLF001
+                self.assertEqual(status, current["final_status"])
+                self.assertEqual(
+                    ["open_substance_majors", "polish_recheck_blocker"], current["final_status_reasons"]
+                )
+                self.assertEqual("unresolved", current["open_substance_majors"][0]["status"])
+                self.assertEqual(2, len(current["remaining_blocking_issues"]))
+
+    def test_logic_counterarguments_and_recheck_rows_never_change_the_status(self):
+        current = self.state(
+            "approved_on_v1",
+            _major("om-1", "logic", status="left"),
+            _major("om-2", "counterarguments"),
+            _major("om-3", "citations", origin="recheck"),
+        )
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        self.assertEqual("approved_on_v1", current["final_status"])
+        self.assertEqual([], current["final_status_reasons"])
+        self.assertEqual([], current["remaining_blocking_issues"])
+        self.assertEqual(["left", "unresolved", "open"], [row["status"] for row in current["open_substance_majors"]])
+
+    def test_a_moved_row_carries_its_client_sentence_and_is_moved_once(self):
+        row = _major("om-1", "citations", status="unresolved", issue_client="Пинпойнт указывает не туда.")
+        current = self.state("approved_on_v1", row)
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        self.assertEqual(1, len(current["remaining_blocking_issues"]))
+        moved = current["remaining_blocking_issues"][0]
+        self.assertEqual(
+            ("major", "s-3", "Пинпойнт указывает не туда."),
+            (moved["severity"], moved["section_id"], moved["issue_client"]),
+        )
+
+    def test_an_empty_list_changes_nothing(self):
+        current = self.state("approved_on_v1")
+        before = copy.deepcopy(current)
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        self.assertEqual(before, current)
+
+
+class DispositionTest(unittest.TestCase):
+    """D-211 pass 1; fix round 1 (2): a duplicated id takes the class default, whatever the order."""
+
+    ROWS = (_major("om-1", "citations"), _major("om-2", "logic"), _major("om-3", "counterarguments"))
+
+    def statuses(self, dispositions: list[tuple[str, str]]) -> list[str]:
+        current = {"open_substance_majors": [dict(row) for row in self.ROWS]}
+        document = {"dispositions": [{"id": row_id, "action": action, "note": "n"} for row_id, action in dispositions]}
+        machine._apply_dispositions(current, document)  # noqa: SLF001
+        return [row["status"] for row in current["open_substance_majors"]]
+
+    def test_each_unique_disposition_is_applied(self):
+        self.assertEqual(
+            ["open", "left", "open"], self.statuses([("om-1", "polish"), ("om-2", "leave"), ("om-3", "polish")])
+        )
+
+    def test_a_duplicated_id_takes_the_class_default_whatever_the_order(self):
+        for first, second in (("polish", "manual_review"), ("manual_review", "polish")):
+            with self.subTest(citations=(first, second)):
+                self.assertEqual(
+                    ["manual_review", "open", "open"],
+                    self.statuses([("om-1", first), ("om-2", "polish"), ("om-1", second), ("om-3", "polish")]),
+                )
+        for first, second in (("polish", "leave"), ("leave", "polish"), ("polish", "polish")):
+            with self.subTest(logic=(first, second)):
+                self.assertEqual(
+                    ["open", "left", "open"],
+                    self.statuses([("om-2", first), ("om-1", "polish"), ("om-3", "polish"), ("om-2", second)]),
+                )
+
+    def test_unique_by_id_drops_every_row_of_a_duplicated_id(self):
+        rows = [
+            {"id": "om-1", "status": "open"},
+            {"id": "om-2", "status": "resolved"},
+            {"id": "om-1", "status": "resolved"},
+        ]
+        self.assertEqual({"om-2": "resolved"}, machine._unique_by_id(rows, "status"))  # noqa: SLF001
+        self.assertEqual({}, machine._unique_by_id(None, "status"))  # noqa: SLF001
+
+
+class ExportPinTest(unittest.TestCase):
+    """D-211; fix round 1 (3): the pin names a version and its sha, not whichever version holds the bytes."""
+
+    SHA = "a" * 64
+
+    def state(self) -> dict:
+        return {
+            "draft_versions": [
+                {"version": 1, "path": "drafts/v1.md", "sha256": self.SHA, "lint_clean": True},
+                {"version": 3, "path": "drafts/v3.md", "sha256": self.SHA, "lint_clean": False},
+            ],
+            "current_draft_path": "drafts/v3.md",
+        }
+
+    def test_the_pinned_version_wins_over_an_older_one_with_the_same_bytes(self):
+        state = self.state()
+        self.assertEqual(("drafts/v1.md",), machine.export_inputs(Path("."), state, self.SHA))
+        pinned = dict(state, export_pin={"version": 3, "sha256": self.SHA})
+        self.assertEqual((self.SHA, 3), machine.export_draft_sha(pinned))
+        self.assertEqual(("drafts/v3.md",), machine.export_inputs(Path("."), pinned, self.SHA))
+
+
+class OpenFindingsTextTest(unittest.TestCase):
+    """D-211: `${open_findings}` — one line per row, not gated on the draft sha, statuses after the polish."""
+
+    def test_no_rows_is_none(self):
+        self.assertEqual("none", machine.open_findings_text({}))
+        self.assertEqual("none", machine.open_findings_text({"open_substance_majors": []}))
+
+    def test_one_line_per_row_before_the_polish(self):
+        rows = [_major("om-1", "citations"), _major("om-2", "logic", "s-10-3")]
+        text = machine.open_findings_text({"open_substance_majors": rows, "current_draft_sha": "c" * 64})
+        self.assertEqual([_finding_line(row) for row in rows], text.splitlines())
+
+    def test_after_the_polish_the_status_is_appended_and_recheck_rows_are_for_information(self):
+        rows = [
+            _major("om-1", "citations", status="resolved"),
+            _major("om-2", "citations", origin="recheck"),
+        ]
+        text = machine.open_findings_text({"open_substance_majors": rows, "attempts": {"client_polish": 1}})
+        self.assertEqual(
+            [
+                _finding_line(rows[0]) + " · status: resolved",
+                _finding_line(rows[1]) + " · raised by the polish re-check (for information, no disposition)",
+            ],
+            text.splitlines(),
+        )
+
+
+class StateFieldsOfTheReadinessStepTest(unittest.TestCase):
+    """D-211: `export_pin` and `polish_check` are optional, closed state fields."""
+
+    def _state(self) -> dict:
+        driver = Driver(temp_root(self), slug="om-schema")
+        return driver.state()
+
+    def test_both_are_optional_and_closed(self):
+        state = self._state()
+        self.assertEqual([], schema.validate(state, "state"))
+        good = dict(
+            state,
+            export_pin={"version": 2, "sha256": "a" * 64},
+            polish_check={"draft_sha": "b" * 64, "errors": ["section_out_of_scope: s-2"]},
+        )
+        self.assertEqual([], schema.validate(good, "state"))
+        for field, value in (
+            ("export_pin", {"version": 2, "sha256": "a" * 64, "extra": 1}),
+            ("export_pin", {"version": 0, "sha256": "a" * 64}),
+            ("export_pin", {"version": 2, "sha256": "short"}),
+            ("polish_check", {"draft_sha": "b" * 64}),
+            ("polish_check", {"draft_sha": "b" * 64, "errors": [1]}),
+        ):
+            with self.subTest(field=field, value=value):
+                self.assertTrue(schema.validate(dict(state, **{field: value}), "state"))
 
 
 class MachineWarningLanguageTest(unittest.TestCase):

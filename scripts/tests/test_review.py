@@ -820,6 +820,387 @@ class FixtureShapeTest(unittest.TestCase):
                 self.assertTrue(all(row["tier"] in ("substance", "form") for row in items))
 
 
+RUN_20260921 = Path(__file__).resolve().parent / "fixtures" / "run-20260921"
+"""D-208: the saved reviews of the 2026-09-21 run (pre-plan-72 shape), kept out of `FIXTURES`."""
+
+
+def run_review(name: str) -> dict:
+    return json.loads((RUN_20260921 / f"run-20260921-{name}.json").read_text(encoding="utf-8-sig"))
+
+
+def text_checks() -> list[dict]:
+    """One `text_checks` row per status of D-208."""
+    return [
+        {
+            "source_id": "ru-a40-630-2025",
+            "section_id": "s-5-2",
+            "status": "contradicted",
+            "finding_disagrees": True,
+            "note": "The formula is the respondent's position the decision recites, not the court's holding.",
+        },
+        {
+            "source_id": "ru-gk-428",
+            "section_id": "s-4",
+            "status": "confirmed",
+            "finding_disagrees": False,
+            "note": "Article 428(2) located; the draft follows it.",
+        },
+        {
+            "source_id": "ru-vs-309-es14-4692",
+            "section_id": "s-9",
+            "status": "inconclusive",
+            "finding_disagrees": False,
+            "note": "Three lookups for the recourse rule found nothing; the act was not read whole.",
+        },
+        {
+            "source_id": "ru-a40-630-2025",
+            "section_id": "s-10-3",
+            "status": "not_reached",
+            "finding_disagrees": False,
+            "note": "The budget ran out before the practice statement of 10.3 was checked.",
+        },
+    ]
+
+
+PASSAGE = (
+    "Ответчик предлагает Продавцам компенсировать причиненные им убытки по размеру действительной стоимости "
+    "товара, определяемой по условиям самой торговой Площадки, за вычетом стоимости услуг Ozon."
+)
+"""A sentence of the saved A40-630/2025 decision (`fixtures/source_text/`): a party's position the act recites."""
+
+
+class TextChecksTest(unittest.TestCase):
+    """D-208: `source_evidence` on an issue and `text_checks` rows on citations/counterarguments reviews."""
+
+    RUN_REVIEWS = ("v1-citations", "v2-citations", "v3-citations", "v1-counterarguments")
+
+    def test_a_citations_review_with_text_checks_passes_the_validator(self):
+        document = run_review("v2-citations")
+        # Rule 3: a `contradicted` check is a blocker on the draft sentence, and CIT-02 grades false.
+        document["issues"].insert(
+            1,
+            {
+                "severity": "blocker",
+                "category": "holding_misstated",
+                "section_id": "s-5-2",
+                "issue": "5.2 writes the offer's formula as the measure the court applied; the decision recites it.",
+                "suggestion": "Withdraw the attribution to the court, or qualify the formula as the respondent's.",
+                "checklist_id": "CIT-02",
+                "issue_category": "unsupported_claim",
+                "source_evidence": {"source_id": "ru-a40-630-2025", "status": "contradicted", "passage": PASSAGE},
+            },
+        )
+        cit02 = next(row for row in document["checklist"] if row["id"] == "CIT-02")
+        cit02.update({"pass": False, "evidence": "5.2 attributes the offer's formula to the court."})
+        document["text_checks"] = text_checks()
+        result = review.validate_document("citations", document, language="ru")
+        self.assertEqual([], result["errors"])
+        self.assertTrue(result["valid"])
+        self.assertEqual(2, result["blockers"])
+        self.assertEqual(document, result["document"])
+
+    def test_a_counterarguments_review_with_text_checks_passes_the_validator(self):
+        document = run_review("v1-counterarguments")
+        # Rule 6: a suggestion that states what the source holds carries the confirmed passage.
+        formula = next(row for row in document["issues"] if row["category"] == "record_contradicts_assumption")
+        formula["source_evidence"] = {"source_id": "ru-a40-630-2025", "status": "confirmed", "passage": PASSAGE}
+        document["text_checks"] = text_checks()
+        result = review.validate_document("counterarguments", document, language="ru")
+        self.assertEqual([], result["errors"])
+        self.assertTrue(result["valid"])
+        self.assertEqual(document, result["document"])
+
+    def test_a_status_outside_the_contract_is_refused(self):
+        cases = (
+            ("text_checks", "unchecked"),
+            ("text_checks", "found"),
+            ("source_evidence", "inconclusive"),
+            ("source_evidence", "not_reached"),
+        )
+        for field, status in cases:
+            with self.subTest(field=field, status=status):
+                document = run_review("v2-citations")
+                document["text_checks"] = text_checks()
+                if field == "text_checks":
+                    document["text_checks"][0]["status"] = status
+                else:
+                    document["issues"][0]["source_evidence"] = {
+                        "source_id": "ru-a40-630-2025",
+                        "status": status,
+                        "passage": PASSAGE,
+                    }
+                result = review.validate_document("citations", document, language="ru")
+                self.assertFalse(result["valid"])
+                self.assertTrue(result["errors"])
+
+    def test_the_saved_reviews_of_the_run_still_pass_unchanged(self):
+        for name in self.RUN_REVIEWS:
+            kind = name.split("-", 1)[1]
+            with self.subTest(review=name):
+                document = run_review(name)
+                self.assertNotIn("text_checks", document)
+                result = review.validate_document(kind, document, language="ru")
+                self.assertEqual([], result["errors"])
+                self.assertFalse(result["downgraded"])
+                self.assertEqual(document, result["document"])
+
+
+def stored(
+    source: str,
+    *,
+    severity: str = "major",
+    section_id: str = "s-5-1",
+    category: str = "narrow_trigger",
+    text: str = "The trigger is drawn too narrowly for the platform's own terms.",
+    checklist_id: str | None = None,
+    also: tuple[str, ...] = (),
+) -> dict:
+    """One `iterations[].issues[]` row as `aggregate` stores it; `also` merges more participants in."""
+    payload = {
+        "severity": severity,
+        "category": category,
+        "section_id": section_id,
+        "issue": text,
+        "suggestion": "Qualify the statement or support it.",
+    }
+    if checklist_id:
+        payload["checklist_id"] = checklist_id
+    row = review._normalize_issue(payload, source)
+    if also:
+        # §4.5 п.3: a merge keeps every participant and takes the tier and the reviewer of the union.
+        row["provenance"] = sorted({source, *also})
+        row["tier"] = review.tier_of(row["provenance"])
+        row["source_reviewer"] = review.primary_reviewer(row["provenance"])
+    return row
+
+
+def stored_record(
+    iteration: int,
+    *issues: dict,
+    reviewers: tuple[str, ...] = review.REVIEWER_KINDS,
+    failed: tuple[str, ...] = (),
+) -> dict:
+    """The fields of one `iterations[]` record that D-210 reads."""
+    return {
+        "iteration": iteration,
+        "reviewers": list(reviewers),
+        "coverage": sorted(kind for kind in reviewers if kind not in failed),
+        "failed_reviewers": sorted(failed),
+        "issues": list(issues),
+    }
+
+
+def run_stored_record(number: int) -> dict:
+    """Iteration `number` of the 2026-09-21 run rebuilt as a stored record.
+
+    The saved rows keep a subset of the stored fields and no `coverage`: on this run every dispatched
+    reviewer answered, so `coverage` is `reviewers` and each issue has its one reviewer as provenance.
+    """
+    saved = next(row for row in run_review("state-iterations")["iterations"] if row["iteration"] == number)
+    issues = [
+        stored(
+            row["source_reviewer"],
+            severity=row["severity"],
+            section_id=row["section_id"],
+            category=row["category"],
+            text=f"{row['category']} in {row['section_id']}",
+            checklist_id=row["checklist_id"],
+        )
+        for row in saved["open_issues"]
+    ]
+    return stored_record(number, *issues, reviewers=tuple(saved["reviewers"]))
+
+
+class OpenSubstanceMajorsTest(unittest.TestCase):
+    """D-210: the substantive majors still open on the delivered version, one row per stored issue."""
+
+    KEYS = {
+        "id",
+        "class",
+        "reviewer",
+        "section_id",
+        "category",
+        "issue_category",
+        "issue",
+        "issue_client",
+        "suggestion",
+        "from_iteration",
+        "origin",
+        "status",
+    }
+
+    RUN_V2 = [
+        (2, "counterarguments", "s-5-1", "narrow_trigger"),
+        (2, "counterarguments", "s-5-1", "hidden_assumption"),
+        (2, "counterarguments", "s-7-1", "unaddressed_statutory_limitation"),
+        (2, "counterarguments", "s-9", "overstated_recourse"),
+        (2, "logic", "s-10-3", "unsupported_conclusion"),
+    ]
+    """The five v2 majors of the run, by section in document order, then by position in the record."""
+
+    @staticmethod
+    def rows(*records: dict, version: int) -> list[dict]:
+        return review.open_substance_majors({"iterations": list(records)}, version)
+
+    @staticmethod
+    def brief(rows: list[dict]) -> list[tuple]:
+        return [(row["from_iteration"], row["class"], row["section_id"], row["category"]) for row in rows]
+
+    def run_rows(self, version: int) -> list[dict]:
+        return self.rows(*(run_stored_record(number) for number in (1, 2, 3)), version=version)
+
+    def test_the_rebuilt_run_records_keep_the_saved_tiers(self):
+        for number in (1, 2, 3):
+            saved = next(row for row in run_review("state-iterations")["iterations"] if row["iteration"] == number)
+            with self.subTest(iteration=number):
+                self.assertEqual(
+                    [row["tier"] for row in saved["open_issues"]],
+                    [row["tier"] for row in run_stored_record(number)["issues"]],
+                )
+
+    def test_version_3_of_the_run_keeps_the_v2_majors_its_citations_pass_did_not_review(self):
+        rows = self.run_rows(3)
+        self.assertEqual(self.RUN_V2 + [(3, "citations", "s-9", "pinpoint_mismatch")], self.brief(rows))
+        self.assertEqual([f"om-{number}" for number in range(1, 7)], [row["id"] for row in rows])
+        for row in rows:
+            self.assertEqual(self.KEYS, set(row))
+            self.assertEqual(("loop", "open"), (row["origin"], row["status"]))
+            self.assertEqual(row["class"], row["reviewer"])
+
+    def test_version_2_of_the_run_gives_the_five_v2_majors(self):
+        self.assertEqual(self.RUN_V2, self.brief(self.run_rows(2)))
+
+    def test_a_row_carries_the_stored_issue(self):
+        issue = stored("citations", section_id="s-4", category="unsupported_law", checklist_id="CIT-01")
+        issue["issue_category"] = "unsupported_claim"
+        issue["issue_client"] = "Правило не подтверждено источником."
+        self.assertEqual(
+            [
+                {
+                    "id": "om-1",
+                    "class": "citations",
+                    "reviewer": "citations",
+                    "section_id": "s-4",
+                    "category": "unsupported_law",
+                    "issue_category": "unsupported_claim",
+                    "issue": issue["issue"],
+                    "issue_client": "Правило не подтверждено источником.",
+                    "suggestion": issue["suggestion"],
+                    "from_iteration": 1,
+                    "origin": "loop",
+                    "status": "open",
+                }
+            ],
+            self.rows(stored_record(1, issue), version=1),
+        )
+        bare = self.rows(stored_record(1, stored("logic", section_id="s-3")), version=1)
+        self.assertEqual((None, None), (bare[0]["issue_category"], bare[0]["issue_client"]))
+
+    def test_a_merged_issue_is_one_row_of_the_class_its_record_still_speaks_for(self):
+        merged = stored("counterarguments", also=("citations",))
+        self.assertEqual("citations", merged["source_reviewer"])
+        latest = self.rows(stored_record(1, merged), version=1)
+        self.assertEqual([(1, "citations", "s-5-1", "narrow_trigger")], self.brief(latest))
+        # v3 is a citations-only pass that did not re-raise it: citations no longer speaks for it.
+        targeted = self.rows(stored_record(2, merged), stored_record(3, reviewers=("citations",)), version=3)
+        self.assertEqual([(2, "counterarguments", "s-5-1", "narrow_trigger")], self.brief(targeted))
+        self.assertEqual("citations", targeted[0]["reviewer"])
+
+    def test_two_majors_of_one_section_and_category_stay_two_rows(self):
+        first = stored("citations", section_id="s-9", category="pinpoint_mismatch", text="Art. 15 is cited to (1).")
+        second = stored("citations", section_id="s-9", category="pinpoint_mismatch", text="Point 3 holds no rule.")
+        rows = self.rows(stored_record(1, first, second), version=1)
+        self.assertEqual(["om-1", "om-2"], [row["id"] for row in rows])
+        self.assertEqual([first["issue"], second["issue"]], [row["issue"] for row in rows])
+
+    def test_a_reviewer_that_failed_later_keeps_the_majors_it_raised_last(self):
+        kept = stored("counterarguments", section_id="s-7-1", category="hidden_assumption")
+        closed = stored("logic", section_id="s-3", category="unmapped_assumption", text="An assumption is unmapped.")
+        rows = self.rows(stored_record(1, kept, closed), stored_record(2, failed=("counterarguments",)), version=2)
+        self.assertEqual([(1, "counterarguments", "s-7-1", "hidden_assumption")], self.brief(rows))
+
+    def test_a_regression_pair_gives_the_rows_of_the_selected_version(self):
+        first = stored("logic", section_id="s-3", category="unmapped_assumption", text="An assumption is unmapped.")
+        second = stored("counterarguments", section_id="s-6-1", category="risk_grade_overstated")
+        records = (stored_record(1, first), stored_record(2, second))
+        self.assertEqual([(1, "logic", "s-3", "unmapped_assumption")], self.brief(self.rows(*records, version=1)))
+        self.assertEqual(
+            [(2, "counterarguments", "s-6-1", "risk_grade_overstated")], self.brief(self.rows(*records, version=2))
+        )
+
+    def test_a_minor_a_form_major_and_a_blocker_are_never_rows(self):
+        issues = (
+            stored("logic", severity="minor", section_id="s-6-2", category="weak_application"),
+            stored("form", section_id="s-5-1", category="undefined_term"),
+            stored("citations", severity="blocker", section_id="s-5-2", category="unsupported_law"),
+            stored("counterarguments", severity="blocker", section_id="s-5-1", category="omitted_contrary_authority"),
+            stored("deterministic", severity="blocker", section_id="s-4", category="C-02"),
+        )
+        self.assertEqual([], self.rows(stored_record(1, *issues), version=1))
+        self.assertEqual([], review.open_substance_majors({}, 1))
+
+
+class PolishRecheckReadTest(unittest.TestCase):
+    """D-211: the citations re-check of the final polish — a slot and a path, read as a `citations` review."""
+
+    CANONICAL = "reviews/v2-citations_polish.json"
+    RESOLUTIONS = [{"id": "om-1", "status": "resolved", "note": "The pinpoint was removed; the id stays."}]
+
+    def work_dir(self) -> Path:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        return new_task(Path(holder.name), iteration=2)
+
+    def put(self, work_dir: Path, document: dict, *, published: bool = True) -> dict:
+        state_io.write_json_atomic(work_dir / self.CANONICAL, document)
+        if published:
+            publish(work_dir, self.CANONICAL)
+        return state_io.read_state(work_dir)
+
+    def test_the_saved_readiness_document_of_the_run_still_validates(self):
+        # No checklist gains an id: the run's own delivery review keeps passing semantic validation.
+        document = run_review("final-client-readiness")
+        result = review.validate_document(
+            "client-readiness", document, current_draft_sha=document["draft_sha"], language="ru"
+        )
+        self.assertTrue(result["valid"], result["errors"])
+        dispositions = [{"id": "om-1", "action": "manual_review", "note": "A lawyer checks the pinpoint."}]
+        with_dispositions = dict(document, dispositions=dispositions)
+        self.assertEqual([], schema.validate(with_dispositions, "client-readiness"))
+        self.assertTrue(review.validate_document("client-readiness", with_dispositions, language="ru")["valid"])
+
+    def test_the_recheck_is_a_slot_and_a_path_not_a_review_kind(self):
+        self.assertEqual("citations_polish", review.POLISH_RECHECK)
+        self.assertNotIn(review.POLISH_RECHECK, review.KINDS)
+        with self.assertRaises(ValueError):
+            review.checklist_path(review.POLISH_RECHECK)
+        self.assertEqual(self.CANONICAL, review.review_path(2, review.POLISH_RECHECK))
+
+    def test_a_published_recheck_is_validated_as_citations_for_the_post_polish_sha(self):
+        work_dir = self.work_dir()
+        state = self.put(work_dir, dict(fixture("v1-citations"), iteration=2, resolutions=self.RESOLUTIONS))
+        result = review.read_polish_recheck(work_dir, state, 2, DRAFT_SHA)
+        self.assertTrue(result["valid"], result["errors"])
+        self.assertEqual((False, False), (result["stub"], result["downgraded"]))
+        self.assertEqual(self.RESOLUTIONS, result["document"]["resolutions"])
+        stale = review.read_polish_recheck(work_dir, state, 2, "d" * 64)
+        self.assertFalse(stale["valid"])
+        self.assertTrue(any(error.startswith("stale_draft_sha") for error in stale["errors"]), stale["errors"])
+
+    def test_an_unpublished_missing_or_drifted_recheck_is_no_review(self):
+        work_dir = self.work_dir()
+        state = self.put(work_dir, fixture("v1-citations"), published=False)
+        self.assertEqual(
+            ["unpublished_review_file"], review.read_polish_recheck(work_dir, state, 2, DRAFT_SHA)["errors"]
+        )
+        state = self.put(work_dir, fixture("v1-citations"))
+        (work_dir / self.CANONICAL).write_text("{}", encoding="utf-8")
+        drifted = review.read_polish_recheck(work_dir, state, 2, DRAFT_SHA)
+        self.assertEqual((False, ["output_modified_after_publish"]), (drifted["valid"], drifted["errors"]))
+        (work_dir / self.CANONICAL).unlink()
+        self.assertEqual(["missing_review_file"], review.read_polish_recheck(work_dir, state, 2, DRAFT_SHA)["errors"])
+
+
 class NoPreD40WrappersTest(unittest.TestCase):
     """D-40: the pre-D-40 `review` wrappers are gone; every caller uses `stepctx` directly."""
 

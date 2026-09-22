@@ -688,6 +688,182 @@ class TargetedFixTest(unittest.TestCase):
             self.assertEqual("forced_exit_on_v3_with_remaining_issues", again["final_status"])
 
 
+RUN_20260921 = Path(__file__).resolve().parent / "fixtures" / "run-20260921"
+"""D-208: the saved reviews and `evidence/state-iterations.json` of the 2026-09-21 run."""
+
+
+def run_saved() -> dict:
+    """`evidence/state-iterations.json` of the 2026-09-21 run: its `iterations[]` and `config_max_iterations`."""
+    return json.loads((RUN_20260921 / "run-20260921-state-iterations.json").read_text(encoding="utf-8-sig"))
+
+
+def run_iteration(number: int) -> dict:
+    """One `iterations[]` row of the 2026-09-21 run as the gate workspace saved it."""
+    return next(row for row in run_saved()["iterations"] if row["iteration"] == number)
+
+
+def run_issues(number: int) -> tuple[dict, ...]:
+    """The open issues of one run iteration, normalised the way `decide()` reads them.
+
+    The saved rows keep severity, category, section, reviewer and checklist id; the `issue_category`
+    of a `citations` row is the one the run's own citations review of that version gave it.
+    """
+    labels: dict[tuple[str, str], str] = {}
+    review_path = RUN_20260921 / f"run-20260921-v{number}-citations.json"
+    if review_path.is_file():
+        for row in json.loads(review_path.read_text(encoding="utf-8-sig"))["issues"]:
+            labels[(row["section_id"], row["category"])] = row["issue_category"]
+    return tuple(
+        issue(
+            row["source_reviewer"],
+            severity=row["severity"],
+            section_id=row["section_id"],
+            category=row["category"],
+            checklist_id=row["checklist_id"],
+            issue_category=labels.get((row["section_id"], row["category"])),
+        )
+        for row in run_iteration(number)["open_issues"]
+    )
+
+
+def run_record(number: int, *extra: dict) -> dict:
+    """The run's iteration `number` rebuilt as an aggregate record, plus the `extra` issues."""
+    saved = run_iteration(number)
+    return record(iteration=number, reviewers=tuple(saved["reviewers"]), issues=run_issues(number) + extra)
+
+
+def citations_blocker(section_id: str, issue_category: str, text: str) -> dict:
+    return issue(
+        "citations",
+        category="unsupported_law",
+        section_id=section_id,
+        checklist_id="CIT-01",
+        issue_category=issue_category,
+        text=text,
+    )
+
+
+# D-208: the two errors of the 2026-09-21 run that no reviewer raised at v2.
+S9_RULE = "The rule stated in s-9 is not in the source its token names."
+S52_FORMULA = "The s-5-2 formula is written as the court's holding; the decision only recites it."
+
+
+class RunOfSeptember21Test(unittest.TestCase):
+    """D-208: `decide()` on the iterations of the 2026-09-21 run, with the blockers plan 72 adds."""
+
+    @staticmethod
+    def decide(rebuilt: dict, *, targeted_fix_used: int = 0) -> dict:
+        return revision.decide(
+            iteration=rebuilt["iteration"],
+            record=rebuilt,
+            previous=None,
+            max_iterations=run_saved()["config_max_iterations"],
+            reviewer_rerun_used=0,
+            mediator_exists=False,
+            targeted_fix_used=targeted_fix_used,
+        )
+
+    def test_the_rebuilt_records_keep_the_saved_blocker_counts(self):
+        for number in (1, 2, 3):
+            with self.subTest(iteration=number):
+                saved = run_iteration(number)
+                rebuilt = run_record(number)
+                self.assertEqual(saved["substance_blockers"], rebuilt["substance_blockers"])
+                self.assertEqual(saved["form_blockers"], rebuilt["form_blockers"])
+        v2 = [row for row in run_issues(2) if row["severity"] == "blocker"]
+        self.assertEqual([("citations", "s-5-2", "unsupported_claim")], [
+            (row["source_reviewer"], row["section_id"], row.get("issue_category")) for row in v2
+        ])
+
+    def test_a_rule_on_a_source_that_lacks_it_joins_the_targeted_pass(self):
+        # (a) rule 7 labels the s-9 error `unsupported_claim`, so v2 still takes branch 9.
+        decision = self.decide(run_record(2, citations_blocker("s-9", "unsupported_claim", S9_RULE)))
+        self.assertEqual(9, decision["branch"])
+        self.assertEqual(revision.NEXT_WRITER, decision["next"])
+        self.assertTrue(decision["targeted"])
+        self.assertIsNone(decision["final_status"])
+
+    def test_the_same_error_labelled_as_drift_closes_the_loop(self):
+        # (b) why rule 7 binds the category: `source_drift` is outside branch 9, so the memo exits.
+        decision = self.decide(run_record(2, citations_blocker("s-9", "source_drift", S9_RULE)))
+        self.assertEqual(8, decision["branch"])
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_three_blockers_at_the_last_iteration_force_the_exit(self):
+        # (c) the documented outcome: in the new system these errors are raised at v1 (Task 6).
+        decision = self.decide(
+            run_record(
+                2,
+                citations_blocker("s-5-2", "unsupported_claim", S52_FORMULA),
+                citations_blocker("s-9", "unsupported_claim", S9_RULE),
+            )
+        )
+        self.assertEqual(8, decision["branch"])
+        self.assertEqual(revision.NEXT_CLIENT_READINESS, decision["next"])
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_the_targeted_record_with_one_major_is_approved(self):
+        # (d) v3: citations only, one `major` and no blocker — branch 4 (Task 4 hands the major over).
+        rebuilt = run_record(3)
+        self.assertEqual(["citations"], rebuilt["reviewers"])
+        self.assertEqual(["major"], [row["severity"] for row in rebuilt["issues"] if row["severity"] != "minor"])
+        decision = self.decide(rebuilt, targeted_fix_used=1)
+        self.assertEqual(4, decision["branch"])
+        self.assertEqual("approved_on_v3", decision["final_status"])
+
+
+class OpenSubstanceMajorsExitTest(unittest.TestCase):
+    """D-210: every exit to client readiness writes the open majors of the version it leaves on."""
+
+    REGRESSED = issue("deterministic", section_id="s-6", category="C-02", text="Quote no longer matches raw.")
+    V1_LOGIC = [(1, "logic", "s-3", "ordering")]
+
+    CASES = (
+        # (branch, iteration, records, reviewer_rerun used, rows written or None)
+        (1, 1, (record(failed=("form",), issues=(MAJOR_LOGIC,)),), 0, None),
+        (2, 1, (record(failed=("form",), issues=(MAJOR_LOGIC,)),), limits.MAX_REVIEWER_RERUN, V1_LOGIC),
+        (
+            3,
+            2,
+            (
+                record(1, issues=(GROUNDED, MAJOR_LOGIC)),
+                record(2, issues=(GROUNDED, REGRESSED, MAJOR_CITATIONS)),
+            ),
+            0,
+            V1_LOGIC,
+        ),
+        (4, 1, (record(issues=(MAJOR_LOGIC,)),), 0, V1_LOGIC),
+        (5, 1, (record(issues=(FORM_BLOCKER, MAJOR_LOGIC)),), 0, V1_LOGIC),
+        (6, 1, (record(issues=(GROUNDED, MAJOR_LOGIC)),), 0, None),
+        (7, 1, (record(issues=(UNGROUNDED, MAJOR_LOGIC)),), 0, V1_LOGIC),
+        (8, 2, (record(2, issues=(GROUNDED, MAJOR_LOGIC)),), 0, [(2, "logic", "s-3", "ordering")]),
+        (9, 2, (record(2, issues=(MISSING_TOKEN, MAJOR_LOGIC)),), 0, None),
+    )
+
+    def test_written_on_branches_2_3_4_5_7_8_and_not_on_1_6_9(self):
+        for branch, iteration, records, rerun_used, expected in self.CASES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as tmp:
+                work_dir = new_task(Path(tmp), iteration=iteration, versions=iteration)
+                if rerun_used:
+                    state_io.write_state(
+                        work_dir,
+                        lambda state: state["attempts"].__setitem__("reviewer_rerun", {"1": rerun_used}),
+                    )
+                set_iterations(work_dir, *records)
+                result = revision.run_next(next_args(work_dir, iteration=iteration))
+                self.assertEqual(branch, result["branch"])
+                state = state_io.read_state(work_dir)
+                if expected is None:
+                    self.assertNotIn("open_substance_majors", state)
+                    continue
+                rows = state["open_substance_majors"]
+                brief = [(row["from_iteration"], row["class"], row["section_id"], row["category"]) for row in rows]
+                self.assertEqual(expected, brief)
+                version = result.get("regression_to") or iteration
+                self.assertEqual(review.open_substance_majors(state, version), rows)
+                self.assertEqual([], schema.validate(state, "state"))
+
+
 class LengthOverflowTest(unittest.TestCase):
     """§2.1: an L-10 word cap surviving phase 13 forces manual review (D-21)."""
 

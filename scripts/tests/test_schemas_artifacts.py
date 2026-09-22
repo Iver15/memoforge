@@ -337,6 +337,104 @@ class ReviewSchemaTest(unittest.TestCase):
                 review["issues"] = [broken]
                 self.assertTrue(errors_for("review", review))
 
+    def test_text_checks_and_source_evidence_belong_to_citations_and_counterarguments(self):
+        # D-208: optional `source_evidence` on an issue and `text_checks` rows on the review, for the
+        # two reviewers that check claims against the saved text; the other two stay closed.
+        evidence = {"source_id": "src-1", "status": "contradicted", "passage": "The court held otherwise."}
+        rows = [
+            {"source_id": "src-1", "section_id": "s-4-2", "status": status, "finding_disagrees": False, "note": "n"}
+            for status in ("confirmed", "contradicted", "inconclusive", "not_reached")
+        ]
+        issue = {
+            "severity": "major",
+            "category": "overconfidence",
+            "section_id": "s-4-2",
+            "issue": "The holding is stated as settled.",
+            "suggestion": "Qualify it.",
+            "attack_vector": "overconfidence",
+        }
+        reports = {
+            "citations": read_json(fixture_dir("review") / "valid-3.json"),
+            "counterarguments": dict(read_json(fixture_dir("review") / "valid-4.json"), issues=[issue]),
+        }
+        for kind, report in reports.items():
+            with self.subTest(kind=kind):
+                report["issues"][0]["source_evidence"] = dict(evidence)
+                report["text_checks"] = [dict(row) for row in rows]
+                self.assertEqual([], errors_for("review", report))
+                report["text_checks"] = []
+                self.assertEqual([], errors_for("review", report))
+
+        for kind, name in (("logic", "valid-1.json"), ("form", "valid-2.json")):
+            with self.subTest(closed=kind):
+                report = read_json(fixture_dir("review") / name)
+                self.assertTrue(errors_for("review", dict(report, text_checks=[dict(rows[0])])))
+                report["issues"][0]["source_evidence"] = dict(evidence)
+                self.assertTrue(errors_for("review", report))
+
+    def test_text_checks_and_source_evidence_are_closed_shapes(self):
+        base_row = {
+            "source_id": "src-1",
+            "section_id": "s-4-2",
+            "status": "confirmed",
+            "finding_disagrees": True,
+            "note": "n",
+        }
+        broken_rows = (
+            dict(base_row, status="found"),
+            dict(base_row, finding_disagrees="yes"),
+            dict(base_row, section_id=""),
+            dict(base_row, note=""),
+            dict(base_row, extra=1),
+            {k: v for k, v in base_row.items() if k != "finding_disagrees"},
+            {k: v for k, v in base_row.items() if k != "note"},
+        )
+        for row in broken_rows:
+            with self.subTest(row=row):
+                report = read_json(fixture_dir("review") / "valid-3.json")
+                report["text_checks"] = [row]
+                self.assertTrue(errors_for("review", report))
+
+        base_evidence = {"source_id": "src-1", "status": "confirmed", "passage": "p" * 600}
+        report = read_json(fixture_dir("review") / "valid-3.json")
+        report["issues"][0]["source_evidence"] = base_evidence
+        self.assertEqual([], errors_for("review", report))
+        for broken in (
+            dict(base_evidence, passage="p" * 601),
+            dict(base_evidence, passage=""),
+            dict(base_evidence, status="inconclusive"),
+            dict(base_evidence, note="n"),
+            {k: v for k, v in base_evidence.items() if k != "passage"},
+        ):
+            with self.subTest(evidence=broken):
+                report["issues"][0]["source_evidence"] = broken
+                self.assertTrue(errors_for("review", report))
+
+    def test_resolutions_belong_to_the_citations_review_only(self):
+        # D-211: the citations re-check of the polish records one row per listed open finding.
+        rows = [
+            {"id": "om-1", "status": "resolved", "note": "The statement was withdrawn."},
+            {"id": "om-12", "status": "open", "note": "The pinpoint still points elsewhere."},
+        ]
+        report = read_json(fixture_dir("review") / "valid-3.json")
+        self.assertEqual("citations", report["reviewer"])
+        self.assertEqual([], errors_for("review", dict(report, resolutions=rows)))
+        self.assertEqual([], errors_for("review", dict(report, resolutions=[])))
+        for broken in (
+            dict(rows[0], status="unresolved"),
+            dict(rows[0], id="om-0"),
+            dict(rows[0], id="s-3"),
+            dict(rows[0], note=""),
+            dict(rows[0], extra=1),
+            {key: value for key, value in rows[0].items() if key != "note"},
+        ):
+            with self.subTest(row=broken):
+                self.assertTrue(errors_for("review", dict(report, resolutions=[broken])))
+        for name in ("valid-1.json", "valid-2.json", "valid-4.json"):
+            with self.subTest(closed=name):
+                other = read_json(fixture_dir("review") / name)
+                self.assertTrue(errors_for("review", dict(other, resolutions=rows)))
+
     def test_review_branches_are_mutually_exclusive(self):
         # A form-only lens on a logic issue must match no branch of the oneOf.
         review = self._logic_review()
@@ -396,6 +494,27 @@ class ClientReadinessSchemaTest(unittest.TestCase):
         self.assertEqual([], errors_for("client-readiness", report))
         report["issues"][0]["issue_client"] = "x" * 401
         self.assertTrue(errors_for("client-readiness", report))
+
+    def test_dispositions_are_optional_closed_rows(self):
+        # D-211: one disposition per open finding of the review loop; a report without them is valid.
+        report = self._report()
+        self.assertNotIn("dispositions", report)
+        self.assertEqual([], errors_for("client-readiness", report))
+        rows = [
+            {"id": "om-1", "action": "polish", "note": "Soften the rule in 4.2."},
+            {"id": "om-2", "action": "manual_review", "note": "A lawyer checks the pinpoint."},
+            {"id": "om-3", "action": "leave", "note": "The objection is answered in 6.1."},
+        ]
+        self.assertEqual([], errors_for("client-readiness", dict(report, dispositions=rows)))
+        for broken in (
+            dict(rows[0], action="rewrite"),
+            dict(rows[0], id="om-01"),
+            dict(rows[0], note=""),
+            dict(rows[0], extra=1),
+            {key: value for key, value in rows[0].items() if key != "action"},
+        ):
+            with self.subTest(row=broken):
+                self.assertTrue(errors_for("client-readiness", dict(report, dispositions=[broken])))
 
 
 class QuotesSchemaTest(unittest.TestCase):

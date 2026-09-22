@@ -1,8 +1,11 @@
-"""Tests for scripts/memoforge/quotes.py — the `quote extract`/`skip` contract (ТЗ §5.3, M5, §9)."""
+"""Tests for scripts/memoforge/quotes.py — the `quote extract`/`skip`/`locate` contract (ТЗ §5.3, M5, §9)."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
+import json
 import sys
 import tempfile
 import unittest
@@ -12,9 +15,12 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import limits, quotes, schema, sources, state_io, task  # noqa: E402
+from memoforge import cli, limits, quotes, schema, sources, state_io, task  # noqa: E402
 
 TASK_ID = "memo-20260101T000000Z-quotes"
+
+A40_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "source_text" / "a40-630-25-decision.md"
+"""The saved text of decision А40-630/2025 from a real run, byte for byte (D-207)."""
 
 
 def issue_step(work_dir: Path, step_id: str, attempt: int = 1) -> None:
@@ -331,6 +337,208 @@ class ExtractTest(QuotesTestCase):
             lang=None,
         )
         self.assertEqual(["missing_text"], quotes.run_extract(args)["errors"])
+
+
+# --- locate (D-207) --------------------------------------------------------
+
+
+class LocateTest(QuotesTestCase):
+    """`mf quote locate` finds a passage in the saved text of a real decision and writes nothing."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        copy = self.root / A40_FIXTURE.name
+        copy.write_bytes(A40_FIXTURE.read_bytes())
+        answer = sources.register_source(
+            self.work_dir,
+            layer="case_law",
+            title="Решение АС г. Москвы по делу № А40-630/2025",
+            citation="Решение АС г. Москвы по делу № А40-630/2025",
+            tool="mf sources save",
+            tier="critical",
+            raw_file=copy,
+            raw_kind="full_text",
+            source_id="a40",
+        )
+        self.assertEqual("a40", answer["source_id"])
+        self.assertEqual(state_io.sha256_bytes(A40_FIXTURE.read_bytes()), answer["raw_sha256"])
+        self.raw = A40_FIXTURE.read_text(encoding="utf-8-sig")
+
+    def locate(self, text: str, **options) -> dict:
+        """One call against `a40`, with the invariants every answer and every passage must hold."""
+        result = quotes.locate_passage(self.work_dir, "a40", text, **options)
+        self.assertEqual("a40", result["source_id"])
+        self.assertEqual("full_text", result["raw_kind"])
+        for passage in result.get("passages", []):
+            self.assertLessEqual(passage["char_start"], passage["match_start"])
+            self.assertLessEqual(passage["match_end"], passage["char_end"])
+            self.assertEqual(self.raw[passage["char_start"] : passage["char_end"]], passage["text"])
+            self.assertEqual(
+                quotes.normalized_text(text),
+                quotes.normalized_text(self.raw[passage["match_start"] : passage["match_end"]]),
+            )
+        self.assertFalse(quotes.quotes_path(self.work_dir).exists(), "locate never writes quotes.json")
+        return result
+
+    def test_the_i2_quote_is_not_found_and_the_formula_is_a_candidate(self):
+        result = self.locate("размер возмещения определяется по Формуле: [Действительная стоимость товара]")
+        self.assertEqual("not_found", result["status"])
+        self.assertNotIn("passages", result)
+        self.assertLessEqual(len(result["candidates"]), limits.QUOTE_CANDIDATES_MAX)
+        self.assertTrue(any("[Размер возмещения] = (" in row["text"] for row in result["candidates"]))
+
+    def test_the_i4_quote_is_not_found_and_its_long_sentence_is_a_candidate(self):
+        result = self.locate("включение явно обременительных положений в договор... не допускается")
+        self.assertEqual("not_found", result["status"])
+        hits = [row for row in result["candidates"] if "явно обременительных" in row["text"]]
+        self.assertTrue(hits)
+        # The extractor's candidates stop at 30 words; this sentence is longer and still comes back.
+        self.assertGreater(hits[0]["words"], limits.QUOTE_DEFAULT_MAX_WORDS)
+        for row in result["candidates"]:
+            self.assertEqual(self.raw[row["char_start"] : row["char_end"]], row["text"])
+
+    def test_a_phrase_is_found_with_the_rest_of_its_sentence(self):
+        result = self.locate("ограничила пределы своей ответственности")
+        self.assertEqual("found", result["status"])
+        self.assertEqual(1, result["matches"])
+        self.assertEqual(1, len(result["passages"]))
+        self.assertIn("частичного реального ущерба", result["passages"][0]["text"])
+
+    def test_the_courts_own_finding_is_found(self):
+        result = self.locate("Суд признает, что рассчитать стоимость оказанных по товару услуг Ozon невозможно")
+        self.assertEqual("found", result["status"])
+        self.assertEqual(1, result["matches"])
+
+    def test_a_repeated_phrase_is_ambiguous_and_the_passages_are_capped(self):
+        phrase = "Ozon"
+        occurrences = quotes.normalized_text(self.raw).count(phrase)
+        self.assertGreater(occurrences, limits.LOCATE_MAX_PASSAGES, "the phrase must repeat for the cap to bite")
+        result = self.locate(phrase)
+        self.assertEqual("ambiguous", result["status"])
+        self.assertEqual(occurrences, result["matches"])
+        self.assertEqual(limits.LOCATE_MAX_PASSAGES, len(result["passages"]))
+        starts = [passage["match_start"] for passage in result["passages"]]
+        self.assertEqual(sorted(starts), starts, "the passages follow the text")
+
+    def test_an_empty_request_is_not_found_without_candidates(self):
+        for text in ("", "   "):
+            with self.subTest(text=text):
+                result = self.locate(text)
+                self.assertEqual("not_found", result["status"])
+                self.assertEqual([], result["candidates"])
+
+    def test_a_context_above_the_ceiling_is_clamped_not_refused(self):
+        result = self.locate("Ozon", context=10_000)
+        self.assertEqual("ambiguous", result["status"])
+        lengths = []
+        for passage in result["passages"]:
+            length = passage["char_end"] - passage["char_start"]
+            match = passage["match_end"] - passage["match_start"]
+            self.assertLessEqual(length, 2 * limits.LOCATE_CONTEXT_MAX + match)
+            lengths.append(length - match)
+        self.assertGreater(max(lengths), 2 * limits.LOCATE_CONTEXT_CHARS, "clamped to the ceiling, not the default")
+
+    def test_a_small_context_inside_a_long_sentence_never_cuts_the_match(self):
+        # Source line 306 carries one ~750-character "sentence" of claim numbers: no sentence edge
+        # lies within 50 characters of this match, so the passage is the bare window around it.
+        phrase = "39883391; 38505830"
+        self.assertEqual(1, quotes.normalized_text(self.raw).count(phrase))
+        result = self.locate(phrase, context=50)
+        self.assertEqual("found", result["status"])
+        passage = result["passages"][0]
+        self.assertEqual(passage["match_start"] - 50, passage["char_start"])
+        self.assertEqual(passage["match_end"] + 50, passage["char_end"])
+
+    def test_the_recital_frame_reaches_the_reader(self):
+        # The formula (source line 288) sits inside the court's account of the defendant's offer:
+        # the default context carries the frame before it (line 284) and after it (line 294).
+        result = self.locate("Стороны согласились, что размер возмещения определяется по Формуле")
+        self.assertEqual("found", result["status"])
+        text = result["passages"][0]["text"]
+        self.assertIn("В разделе оферты", text)
+        self.assertIn("Ответчик предлагает", text)
+
+    def test_the_passage_keeps_whole_sentences_inside_the_window(self):
+        source_id = self.register(text="Alpha beta. Gamma delta. Epsilon zeta. Eta theta.\n", name="short.md")
+        wide = quotes.locate_passage(self.work_dir, source_id, "Epsilon", context=15)
+        self.assertEqual("found", wide["status"])
+        self.assertEqual("agent_summary", wide["raw_kind"])
+        expected = {"char_start": 12, "char_end": 38, "match_start": 25, "match_end": 32}
+        self.assertEqual({**expected, "text": "Gamma delta. Epsilon zeta."}, wide["passages"][0])
+        # No sentence ends inside a narrow window: its edge stands, and the match is never cut.
+        narrow = quotes.locate_passage(self.work_dir, source_id, "Epsilon", context=5)
+        self.assertEqual("Epsilon zeta", narrow["passages"][0]["text"])
+
+    def test_a_blank_request_is_not_found_before_the_source_is_resolved(self):
+        # Fix round 1: blank text is answered before `raw_state`, so no refusal of the source shadows it.
+        bare = self.register(text=None, tier="background")
+        for source_id, text in (("nope", ""), (bare, "   ")):
+            with self.subTest(source_id=source_id):
+                self.assertEqual(
+                    {"source_id": source_id, "status": "not_found", "raw_kind": "none", "candidates": []},
+                    quotes.locate_passage(self.work_dir, source_id, text),
+                )
+
+    def test_a_repeated_word_of_the_request_counts_each_time(self):
+        # Fix round 1: the share is over the request's tokens as written, not over their set — here 4/5
+        # against 1/5. Over the set both would score 1/2 and `_ratio` would put the long word first.
+        raw = "An extraordinarilylong word stands here.\n\nThe cat sat on the mat.\n"
+        candidates = quotes.locate_candidates(raw, quotes.sentence_spans(raw), "cat cat cat cat extraordinarilylong")
+        self.assertEqual("The cat sat on the mat.", candidates[0]["text"])
+
+    def test_zero_passages_returns_the_count_alone(self):
+        # Fix round 1: `max_passages` is clamped to zero, not floored at one; a negative value becomes 0.
+        source_id = self.register(text="Alpha beta. Gamma delta. Epsilon zeta. Eta theta.\n", name="short.md")
+        for requested in (0, -2):
+            with self.subTest(max_passages=requested):
+                result = quotes.locate_passage(self.work_dir, source_id, "Epsilon", max_passages=requested)
+                self.assertEqual("found", result["status"])
+                self.assertEqual(1, result["matches"])
+                self.assertEqual([], result["passages"])
+
+    def test_a_long_sentence_is_a_candidate_cut_at_a_word_boundary(self):
+        sentence = "The court " + " ".join(["examined the claim numbers"] * 80) + " and dismissed it."
+        raw = f"Heading\n\n{sentence}\n"
+        spans = quotes.sentence_spans(raw)
+        candidates = quotes.locate_candidates(raw, spans, "the court dismissed the claim")
+        best = candidates[0]
+        self.assertTrue(sentence.startswith(best["text"]))
+        self.assertLessEqual(len(best["text"]), limits.LOCATE_CANDIDATE_MAX_CHARS)
+        self.assertGreaterEqual(len(best["text"]), limits.LOCATE_CANDIDATE_MAX_CHARS - len("examined "))
+        self.assertTrue(raw[best["char_end"]].isspace(), "the cut falls between two words")
+
+    def test_no_raw_and_unknown_source_come_from_the_raw_state(self):
+        bare = self.register(text=None, tier="background")
+        result = quotes.locate_passage(self.work_dir, bare, "anything")
+        self.assertEqual({"source_id": bare, "status": "no_raw", "raw_kind": "none"}, result)
+        result = quotes.locate_passage(self.work_dir, "nope", "anything")
+        self.assertEqual({"source_id": "nope", "status": "unknown_source", "raw_kind": "none"}, result)
+
+    def test_raw_changed_carries_both_digests(self):
+        path = self.raw_path("a40")
+        path.write_bytes(path.read_bytes() + b"\ntampered\n")
+        result = quotes.locate_passage(self.work_dir, "a40", "Ozon")
+        self.assertEqual("raw_changed", result["status"])
+        self.assertEqual("full_text", result["raw_kind"])
+        self.assertEqual(state_io.sha256_bytes(A40_FIXTURE.read_bytes()), result["expected"])
+        self.assertEqual(state_io.sha256_file(path), result["actual"])
+
+    def run_cli(self, source_id: str, *options: str) -> tuple[int, dict]:
+        argv = ["quote", "locate", "--workdir", str(self.work_dir), "--source", source_id, "--text", "Ozon", *options]
+        self.assertIs(quotes.run_locate, cli.build_parser().parse_args(argv).func)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = cli.main(argv)
+        return code, json.loads(buffer.getvalue())
+
+    def test_the_cli_returns_the_same_answer_with_exit_zero(self):
+        expected = self.locate("Ozon", context=200, max_passages=1)
+        self.assertEqual(1, len(expected["passages"]))
+        self.assertEqual((0, expected), self.run_cli("a40", "--context", "200", "--max-passages", "1"))
+        # Every status is data, not a refusal: an unknown source exits 0 as well.
+        self.assertEqual(
+            (0, {"source_id": "nope", "status": "unknown_source", "raw_kind": "none"}), self.run_cli("nope")
+        )
 
 
 # --- skip ------------------------------------------------------------------

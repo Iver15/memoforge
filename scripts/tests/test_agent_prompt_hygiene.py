@@ -278,6 +278,71 @@ class SourceSavingTest(unittest.TestCase):
         self.assertIn("`mf sources save`, `mf sources verify`", text)
 
 
+class TextVerifiedReviewTest(unittest.TestCase):
+    """D-208: the finding pairs a claim with its source; for a `critical` source the saved text wins."""
+
+    def test_the_citation_auditor_role_makes_the_text_the_ceiling(self):
+        text = read(AGENTS / "citation-auditor.md")
+        role = text.split("## Role", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("pairing key", role)
+        self.assertIn("the text wins", role)
+        self.assertNotIn("names the record entry it departs from", text)
+        rules = text.split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for needle in ("CIT-04", "`finding_disagrees: true`", "`source_evidence`", "`text_checks`", "`major`"):
+            self.assertIn(needle, rules, needle)
+
+    def test_the_counterargument_reviewer_checks_before_it_asserts_a_holding(self):
+        rules = read(AGENTS / "counterargument-reviewer.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for needle in ("the text wins", "`mf quote locate`", "`source_evidence`", "`finding_disagrees: true`"):
+            self.assertIn(needle, rules, needle)
+
+    def test_the_mediator_restates_a_source_only_with_its_passage(self):
+        rules = read(AGENTS / "revision-mediator.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("`source_evidence`", rules)
+        self.assertIn("withdraw-or-qualify, never as restate", rules)
+
+    def test_both_claim_reviewers_confirm_a_court_s_act_only_by_its_own_sentence(self):
+        """D-208, fix round 2: one line in each agent body; the dispatch prompts spell it out."""
+        for stem in ("citation-auditor", "counterargument-reviewer"):
+            rules = read(AGENTS / f"{stem}.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+            for needle in ("the court's own sentence", "attributed to the offer", "no ellipses"):
+                with self.subTest(agent=stem, needle=needle):
+                    self.assertIn(needle, rules)
+
+    def test_the_citation_auditor_checks_every_cit_01_candidate_first(self):
+        """D-208, fix round 3: one line in the agent body; the dispatch prompt spells out the budget order."""
+        rules = read(AGENTS / "citation-auditor.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for needle in ("CIT-01 candidate", "does not record the rule the draft states", "checked first"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+        other = read(AGENTS / "counterargument-reviewer.md")
+        self.assertNotIn("CIT-01 candidate", other)
+
+    def test_the_old_ceiling_wording_is_gone(self):
+        for path in [*agent_files().values(), *sorted(PROMPTS.glob("*.md"))]:
+            with self.subTest(file=path.name):
+                self.assertNotIn("must not go beyond", read(path))
+
+
+class CourtWordsTest(unittest.TestCase):
+    """D-209: the agent bodies carry in a line or two what the dispatch prompts spell out."""
+
+    def test_the_researcher_rules_keep_the_court_s_words_apart_and_check_the_quotes(self):
+        rules = read(AGENTS / "legal-researcher.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for needle in ("the court's own statement", "`<mf> quote locate`", "read together", "higher-court act"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+
+    def test_the_sufficiency_reviewer_asks_for_the_provision_and_may_spot_check_holdings(self):
+        text = read(AGENTS / "research-sufficiency-reviewer.md")
+        task = text.split("## Task", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("the provision that establishes it", task)
+        rules = text.split("## Rules", 1)[1].split("\n## ", 1)[0]
+        for needle in ("`mf quote locate`", "up to five", "gap for `case_law`"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+
+
 class PlaceholderTest(unittest.TestCase):
     """D-78 / §4.2: the dispatch prompt substitutes the paths; the agent body names them in prose."""
 

@@ -26,6 +26,7 @@ from memoforge import (  # noqa: E402
     machine,
     modes,
     preflight,
+    quotes,
     routing,
     sources,
     state_io,
@@ -333,6 +334,115 @@ class PromptGoldenTest(unittest.TestCase):
         writer = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "writer")
         self.assertIn("30 words", writer)
 
+    def test_the_two_claim_reviewers_look_up_the_saved_text_within_their_budget(self):
+        """D-208: citations spends 20 units, counterarguments 8; logic and form never look anything up."""
+        for mode in ("brief", "full"):
+            rendered = self._render(mode)
+            prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
+            command = (
+                f"`{dispatch.mf_path()} quote locate --workdir {rendered['work_dir']} "
+                '--source <id> --text "<phrase>" [--context N]`'
+            )
+            for slot, budget in (("citations", "20"), ("counterarguments", "8")):
+                with self.subTest(mode=mode, slot=slot):
+                    self.assertIn(command, prompts[slot])
+                    self.assertIn(f"Lookup budget: {budget} units", prompts[slot])
+                    self.assertIn("text_checks", prompts[slot])
+                    self.assertIn("source_evidence", prompts[slot])
+            for slot in ("logic", "form"):
+                if slot in prompts:
+                    with self.subTest(mode=mode, slot=slot):
+                        self.assertNotIn("quote locate", prompts[slot])
+                        self.assertNotIn("Lookup budget", prompts[slot])
+            for slot, prompt in prompts.items():
+                with self.subTest(mode=mode, removed_phrase=slot):
+                    self.assertNotIn("must not go beyond", prompt)
+
+    def test_the_two_claim_reviewers_confirm_a_court_s_act_only_by_its_own_sentence(self):
+        """D-208, fix round 2: a recited clause never confirms what the court did; the passage is copied whole."""
+        rules = (
+            "What a court did is confirmed only by the court's own sentence.",
+            "is never that evidence, even when the words match and even when the court quotes it approvingly",
+            "its suggestion then attributes the words to the offer or the contract, never to the court.",
+            "the suggestion may only ask to withdraw the attribution or to qualify it as unresolved.",
+            "The passage is copied, not abbreviated.",
+            "cut only at its two ends: no ellipses, no joined fragments",
+        )
+        for mode in ("brief", "full"):
+            rendered = self._render(mode)
+            prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
+            for slot in ("citations", "counterarguments"):
+                for rule in rules:
+                    with self.subTest(mode=mode, slot=slot, rule=rule):
+                        self.assertIn(rule, " ".join(prompts[slot].split()))
+            for slot in ("logic", "form"):
+                if slot in prompts:
+                    with self.subTest(mode=mode, slot=slot):
+                        self.assertNotIn("court's own sentence", prompts[slot])
+
+    def test_the_citations_budget_checks_every_cit_01_candidate_first(self):
+        """D-208, fix round 3: a statement whose finding lacks the rule is checked before items 2-4."""
+        rules = (
+            "and every CIT-01 candidate — a statement of law whose paired research finding does not record "
+            "the rule the draft states: no finding at all, or a finding about something else.",
+            "check each one before items 2–4: read the cited statute article whole (1 unit), or look up the "
+            "court's own words.",
+        )
+        for mode in ("brief", "full"):
+            rendered = self._render(mode)
+            prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in rendered["agents"]}
+            for rule in rules:
+                with self.subTest(mode=mode, rule=rule):
+                    self.assertIn(rule, prompts["citations"])
+            with self.subTest(mode=mode, slot="counterarguments"):
+                self.assertNotIn("CIT-01 candidate", prompts["counterarguments"])
+
+    def test_the_lookup_budget_of_each_reviewer_and_the_default_of_every_other_agent(self):
+        """D-208: `${lookup_budget}` is 20 / 8 / 0 / 0 by reviewer kind, and 0 for every other agent."""
+        work_dir = temp_root(self) / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        specs = machine.reviewer_specs(work_dir, state, ["logic", "form", "citations", "counterarguments"], 1)
+        self.assertEqual(
+            {"logic": "0", "form": "0", "citations": "20", "counterarguments": "8"},
+            {spec["slot"]: spec["extra"]["lookup_budget"] for spec in specs},
+        )
+        self.assertEqual("0", dispatch._DEFAULT_EXTRAS["lookup_budget"])  # noqa: SLF001
+
+    def test_the_readiness_prompt_carries_the_open_findings_and_the_disposition_rules(self):
+        """D-211: `${open_findings}` and the rules of the three dispositions; the re-check scope line."""
+        for mode in ("brief", "full"):
+            prompts = {agent["slot"]: agent["prompt"] for agent in self._render(mode)["agents"]}
+            readiness = prompts["client_readiness"]
+            with self.subTest(mode=mode):
+                self.assertIn("## Open reviewer findings\n\nnone\n", readiness)
+                for phrase in (
+                    "`dispositions`",
+                    '"action": "polish" | "manual_review" | "leave"',
+                    "no new statement of law and no new authority",
+                    "CIT-04",
+                    "counts as `manual_review` for `citations` and `leave` for the others",
+                    "for information",
+                ):
+                    self.assertIn(phrase, readiness)
+                self.assertIn(
+                    "- polish re-check (none: an ordinary review of the whole draft): none", prompts["citations"]
+                )
+                self.assertIn("`resolutions`", prompts["citations"])
+        self.assertEqual("none", dispatch._DEFAULT_EXTRAS["open_findings"])  # noqa: SLF001
+        self.assertEqual("none", dispatch._DEFAULT_EXTRAS["recheck_scope"])  # noqa: SLF001
+
+    def test_the_claim_pairs_make_the_finding_the_key_and_the_text_the_ceiling(self):
+        """D-208 rule 1: the removed wording is gone from the spec, and the saved text wins."""
+        work_dir = temp_root(self) / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        pairs = machine.reviewer_specs(work_dir, state, ["citations"], 1)[0]["extra"]["claim_pairs"]
+        self.assertNotIn("must not go beyond", pairs)
+        self.assertIn("pairing key", pairs)
+        self.assertIn("the text wins", pairs)
+        self.assertIn("`critical`", pairs)
+
     def test_every_output_names_its_schema_file(self):
         """D-79: `${outputs}` prints the schema name and the absolute schema path."""
         rendered = self._render("full")
@@ -545,6 +655,17 @@ class ModelsTest(unittest.TestCase):
         for agent, expected in sorted(rows.items()):
             self.assertEqual(expected, dispatch.AGENT_MODELS[agent], agent)
 
+    def test_the_case_law_slot_is_the_one_layer_override_and_models_md_names_it(self):
+        """D-209: `case_law` runs on `opus`; the agent's own row, and so its frontmatter, stays `sonnet`."""
+        self.assertEqual({"case_law": "opus"}, dispatch.RESEARCH_LAYER_MODELS)
+        self.assertEqual("sonnet", dispatch.AGENT_MODELS["legal-researcher"]["model"])
+        self.assertLessEqual(set(dispatch.RESEARCH_LAYER_MODELS), set(routing.LAYERS))
+        text = (PLUGIN_ROOT / "lib" / "models.md").read_text(encoding="utf-8-sig")
+        row = next(line for line in text.splitlines() if line.startswith("| `legal-researcher` |"))
+        self.assertIn("`dispatch.RESEARCH_LAYER_MODELS`", row)
+        for layer, model in dispatch.RESEARCH_LAYER_MODELS.items():
+            self.assertIn(f"The `{layer}` slot is dispatched on `{model}`", row)
+
     def test_writer_model_comes_from_config(self):
         root = temp_root(self)
         work_dir = root / TASK_ID
@@ -739,6 +860,8 @@ class RetrySpecTest(unittest.TestCase):
                 self.assertEqual(original["extra"], restored[index]["extra"])
                 self.assertEqual(original["inputs"], restored[index]["inputs"])
                 self.assertEqual(issued[index]["prompt"], again[index]["prompt"])
+        # D-209: the stored spec carries the slot's model, so a retry of `case_law` stays on `opus`.
+        self.assertEqual(["sonnet", "opus"], [agent["model"] for agent in again])
 
     def test_only_identity_paths_and_errors_change_on_the_next_attempt(self):
         work_dir, state = self._work_dir()
@@ -1030,6 +1153,51 @@ class ResearcherSaveRuleTest(unittest.TestCase):
             with self.subTest(words=words):
                 self.assertIn(words, prompt)
         self.assertNotIn("A `critical` source with no saved raw text is a `missing` gap", prompt)
+
+
+class CourtWordsPromptTest(unittest.TestCase):
+    """D-209: a holding rests on the court's own words, and the quotes are checked against the saved text.
+
+    The run of 2026-09-21 gave three passages one act recites as the court's holdings, and only 5 of 8
+    `case_law` quotes could be located in the saved text; the researcher now looks each `critical` quote
+    up before it finishes, and the sufficiency reviewer may spot-check five holdings.
+    """
+
+    LOCATE = '`{MF} quote locate --workdir {WORK_DIR} --source <source_id> --text "<quote_short>"`'
+
+    def test_every_researcher_prompt_checks_its_critical_quotes_before_done(self):
+        for prompt in ResearcherSaveRuleTest._researchers(self):
+            self.assertIn(self.LOCATE, prompt)
+            self.assertLess(prompt.index(self.LOCATE), prompt.rindex("--state done"))
+            self.assertIn("the `quote_short` of every `critical` finding", prompt)
+            self.assertIn("One lookup per `critical` finding, plus one retry", prompt)
+
+    def test_a_holding_rests_on_the_court_s_own_statement(self):
+        for prompt in ResearcherSaveRuleTest._researchers(self):
+            for words in (
+                "A finding that says what a court held or applied rests on the court's own statement.",
+                'is described as such ("суд воспроизвёл условие оферты …", "истец полагал …")',
+                "`quote_short` for a holding comes from the court's own words",
+            ):
+                with self.subTest(words=words):
+                    self.assertIn(words, prompt)
+
+    def test_the_sufficiency_prompt_spot_checks_at_most_five_case_law_holdings(self):
+        for mode in ("brief", "full"):
+            rendered = PromptGoldenTest._render(self, mode)
+            prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
+            prompt = normalize(prompt, rendered["work_dir"])
+            with self.subTest(mode=mode):
+                self.assertIn(self.LOCATE, prompt)
+                self.assertIn("up to 5 `critical` case-law findings", prompt)
+                self.assertIn("is a gap for `case_law`", prompt)
+                self.assertIn("is a `missing` gap for `statutes`", prompt)
+
+    def test_the_locate_line_is_a_command_the_cli_accepts(self):
+        tokens = shlex.split(self.LOCATE.strip("`").replace("{MF}", "mf", 1))
+        args = cli.build_parser().parse_args(tokens[1:])
+        self.assertIs(quotes.run_locate, args.func)
+        self.assertEqual("<quote_short>", args.text)
 
 
 class McpNamespaceFieldTest(unittest.TestCase):

@@ -1,0 +1,113 @@
+{
+  "reasoning": "Most propositions sit within their findings, and the admitted gaps match the research-sufficiency warnings. Two blockers. First, 6.1 paraphrases the Ozon offer clause recorded in A40-630/25-100-1 without its 'по вине Ozon' qualifier or the record's competing reading that risk stays with the seller until piece acceptance. That undercuts the no-fault framing in 4, 5.1 and 6.1. Second, 10.2 states an unsourced rule that accepting Ozon's payout preserves the claim to the balance. Four majors: the 289-FZ art. 14 complaint duty is written broader than its text; VS 301-ES19-5994 is stripped of its condition on the storage fee; the A40-630 price measure is presented as the court's choice when the record says it applied the offer's formula; and VS 305-ES25-842 (insurance rules) is presented without its context.",
+  "reviewer": "citations",
+  "draft_sha": "32fac93dda2f8ec6867903b277476966e08010a80075ca4e4de8008bf50252ac",
+  "iteration": 1,
+  "checklist": [
+    {"id": "CIT-01", "pass": false, "evidence": "10.2: 'Получение такой выплаты не лишает АНО права требовать разницу до полного размера убытков, если выплата принята как частичное исполнение.' This is a rule of law with no source token, and the record has no finding for it. Lesser instances: 7.2 'Обязанность Ozon возместить убытки возникла в момент утраты товара 24 августа и определяется условиями, действовавшими в тот день.' and 10.3 'продавцы с надлежащими документами получали и убытки, и возмещение пошлины и расходов на представителя' also carry no token."},
+    {"id": "CIT-02", "pass": false, "evidence": "6.1: 'Оферта Ozon в редакции, зафиксированной в решении по делу № А40-630/25-100-1, связывает риск с передачей товара на склад...'. The case_law finding (I2, п. 8.1 Приложения № 1) records that Ozon answers only for loss 'произошедшие по вине Ozon', and reads the clause as leaving risk with the seller until piece acceptance. Also: 5.2 'Хранитель, утративший вещь, не вправе требовать вознаграждение' against VS 301-ЭС19-5994, whose finding limits this to termination for circumstances the custodian answers for (п. 3 ст. 896). And 8 / 10.1 on 289-FZ art. 14, whose ч. 1 covers only challenges to operator measures against the partner."},
+    {"id": "CIT-03", "pass": true, "evidence": "Each block quote carries its proposition in context. q-zpp-st-12-1 ('Потребитель вправе предъявить требование к владельцу агрегатора...') reads as unconditional, but 9 states the п. 2.2 conditions (late delivery plus notice to the seller) two paragraphs later. q-vs-...-842-1 supports 'суд может не применить' the term."},
+    {"id": "CIT-04", "pass": true, "evidence": "Pinpoints match where the findings place the propositions (e.g. 'п. 8' of Plenum No. 7 for непредотвратимость, 'ч. 4-5 ст. 36' АПК for place of performance). 4 cites 'п. 1 ст. 1005' for the principal-name rule: the finding describes абз. 2, but п. 1 contains both paragraphs, so the pinpoint is acceptable."},
+    {"id": "CIT-05", "pass": true, "evidence": "Non-binding sources are written as doctrine or practice reviews ('Справочник КонсультантПлюс относит...', 'В доктрине...', 'этот справочный обзор...'). The A40-630 decision is repeatedly qualified as a single first-instance act. 289fz-st19-scan (pack role: background) supports only a contextual statement of what the law does not regulate, and 8 closes with the manual-check caveat. gk-rf-st-779 (background) is used only as support for the qualification in 4."},
+    {"id": "CIT-06", "pass": true, "evidence": "Currency qualifications are carried: 289-FZ is described as 'требует ручной проверки' (8, 10.1). The fire encyclopedia is described as 'в редакции 2025 г. и перед подачей иска подлежит сверке'. The Suvorova 1998 article is marked as used only for general points checked against the current Code. A40-630 (unchecked) is described as a decision whose 'судьба в вышестоящих судах неизвестна'."},
+    {"id": "CIT-07", "pass": false, "evidence": "7.1: 'Верховный Суд РФ признал ничтожной оговорку стандартных правил, которая без конкретизации расширяла основания освобождения сильной стороны от ответственности'. The case_law finding places this in insurance rules (Правила страхования, exclusions from the insured event), and the draft drops that context. 5.2: 'Арбитражный суд г. Москвы ... взыскал стоимость утраченного товара по данным Ozon о цене продажи за вычетом вознаграждения Ozon, а не по закупочной цене'. The finding records that the court applied the offer's own formula as the agreed method."},
+    {"id": "CIT-08", "pass": true, "evidence": "Each claim of absent authority matches a drafting warning in research-sufficiency.json. The claims cover: FBO as a mixed contract; no single view on price; built-in compensation; the forum clause; the claim procedure; and no practice on art. 14 before 1 October. 8 says '...закон не вводит' for a special liability regime, and this matches the 289fz-st19-scan finding."},
+    {"id": "CIT-09", "pass": true, "evidence": "Client facts and assumptions are kept apart from source content, and the offer clause is attributed to 'редакции, зафиксированной в решении'. One loose point sits outside citation work: in 7.3 the Adygea location, listed as an assumption in 3, is stated as fact."},
+    {"id": "CIT-10", "pass": false, "evidence": "The record holds two readings of the A40-630 offer clause. I3 says risk turns on arrival at the warehouse. I2 says Ozon answers only for its fault, with risk before piece acceptance staying with the seller or not covered. 6.1 cites only the first. Other contrary sources are cited: VS 305-ЭС25-11730 (4), the ТПП Положение (5.1), А40-18912/2022 via the marketplace review (5.2) and п. 4 ст. 421 (7.1)."}
+  ],
+  "issues": [
+    {
+      "severity": "blocker",
+      "category": "selective_paraphrase",
+      "section_id": "s-6-1",
+      "issue": "6.1 paraphrases the Ozon offer clause recorded in A40-630/25-100-1 as 'связывает риск с передачей товара на склад, а исключение касается лишь недостачи, возникшей до передачи...'. The clause text in the record (п. 8.1 Приложения № 1) makes Ozon liable for loss 'произошедшие по вине Ozon', and the I2 finding reads it as leaving risk with the seller until piece acceptance. The omission matters in three places. In 4 the draft says the conclusion would change only 'если оферта ... ставит ответственность Ozon в зависимость только от его вины', yet the one recorded edition does exactly that. In 5.1 the draft tells the client 'доказывать вину Ozon ... не требуется'. In 6.1 the shoppers point rests on the same clause.",
+      "suggestion": "Quote the clause with 'по вине Ozon', and present both of the record's readings of the piece-acceptance exception. State in 4 and 5.1 that the recorded offer edition makes liability fault-based, and explain how п. 1 ст. 901 and п. 4 ст. 401 / ст. 428 ГК РФ bear on a contractual fault standard for a professional custodian. Lower the 6.1 risk grade accordingly.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift",
+      "issue_client": "Перед тем как полагаться на меморандум, проверьте, не ограничивает ли действующая оферта Ozon его ответственность за утрату товара случаями «по вине Ozon»: в зафиксированной судом редакции оферты такое ограничение есть."
+    },
+    {
+      "severity": "blocker",
+      "category": "unsupported_law",
+      "section_id": "s-10-2",
+      "issue": "10.2 states 'Получение такой выплаты не лишает АНО права требовать разницу до полного размера убытков, если выплата принята как частичное исполнение.' as law with no source token. No finding in the research files supports it, and the section itself says no practice was found. The recommendation to accept the payout with a reservation rests on this unsourced rule.",
+      "suggestion": "Either cite the Civil Code provisions relied on (e.g. п. 1 ст. 902 with ст. 393 ГК РФ, both in the pack) and say plainly that whether accepting the payout waives the balance is unresolved, or recast the sentence as a risk-management recommendation and not a statement of law.",
+      "checklist_id": "CIT-01",
+      "issue_category": "unsupported_claim",
+      "issue_client": "Перед тем как принимать выплату компенсации от Ozon, проверьте с юристом, не будет ли её получение означать согласие с размером возмещения: утверждение меморандума об обратном не подкреплено ни нормой, ни практикой."
+    },
+    {
+      "severity": "major",
+      "category": "scope_overstated",
+      "section_id": "s-8",
+      "issue": "8: 'Для споров партнёра с оператором вводится обязательная жалоба в системе досудебного рассмотрения жалоб платформы', and 10.1: 'Закон № 289-ФЗ с 1 октября 2026 г. обязывает партнёра до обращения в суд подать жалобу оператору'. The i7 finding for 289-fz-st-14 (ч. 1, 5), and the article text in the pack, limit the duty to challenges to operator measures against the partner (civil-liability measures, card restrictions, cabinet access, rating). A damages claim for goods lost in a fire is not such a challenge. The draft thus overstates the procedural risk that drives the 'Риск: средний' grade in 8.",
+      "suggestion": "State the ч. 1 scope. Say that a damages claim for lost goods likely falls outside it, and keep the parallel complaint only as a precaution.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "major",
+      "category": "holding_broadened",
+      "section_id": "s-5-2",
+      "issue": "5.2: 'Хранитель, утративший вещь, не вправе требовать вознаграждение за её хранение'. The finding for VS 301-ЭС19-5994 ties this to early termination for circumstances the custodian answers for (п. 3 ст. 896 ГК РФ). The saved text adds that where the custodian does not answer for them, it keeps a proportionate part of the fee. The draft's statement is unconditional, although 5.1 leaves force majeure open.",
+      "suggestion": "Make the fee refund conditional on Ozon being responsible for the loss, and note that it has a proportionate right to the fee if force majeure is proved.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "major",
+      "category": "authority_overstated",
+      "section_id": "s-5-2",
+      "issue": "5.2: 'Арбитражный суд г. Москвы в споре продавца с Ozon взыскал стоимость утраченного товара по данным Ozon о цене продажи за вычетом вознаграждения Ozon, а не по закупочной цене'. The case_law finding (I2) records that the court treated the offer's formula ('действительная стоимость товара (цена продажи за период) минус вознаграждения Ozon') as the agreed method of valuation. The case therefore shows a contractual measure applied, not a court choosing the statutory measure. It also bears on the draft's assumption that Ozon's terms cap compensation at cost price.",
+      "suggestion": "Say that the court applied the offer's own valuation formula, and flag that the one recorded offer edition measured by sale price, not by the seller's stated cost.",
+      "checklist_id": "CIT-07",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "major",
+      "category": "authority_overstated",
+      "section_id": "s-7-1",
+      "issue": "7.1: 'Верховный Суд РФ признал ничтожной оговорку стандартных правил, которая без конкретизации расширяла основания освобождения сильной стороны от ответственности'. The finding for VS 305-ЭС25-842 and its saved text concern an insurer's rules that excluded events from the insured risk (п. 75 постановления Пленума ВС РФ № 25). The draft drops the insurance context. This is the main authority for voiding the 'в любом объёме' clause, and the reader cannot see that its use here is by analogy.",
+      "suggestion": "Name the insurance context and present the case as an analogy for marketplace force-majeure wording.",
+      "checklist_id": "CIT-07",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "holding_shifted",
+      "section_id": "s-5-1",
+      "issue": "5.1: 'Бремя доказывания этих обстоятельств лежит на хранителе, и суд, возложивший его на поклажедателя, нарушает нормы права' ('этих обстоятельств' = непреодолимая сила). The finding for VS 32-КГ18-38 concerns the custodian's burden to prove absence of fault under пп. 1-2 ст. 401 and п. 1 ст. 901, not force majeure.",
+      "suggestion": "Cite Plenum No. 7 п. 5 (in the record) for the force-majeure burden, and keep 32-КГ18-38 for the custodian's burden on fault.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "paraphrase_narrowed",
+      "section_id": "s-4",
+      "issue": "4: 'Профессиональным хранителем признаётся коммерческая организация, для которой хранение является одной из целей профессиональной деятельности'. The finding for п. 2 ст. 886 reads 'коммерческая либо некоммерческая организация'.",
+      "suggestion": "Restore 'коммерческая либо некоммерческая организация'.",
+      "checklist_id": "CIT-02",
+      "issue_category": "source_drift"
+    },
+    {
+      "severity": "minor",
+      "category": "missing_token",
+      "section_id": "s-10-3",
+      "issue": "10.3: 'продавцы с надлежащими документами получали и убытки, и возмещение пошлины и расходов на представителя' carries no source token. Support exists in the marketplace practice review (finding on А41-41643/2022).",
+      "suggestion": "Add the token for the marketplace practice review, section «Если товар неправомерно принят к возврату или утерян».",
+      "checklist_id": "CIT-01",
+      "issue_category": "unsupported_claim"
+    },
+    {
+      "severity": "minor",
+      "category": "missing_token",
+      "section_id": "s-7-2",
+      "issue": "7.2: 'Обязанность Ozon возместить убытки возникла в момент утраты товара 24 августа и определяется условиями, действовавшими в тот день.' is a statement of law without a source.",
+      "suggestion": "Support it with a pack provision (e.g. п. 2 ст. 422 or п. 4 ст. 450 ГК РФ as applicable), or mark it as the memo's own reasoning.",
+      "checklist_id": "CIT-01",
+      "issue_category": "unsupported_claim"
+    }
+  ],
+  "verdict": "needs_revision"
+}

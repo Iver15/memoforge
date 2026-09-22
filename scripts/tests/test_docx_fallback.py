@@ -18,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import citations, docx, fallbacks, finalize, i18n, sources, state_io, task  # noqa: E402
+from memoforge import citations, docx, fallbacks, finalize, i18n, machine, sources, state_io, task  # noqa: E402
 from memoforge.docx import fallback, oscola  # noqa: E402
 
 FOOTNOTES = oscola.STYLE_FOOTNOTES
@@ -1424,6 +1424,9 @@ class StatusReasonNameTest(unittest.TestCase):
         "writer_failed",
         "no_checked_draft",
         "export_reused_untouched",
+        "open_substance_majors",
+        "polish_out_of_scope",
+        "polish_recheck_blocker",
     )
 
     def test_every_recorded_reason_has_a_sentence(self):
@@ -1437,6 +1440,54 @@ class StatusReasonNameTest(unittest.TestCase):
         self.assertEqual("mystery_code", fallback.reason_name("mystery_code"))
         self.assertEqual("free text from --reason", fallback.reason_name("free text from --reason"))
         self.assertEqual("", fallback.reason_name(""))
+
+
+class SettledMajorStatusTest(unittest.TestCase):
+    """D-211: a citations major the polish did not verifiably fix is printed in the Status section."""
+
+    ROW = {
+        "id": "om-6",
+        "class": "citations",
+        "reviewer": "citations",
+        "section_id": "s-9",
+        "category": "pinpoint_mismatch",
+        "issue_category": "source_drift",
+        "issue": "Art. 1005 is cited to point 3, which holds no rule.",
+        "issue_client": "Ссылка на пункт 3 статьи 1005 ГК РФ не подтверждает изложенную норму.",
+        "suggestion": "Remove the pinpoint and keep the source id.",
+        "from_iteration": 3,
+        "origin": "loop",
+        "status": "manual_review",
+    }
+
+    def test_a_russian_run_prints_the_client_sentence_of_the_settled_row(self):
+        state = {
+            "language": "ru",
+            "final_status": "approved_on_v3",
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": [dict(self.ROW)],
+        }
+        machine._settle_open_majors(state, [], 3)  # noqa: SLF001
+        self.assertEqual(
+            "## Статус\n\n"
+            "Итоговый статус: требуется ручная проверка (версия 3). Конвейер не утвердил этот меморандум; "
+            "пункты ниже не закрыты и должны быть проверены перед использованием клиентом.\n\n"
+            "**Незакрытые блокирующие замечания**\n\n"
+            "- существенное замечание · раздел 9 · "
+            "Ссылка на пункт 3 статьи 1005 ГК РФ не подтверждает изложенную норму.\n",
+            fallback.render_status(fallback.status_inputs(state)),
+        )
+
+    def test_an_english_run_prints_the_issue_itself(self):
+        row = dict(self.ROW, issue_client=None)
+        state = {"final_status": "client_ready_on_v3", "open_substance_majors": [row]}
+        machine._settle_open_majors(state, [], 3)  # noqa: SLF001
+        self.assertEqual(["open_substance_majors"], state["final_status_reasons"])
+        self.assertEqual(
+            ["major · section 9 · Art. 1005 is cited to point 3, which holds no rule."],
+            fallback.status_inputs(state)["issues"],
+        )
 
 
 class AppendixScopeTest(unittest.TestCase):
@@ -1879,6 +1930,34 @@ class DraftSelectionTest(unittest.TestCase):
         self.assertEqual("drafts/v1.md", selection["relative"])
         self.assertTrue(selection["draft_sha_matched"])
         self.assertTrue(selection["checked"])
+
+    def test_the_export_pin_binds_a_selection_made_without_a_sha(self):
+        # D-211: `finalize` selects without `--draft-sha`; an out-of-scope polish pinned the export to v2.
+        work_dir = self.make_task()
+        self.put_version(work_dir, 1, "# v1\n", lint_clean=True, citations_clean=True)
+        sha2 = self.put_version(work_dir, 2, "# v2 baseline\n", lint_clean=False, citations_clean=True)
+        state = state_io.read_state(work_dir)
+        self.assertEqual("drafts/v1.md", docx.select_draft(state, work_dir)["relative"])
+        pinned = dict(state, export_pin={"version": 2, "sha256": sha2})
+        selection = docx.select_draft(pinned, work_dir)
+        self.assertEqual(("drafts/v2.md", sha2), (selection["relative"], selection["sha256"]))
+        self.assertEqual([docx.NO_CHECKED_DRAFT], selection["reasons"])
+
+    def test_the_pin_matches_its_version_before_an_older_one_with_the_same_bytes(self):
+        # Fix round 1 (3): v1 and the pinned v3 hold the same bytes; the pin's version and flags win.
+        work_dir = self.make_task()
+        same = self.put_version(work_dir, 1, "# same\n", lint_clean=True, citations_clean=True)
+        self.put_version(work_dir, 2, "# other\n", lint_clean=True, citations_clean=True)
+        self.assertEqual(same, self.put_version(work_dir, 3, "# same\n", lint_clean=False, citations_clean=False))
+        state = state_io.read_state(work_dir)
+        self.assertEqual("drafts/v1.md", docx.select_draft(state, work_dir, same)["relative"])
+        pinned = dict(state, export_pin={"version": 3, "sha256": same})
+        for draft_sha in (None, same):
+            with self.subTest(draft_sha=draft_sha):
+                selection = docx.select_draft(pinned, work_dir, draft_sha)
+                self.assertEqual(
+                    ("drafts/v3.md", 3, False), (selection["relative"], selection["version"], selection["checked"])
+                )
 
     def test_a_draft_sha_recorded_in_state_but_not_on_disk_is_not_accepted(self):
         work_dir = self.make_task()

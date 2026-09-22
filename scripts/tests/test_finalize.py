@@ -2462,6 +2462,159 @@ class SummaryStatusLineTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("brand_new_status", line)
 
 
+def open_major(
+    number: int,
+    cls: str,
+    status: str,
+    *,
+    origin: str = "loop",
+    section_id: str = "s-5-1",
+    category: str = "narrow_trigger",
+    issue: str = "The trigger is drawn too narrowly.",
+) -> dict:
+    """One `state.open_substance_majors` row (D-210)."""
+    return {
+        "id": f"om-{number}",
+        "class": cls,
+        "reviewer": cls,
+        "section_id": section_id,
+        "category": category,
+        "issue_category": None,
+        "issue": issue,
+        "issue_client": None,
+        "suggestion": "Qualify the statement.",
+        "from_iteration": 2,
+        "origin": origin,
+        "status": status,
+    }
+
+
+class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
+    """D-210: `summary.md` lists the substantive majors the review loop left open."""
+
+    STATUSES = ("open", "resolved", "unresolved", "manual_review", "left")
+
+    def summary(self, rows: list | None, blockers: list | None = None) -> str:
+        def mutate(state: dict) -> None:
+            if rows is not None:
+                state["open_substance_majors"] = rows
+            state["remaining_blocking_issues"] = blockers or []
+
+        work_dir = self.make_task(mutate=mutate)
+        finalize.run_finalize(finalize_args(work_dir))
+        return (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+
+    def test_the_predicate_is_decided_by_the_row_alone(self):
+        # Ruling A: a citations row of the loop left `unresolved` is the one the readiness step moves
+        # into `remaining_blocking_issues`, so the section never prints it a second time.
+        for cls in ("citations", "logic", "counterarguments"):
+            for origin in ("loop", "recheck"):
+                for status in self.STATUSES:
+                    with self.subTest(cls=cls, origin=origin, status=status):
+                        expected = status in ("open", "left", "unresolved") and not (
+                            cls == "citations" and origin == "loop" and status == "unresolved"
+                        )
+                        row = open_major(1, cls, status, origin=origin)
+                        self.assertEqual(expected, finalize.lists_open_finding(row))
+
+    def test_the_section_follows_the_blocker_list_with_raw_ids(self):
+        rows = [
+            open_major(1, "counterarguments", "open"),
+            open_major(
+                2,
+                "logic",
+                "left",
+                section_id="s-10-3",
+                category="unsupported_conclusion",
+                issue="The conclusion of 10.3\ndoes not follow.",
+            ),
+            open_major(3, "citations", "resolved", section_id="s-9", category="pinpoint_mismatch"),
+            open_major(
+                4,
+                "citations",
+                "open",
+                origin="recheck",
+                section_id="s-9",
+                category="pinpoint_mismatch",
+                issue="The pinpoint sends the reader to point 3.",
+            ),
+        ]
+        self.assertIn(
+            "## Remaining blocking issues\n\n- none\n\n"
+            "## Open reviewer findings\n\n"
+            "- counterarguments · loop · open · s-5-1 · narrow_trigger · The trigger is drawn too narrowly.\n"
+            "- logic · loop · left · s-10-3 · unsupported_conclusion · The conclusion of 10.3 does not follow.\n"
+            "- citations · recheck · open · s-9 · pinpoint_mismatch · The pinpoint sends the reader to point 3.\n"
+            "\n## Paths\n",
+            self.summary(rows),
+        )
+
+    def test_nothing_open_says_none(self):
+        cases = (
+            ("a state written before D-210", None),
+            ("an empty list", []),
+            ("only settled rows", [open_major(1, "logic", "resolved"), open_major(2, "citations", "manual_review")]),
+        )
+        for label, rows in cases:
+            with self.subTest(case=label):
+                self.assertIn("## Open reviewer findings\n\n- none\n", self.summary(rows))
+
+    def test_an_unresolved_row_is_printed_exactly_once(self):
+        kept = open_major(
+            1,
+            "counterarguments",
+            "unresolved",
+            section_id="s-7-1",
+            category="unaddressed_statutory_limitation",
+            issue="The limitation period of art. 196 is not addressed.",
+        )
+        moved = open_major(
+            2,
+            "citations",
+            "unresolved",
+            section_id="s-9",
+            category="pinpoint_mismatch",
+            issue="The pinpoint sends the reader to point 3.",
+        )
+        blocker = {"severity": "major", "category": moved["category"], "section_id": "s-9", "issue": moved["issue"]}
+        summary = self.summary([kept, moved], blockers=[blocker])
+        self.assertEqual(1, summary.count(kept["issue"]))
+        self.assertEqual(1, summary.count(moved["issue"]))
+        self.assertIn("- major · s-9 · The pinpoint sends the reader to point 3.", summary)
+
+    def test_the_rows_the_readiness_step_settles_are_each_printed_once(self):
+        # D-211: settlement moves a citations row into the blockers and leaves the rest to this section.
+        rows = [
+            open_major(1, "citations", "manual_review", section_id="s-9", category="pinpoint_mismatch",
+                       issue="The pinpoint sends the reader to point 3."),
+            open_major(2, "citations", "open", section_id="s-5-2", category="holding_misstated",
+                       issue="The formula is given as the court's holding."),
+            open_major(3, "logic", "left", section_id="s-10-3", category="unsupported_conclusion",
+                       issue="The conclusion of 10.3 does not follow."),
+            open_major(4, "counterarguments", "resolved", section_id="s-7-1", issue="The limitation is not addressed."),
+            open_major(5, "citations", "open", origin="recheck", section_id="s-9", category="overstated_currency",
+                       issue="The guidance is described as settled practice."),
+        ]
+        settled = {
+            "final_status": "approved_on_v3",
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": rows,
+        }
+        machine._settle_open_majors(settled, [], 3)  # noqa: SLF001
+        self.assertEqual("manual_review_required_on_v3", settled["final_status"])
+        summary = self.summary(settled["open_substance_majors"], blockers=settled["remaining_blocking_issues"])
+        blockers, _, rest = summary.partition("## Open reviewer findings")
+        self.assertIn("- major · s-9 · The pinpoint sends the reader to point 3.", blockers)
+        self.assertIn("- major · s-5-2 · The formula is given as the court's holding.", blockers)
+        self.assertIn("- logic · loop · left · s-10-3 · unsupported_conclusion · The conclusion of 10.3", rest)
+        self.assertIn("- citations · recheck · open · s-9 · overstated_currency · The guidance is", rest)
+        for row in rows:
+            with self.subTest(row=row["id"]):
+                self.assertLessEqual(summary.count(row["issue"]), 1)
+        self.assertNotIn("The limitation is not addressed.", summary)
+
+
 class BannerLanguageSummaryTest(_WorkDirMixin, unittest.TestCase):
     """D-175: `summary.md` strings and banner rows come from `memo.summary`/`memo.banners`."""
 

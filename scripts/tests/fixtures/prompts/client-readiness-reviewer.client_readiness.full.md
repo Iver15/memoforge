@@ -27,6 +27,35 @@ The memo itself is written in English. Your findings stay in English: `issue`,
 language above is not English, a finding with `severity: blocker` also carries `issue_client` —
 one sentence in English saying what the client must check before relying on the memo.
 
+## Open reviewer findings
+
+none
+
+These are the substantive majors the review loop left open on this memo, one per line:
+`id · class · section · issue · suggestion`. When the list is `none`, write no `dispositions`.
+
+The list is not a re-review: do not grade these findings again, decide what happens to each one.
+Every finding of the review loop gets one row in `dispositions`:
+`{"id": "om-<n>", "action": "polish" | "manual_review" | "leave", "note": "<one sentence why>"}`.
+
+- A `citations` finding allows `polish` or `manual_review`. A `logic` or `counterarguments` finding
+  allows `polish` or `leave`. A missing row, or an action the finding's class does not allow,
+  counts as `manual_review` for `citations` and `leave` for the others.
+- `polish`, for any class, means one issue of yours in `issues[]` for that finding's section, telling
+  the writer to withdraw or soften the flagged statement,
+  with no new statement of law and no new authority.
+  For a CIT-04 finding (the pinpoint points elsewhere), removing the pinpoint from the token and
+  keeping the source id is a softening. A polish needs the polish pass, so the verdict is then
+  `needs_final_polish` unless something else makes it `manual_review_required`.
+- `manual_review` hands a `citations` finding to a lawyer: the memo is delivered under manual review
+  and the finding is printed in its Status section.
+- `leave` keeps a `logic` or `counterarguments` finding as it is: it is listed in `summary.md` and does
+  not change the run's status.
+
+After the polish, the list comes back with each finding's status appended (`resolved`, `unresolved`,
+`manual_review`, `left`). Findings the citations re-check of the polish raised are listed
+for information only: they get no row in `dispositions`.
+
 ## Write
 
 - `steps/s-042/a1/client_readiness/final-client-readiness.json` (schema `client-readiness` — `{SCHEMAS}\client-readiness.schema.json`)
