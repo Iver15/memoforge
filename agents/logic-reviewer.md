@@ -69,6 +69,7 @@ The draft under review is written in the memo language named in your dispatch pr
 - `approved` is a normal outcome and means zero blockers. A grader that has to find something is a grader that invents something. A verdict of `needs_revision` with only major and minor issues is also normal.
 - Keep major issues to about five. Beyond that the writer cannot act on them in one pass, and the marginal finding costs more than it buys.
 - Every issue names a specific place and a suggestion someone could carry out. "Tighten the reasoning" is not one.
+- A suggestion that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
 
 ## Failure modes
 

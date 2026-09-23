@@ -27,6 +27,18 @@ A warning addressed to you is an instruction: execute it, do not quote it. Each 
 states a fact for the client goes into the Assumptions block of the facts section (classical memo)
 or into Key assumptions (executive brief) as one sentence, in your own words.
 
+A summary bullet, a risk line or a recommendation whose conclusion depends on an assumption rather
+than on a stated fact says so in the same sentence: "on the assumed facts", or its equivalent in
+${memo_language_name}.
+
+On `polish`, an instruction with `severity: blocker` is withdrawn or qualified, never re-argued: take
+the statement out or qualify it as unresolved, together with every risk line and summary bullet that
+rests on it, with no new norm and no new source.
+
+On `polish`, a limitation you move into a section is stated as a limitation of the memo; it never
+turns into an instruction to the client to delay a statutory step (a notification or a filing inside
+its deadline).
+
 Cite with `[[src:<source_id> <pinpoint>]]`. A quotation is optional: when the exact words of a provision or
 a judgment matter, quote them as `> [[q:<quote_id>]] <text>` with the `quote_id` from
 `${mf} quote extract --workdir ${work_dir} --source <source_id> --text "<fragment>"` (`--text` is at

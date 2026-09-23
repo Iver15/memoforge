@@ -26,8 +26,8 @@ NEXT_WRITER = "dispatch_writer"
 TARGETED_FIX_REVIEWERS: tuple[str, ...] = ("citations",)
 """D-165: branch 9 re-checks the targeted draft with this reviewer set and no other."""
 
-TARGETED_FIX_CATEGORY = "unsupported_claim"
-"""D-165: the only `citations` `issue_category` a targeted pass may be asked to close (D-08)."""
+TARGETED_FIX_CATEGORIES: tuple[str, ...] = ("unsupported_claim", "source_drift")
+"""D-165, D-212: the `citations` `issue_category` values a targeted pass may be asked to close (D-08)."""
 
 
 def draft_path(version: int) -> str:
@@ -72,8 +72,20 @@ def mediator_needed(record: dict) -> bool:
     return len(strong) >= review.MEDIATOR_MIN_ISSUES and len(reviewers) >= review.MEDIATOR_MIN_REVIEWERS
 
 
+def targeted_blockers(record: dict) -> list[dict]:
+    """D-212: the substance blockers `citations` raised with an `issue_category` a targeted pass closes."""
+    sources = set(TARGETED_FIX_REVIEWERS)
+    return [
+        issue
+        for issue in _blockers(record)
+        if issue.get("tier") == "substance"
+        and sources & _participants(issue)
+        and issue.get("issue_category") in TARGETED_FIX_CATEGORIES
+    ]
+
+
 def _targeted_fix_applies(record: dict, substance: int, form: int, targeted_fix_used: int) -> bool:
-    """D-165: is everything still open one of at most two missing `[[src:]]` tokens?
+    """D-165: is everything still open at most two `citations` blockers of a targeted category (D-212)?
 
     The 2026-09-16 run left `forced_exit_on_v2_with_remaining_issues` on a single rule statement
     without a token. A third full iteration is what the budget forbids; one writer pass and a
@@ -88,11 +100,20 @@ def _targeted_fix_applies(record: dict, substance: int, form: int, targeted_fix_
     blockers = [issue for issue in _blockers(record) if issue.get("tier") == "substance"]
     if not blockers:
         return False
-    sources = set(TARGETED_FIX_REVIEWERS)
-    return all(
-        sources & _participants(issue) and issue.get("issue_category") == TARGETED_FIX_CATEGORY
-        for issue in blockers
-    )
+    targeted = targeted_blockers(record)
+    return all(issue in targeted for issue in blockers)
+
+
+def last_blockers_apply(record: dict, targeted_fix_used: int) -> bool:
+    """D-213: are the blockers of a branch-8 exit the kind branch 9 closes, with its one pass already spent?
+
+    Then they go to the last reader as open-finding rows linked to their blocker (`review.blocker_rows`).
+    """
+    if targeted_fix_used < limits.MAX_TARGETED_FIX_PASSES:
+        return False
+    substance = int(record.get("substance_blockers") or 0)
+    form = int(record.get("form_blockers") or 0)
+    return _targeted_fix_applies(record, substance, form, 0)
 
 
 def decide(
@@ -208,8 +229,9 @@ def decide(
             "banner": ("max_iterations_with_blockers", {"count": len(_blockers(record))}),
         }
 
-    # 9. D-165: the budget is spent and the only thing left is missing source tokens — one writer
-    # pass with a `citations`-only re-check, once per run, before branch 8 closes the memo.
+    # 9. D-165, D-212: the budget is spent and the only thing left is at most two `citations` blockers of a
+    # targeted category (`unsupported_claim`, `source_drift`) — one writer pass on those blockers alone,
+    # with a `citations`-only re-check, once per run, before branch 8 closes the memo.
     if _targeted_fix_applies(record, substance, form, targeted_fix_used):
         return {
             "branch": 9,
@@ -328,23 +350,36 @@ def run_next(args: argparse.Namespace) -> dict:
     seed_relative: str | None = None
     next_step = getattr(args, "next_step", None) or f"{getattr(args, 'step', None) or 's'}-w{iteration + 1}"
 
-    if decision["next"] == NEXT_WRITER and not mediator_exists:
+    source = work_dir / (state.get("current_draft_path") or draft_path(iteration))
+    if decision["next"] == NEXT_WRITER and not source.is_file():
+        # Refused before anything is written: the mediator on the path stays as `published[]` has it.
+        return {"errors": [f"missing_draft: {source.name}"], "iteration": iteration}
+
+    targeted = bool(decision.get("targeted"))
+    replaced_view: str | None = None
+    if decision["next"] == NEXT_WRITER and (targeted or not mediator_exists):
         # §4.5 п.4.6: no mediator agent is needed, so the CLI assembles the instructions itself.
-        document = review.build_mediator(record)
+        # D-212: a targeted pass hands the writer its blockers and nothing else — also over a full
+        # mediator already on the path (`mf review mediator-from-issues`), which it republishes.
+        document = review.build_mediator(record, only=targeted_blockers(record) if targeted else None)
         from . import schema  # noqa: PLC0415 - local import keeps `jsonschema` optional at import time
 
         schema.validate_or_raise(document, "mediator")
-        mediator_published = review.publish_result(
-            work_dir,
-            args,
-            review.mediator_path(iteration),
-            state_io.dumps(document).encode("utf-8"),
+        mediator_bytes = state_io.dumps(document).encode("utf-8")
+        canonical = review.mediator_path(iteration)
+        kept = (
+            mediator_exists
+            and (work_dir / canonical).read_bytes() == mediator_bytes
+            and stepctx.published_sha(state, canonical) == state_io.sha256_bytes(mediator_bytes)
         )
+        if not kept:
+            mediator_published = review.publish_result(work_dir, args, canonical, mediator_bytes)
+            if mediator_exists:
+                # D-212: the `.md` view of the replaced mediator (what the writer reads, D-62) goes with
+                # it — a view published in the same millisecond as the new JSON would still look fresh.
+                replaced_view = canonical[: -len(".json")] + ".md"
 
     if decision["next"] == NEXT_WRITER:
-        source = work_dir / (state.get("current_draft_path") or draft_path(iteration))
-        if not source.is_file():
-            return {"errors": [f"missing_draft: {source.name}"], "iteration": iteration}
         payload = source.read_bytes()
         version = decision["preseed_version"]
         # §3.1: the seed lives in the *writer's* attempt workspace and is published as drafts/vN+1.md.
@@ -357,6 +392,12 @@ def run_next(args: argparse.Namespace) -> dict:
         draft_row = _draft_version_row(version, published["sha256"])
 
     def mutator(current: dict) -> None:
+        if replaced_view is not None:
+            current["published"] = [
+                row
+                for row in current.get("published") or []
+                if not (isinstance(row, dict) and row.get("canonical_path") == replaced_view)
+            ]
         if decision["branch"] == 1:
             rerun = current.setdefault("attempts", {}).setdefault("reviewer_rerun", {})
             rerun[str(iteration)] = rerun_used + 1
@@ -378,9 +419,12 @@ def run_next(args: argparse.Namespace) -> dict:
         if decision["next"] == NEXT_CLIENT_READINESS:
             current["remaining_blocking_issues"] = _blockers(record)
             # D-210: the substantive majors still open on the version the loop leaves on.
-            current["open_substance_majors"] = review.open_substance_majors(
-                current, decision.get("regression_to") or iteration
-            )
+            rows = review.open_substance_majors(current, decision.get("regression_to") or iteration)
+            if decision["branch"] == 8 and last_blockers_apply(record, targeted_used):
+                # D-213: a blocker branch 9 could have taken goes to the last reader; it stays in
+                # `remaining_blocking_issues` until the settlement finds a clean re-check of its polish.
+                rows += review.blocker_rows(record, len(rows) + 1)
+            current["open_substance_majors"] = rows
         if draft_row is not None and published is not None:
             _record_draft_version(current, draft_row)
             current["current_iteration"] = draft_row["version"]
@@ -427,6 +471,8 @@ def run_next(args: argparse.Namespace) -> dict:
     stepctx.close_step(
         work_dir, args.step, args.attempt, result, args_key=args_key, published=entries, mutate=mutator
     )
+    if replaced_view is not None:
+        (work_dir / replaced_view).unlink(missing_ok=True)
     return result
 
 

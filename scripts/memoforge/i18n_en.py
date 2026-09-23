@@ -308,11 +308,12 @@ EN: dict = {
             ),
             "mediator_unavailable": "Mediation unavailable; exited at the last validated draft v{version}.",
             "unresolved_blockers": (
-                "REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the appendix)."
+                "REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the Status "
+                "section)."
             ),
             "length_overflow": "The executive brief exceeds its word cap; a rerun in Full mode is recommended.",
             "manual_review_required": (
-                "Client-readiness: manual_review_required. Blocking issues listed in the appendix."
+                "Client-readiness: manual_review_required. Blocking issues listed in the Status section."
             ),
             "polish_concerns_remain": "Client-readiness: post-polish concerns remain; verify before client delivery.",
             "readiness_unavailable": "Client-readiness review unavailable; treated as manual review required.",
@@ -362,7 +363,6 @@ EN: dict = {
             # D-210: the substantive majors the review loop left open (`state.open_substance_majors`).
             "open_reviewer_findings": "## Open reviewer findings",
             "paths": "## Paths",
-            "work_dir": "- Work dir: `{path}`",
             "deliverable": "- Deliverable: `{name}`",
             "rendered_from": "- Rendered from: `{name}`",
             "state": "State",
@@ -744,7 +744,7 @@ EN: dict = {
             ),
             "mediator_unavailable": "Mediation unavailable; the run exited at the last validated draft.",
             "unresolved_blockers": (
-                "REVIEWER NOTES NOT FULLY RESOLVED — blocking issues remain (listed in the appendix)."
+                "REVIEWER NOTES NOT FULLY RESOLVED — blocking issues remain (listed in the Status section)."
             ),
             "output_folder_unavailable": (
                 "Output folder write failed; the final artifact stays in the working directory."

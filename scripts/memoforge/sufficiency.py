@@ -65,11 +65,14 @@ def partition(document: dict, layers: list[str] | None = None) -> dict:
 
 
 def _warning(gap: dict) -> dict:
-    text = str(gap.get("gap", "")).strip()
-    why = str(gap.get("why_blocking", "")).strip()
+    """D-215: the warning carries the gap only; `why_blocking` is addressed to the researcher.
+
+    `why_blocking` stays in `research-sufficiency.json`, where the researcher of the next pass
+    reads it; in the memo and `summary.md` it read as an instruction ("Record a contrary finding").
+    """
     return {
         "code": "unresolved_research_gap",
-        "message": f"{text} {why}".strip(),
+        "message": str(gap.get("gap", "")).strip(),
         "phase": "research_sufficiency",
         "at": events.utc_now(),
     }
@@ -109,13 +112,16 @@ def _warnings(document: dict, gaps: list[dict]) -> list[dict]:
 def _out_of_scope_warnings(
     document: dict, gaps: list[dict], mode: str, language: object = "en"
 ) -> list[dict]:
-    """D-112: one warning per gap outside the mode's layers, so the writer caveats it instead."""
+    """D-112: one warning per gap outside the mode's layers, so the writer caveats it instead.
+
+    D-216: like `_warning`, the gap text only — `why_blocking` is addressed to the researcher.
+    """
     code = i18n.normalize(language) or i18n.DEFAULT
     if mode:
         prefix = i18n.t(code, "memo.warnings.out_of_scope_prefix", mode=mode)
     else:
         prefix = i18n.t(code, "memo.warnings.out_of_scope_prefix_no_mode")
-    texts = [f"{str(gap.get('gap', '')).strip()} {str(gap.get('why_blocking', '')).strip()}".strip() for gap in gaps]
+    texts = [str(gap.get("gap", "")).strip() for gap in gaps]
     texts += [str(text).strip() for text in document.get("out_of_scope_gaps") or []]
     return [
         {

@@ -67,6 +67,9 @@ One file at the path the prompt names, schema `client-readiness`. `reasoning` co
 - `client_ready` is a normal outcome. A draft that has come through lint, the audit and the review loop is often deliverable, and inventing a final finding costs a polish round for nothing.
 - Do not re-review the legal reasoning or the citations, and do not repeat findings the lint already produced.
 - An open reviewer finding gets a disposition, never a new grade. `polish` becomes one issue for its section asking the writer to withdraw or soften the statement, with no new statement of law and no new authority.
+- A finding marked `blocker` allows `polish` or `manual_review`; its polish issue carries `severity: blocker` and asks the writer to withdraw or qualify the statement and every risk line or summary bullet that rests on it.
+- An issue that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
+- A limitation moved into a section never becomes an instruction to the client to delay a statutory step, and a limitation the memo already discloses that changes no conclusion is not a blocker.
 
 ## Failure modes
 

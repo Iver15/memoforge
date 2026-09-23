@@ -469,15 +469,21 @@ def lists_open_finding(row: object) -> bool:
 
     Decided by the row alone: a `citations` row of the loop left `unresolved` is the one the
     readiness step moves into `remaining_blocking_issues`, so it is printed there and not twice.
+    D-213: a blocker row (`blocker_of`) never is — its lifted blocker is gone, and one not lifted stays
+    under «Remaining blocking issues».
     """
-    if not isinstance(row, dict) or row.get("status") not in OPEN_FINDING_STATUSES:
+    if not isinstance(row, dict) or row.get("status") not in OPEN_FINDING_STATUSES or row.get("blocker_of"):
         return False
     return not (row.get("class") == "citations" and row.get("origin") == "loop" and row.get("status") == "unresolved")
 
 
 def open_finding_line(row: dict) -> str:
-    """`class · origin · status · section_id · category · issue` — raw ids, like the blocker list."""
-    fields = ("class", "origin", "status", "section_id", "category", "issue")
+    """`class · origin · status · section_id · category · issue` — raw ids, like the blocker list.
+
+    D-216: `· <note>` follows when the readiness disposition left a note on the row — why a `left`
+    row stays, in the readiness reviewer's words.
+    """
+    fields = ("class", "origin", "status", "section_id", "category", "issue", "disposition_note")
     parts = [" ".join(str(row.get(field) or "").split()) for field in fields]
     return md_fallback.STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
 
@@ -557,9 +563,10 @@ def build_summary(
     lines.extend([f"- {row}" for row in findings if row] or [md_fallback_summary("none", language)])
     lines.append("")
 
+    # D-216: the paths of the published folder the owner opens — no sandbox `work_dir`, and the
+    # state and the journal where `publish` puts them, under `_run/`.
     lines.append(md_fallback_summary("paths", language))
     lines.append("")
-    lines.append(md_fallback_summary("work_dir", language, path=state.get("work_dir") or work_dir))
     lines.append(md_fallback_summary("deliverable", language, name=deliverable["deliverable"]))
     if deliverable.get("source"):
         lines.append(md_fallback_summary("rendered_from", language, name=deliverable["source"]))
@@ -569,7 +576,7 @@ def build_summary(
     ):
         if (work_dir / relative).exists():
             lines.append(
-                f"- {md_fallback_summary(label_key, language)}: `{relative}`"
+                f"- {md_fallback_summary(label_key, language)}: `{PUBLISH_RUN_DIRNAME}/{relative}`"
             )
     lines.append("")
 

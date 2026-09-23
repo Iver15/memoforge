@@ -57,6 +57,9 @@ STEP_LOOP = "step_loop"
 
 ORCHESTRATOR_SLOT = "orchestrator"
 
+HOOK_ACTOR = "hook"
+"""`actor` of the journal events `hooks/progress_logger.py` writes (`ACTOR` there, D-217)."""
+
 BASE_ROUTE: tuple[str, ...] = (
     "intake_preliminary_research",
     "intake_questions_pending",
@@ -216,10 +219,19 @@ def position_in(route: list[str], phase: str) -> int:
 
 
 def mcp_call_counts(work_dir: Path) -> dict:
-    """`progress.mcp_calls` — successful and failed calls per server, from the journal (§4.3)."""
+    """`progress.mcp_calls` — successful and failed calls per server, from the journal (§4.3).
+
+    D-217: a host that runs the `PostToolUse` hook also gets the agent's own `mf agent log --mcp`
+    for the same call, so every hook event counts and a self-report counts only when it is older
+    than the first hook event — the usage of a run that started on a host without the hook.
+    """
+    calls = [record for record in events.read_events(work_dir) if record.get("event") == "mcp_call"]
+    hook_times = [str(record.get("ts") or "") for record in calls if record.get("actor") == HOOK_ACTOR]
+    first_hook = min(hook_times) if hook_times else None
     counts: dict[str, int] = {}
-    for record in events.read_events(work_dir):
-        if record.get("event") != "mcp_call":
+    for record in calls:
+        self_report = record.get("actor") != HOOK_ACTOR
+        if first_hook is not None and self_report and str(record.get("ts") or "") >= first_hook:
             continue
         server = str((record.get("data") or {}).get("server") or "unknown")
         counts[server] = counts.get(server, 0) + 1
@@ -493,6 +505,29 @@ def _dashboard_deliverable(state: dict) -> str:
 def published_to(state: dict) -> str:
     """The folder `mf finalize` copied the result into, or an empty string when it copied none (D-109)."""
     return str((state.get("progress") or {}).get("published_to") or "").strip()
+
+
+def published_file_count(work_dir: Path, state: dict) -> int | None:
+    """The count the router's copy of the `Published:` folder must reach, or None without a manifest (D-217).
+
+    The manifest is `files` of the last `result_published` event — what `finalize.publish` put there,
+    never a scan of the folder, where a stale file would count. The two root copies (D-167) are in
+    the manifest but outside the folder the router copies, so they are taken out.
+    """
+    manifest = None
+    for record in events.read_events(work_dir):
+        if record.get("event") == "result_published":
+            manifest = (record.get("data") or {}).get("files")
+    if not isinstance(manifest, list):
+        return None
+    slug = finalize.slug_of(state, Path(work_dir))
+    root_copies = {
+        finalize.root_memo_name(slug, finalize.DELIVERABLE_DOCX),
+        finalize.root_memo_name(slug, finalize.DELIVERABLE_MD),
+        finalize.root_summary_name(slug),
+        Path(published_memo(state)).name,
+    }
+    return sum(1 for name in manifest if str(name) not in root_copies)
 
 
 def published_memo(state: dict) -> str:
@@ -2584,6 +2619,8 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
     specs = []
     for kind in kinds:
         agent = dispatch.REVIEWER_AGENTS[kind]
+        # D-214: the next citations reviewer starts with the pairs no earlier text check reached.
+        carry_over = _carry_over(work_dir, state, iteration, draft_path) if kind == "citations" else "none"
         specs.append(
             dispatch.spec(
                 kind,
@@ -2605,11 +2642,20 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
                 ),
                 # D-208: the units a reviewer may spend reading saved texts; 0 for logic and form.
                 lookup_budget=str(limits.REVIEWER_LOOKUP_BUDGET.get(kind, 0)),
+                carry_over=carry_over,
                 research_files=research_files,
                 retry_errors="none",
             )
         )
     return specs
+
+
+def _carry_over(work_dir: Path, state: dict, iteration: int, draft_path: str) -> str:
+    """D-214 `${carry_over}`: one `source_id · section_id · reason` line per unchecked pair, or `none`."""
+    path = work_dir / draft_path
+    text = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
+    pairs = review.unchecked_pairs(work_dir, state, iteration, text)
+    return "\n".join(f"{row['source_id']} · {row['section_id']} · {row['reason']}" for row in pairs) or "none"
 
 
 def writer_spec(
@@ -3829,8 +3875,9 @@ def _after_revision_next(work_dir: Path, state: dict, row: dict, iteration: int)
             return step
         instructions = f"`{view_path(review.mediator_path(iteration))}` - edit only the named sections"
         if result.get("targeted"):
-            # D-165: branch 9 bought one pass for the missing `[[src:]]` tokens, nothing wider. D-208: a
-            # token only where a pack source holds the rule — otherwise the statement goes or is qualified.
+            # D-165, D-212: branch 9 bought one pass for its targeted `citations` blockers (`unsupported_claim`,
+            # `source_drift`), nothing wider. D-208: a token only where a pack source holds the rule —
+            # otherwise the statement goes or is qualified.
             instructions += (
                 ". Targeted pass: for each named item, add the source token where a pack source contains "
                 "the rule; otherwise withdraw the statement or qualify it as unresolved. Change nothing else."
@@ -3931,6 +3978,24 @@ def _open_majors(state: dict) -> list[dict]:
     return [row for row in (state.get("open_substance_majors") or []) if isinstance(row, dict)]
 
 
+BLOCKER_MARK = "blocker"
+"""D-213: the `severity` of a blocker row, and its mark in `${open_findings}` and `${recheck_scope}`."""
+
+BLOCKER_SCOPE_NOTE = (
+    "The resolution of a blocker finding covers every statement in these sections that rests on it: "
+    "record it `resolved` only if none of them still carries the withdrawn statement."
+)
+"""D-213, gate R1-2: the `${recheck_scope}` sentence of a polish that touched a blocker row."""
+
+BLOCKER_BANNER = "max_iterations_with_blockers"
+"""D-213: the fallback row whose banner counts the blockers left — recounted when the settlement lifts one."""
+
+
+def _is_blocker_row(row: dict) -> bool:
+    """D-213: a row that stands for a `remaining_blocking_issues[]` entry (`blocker_of`), not a major."""
+    return isinstance(row.get("blocker_of"), dict)
+
+
 def _polish_issued(state: dict) -> bool:
     """True once the polish writer was dispatched: `attempts.client_polish` is spent with it (§2.2)."""
     return int((state.get("attempts") or {}).get("client_polish") or 0) > 0
@@ -3953,6 +4018,8 @@ def open_findings_text(state: dict) -> str:
             " ".join(str(row.get(field) or "").split())
             for field in ("id", "class", "section_id", "issue", "suggestion")
         ]
+        if _is_blocker_row(row):
+            parts.insert(2, BLOCKER_MARK)  # D-213: `· blocker` right after the class
         line = "- " + " · ".join(part for part in parts if part)
         if row.get("origin") == "recheck":
             line += f" · {OPEN_FINDINGS_RECHECK}"
@@ -3980,8 +4047,12 @@ def _apply_dispositions(current: dict, document: dict) -> None:
 
     A missing disposition, a duplicated id, or an action outside the row's class (`leave` on
     `citations`, `manual_review` on `logic`) counts as the class default.
+
+    D-216: the `note` of a disposition that is applied as given is kept on the row
+    (`disposition_note`), so `summary.md` can say why the row stays; a default carries no note.
     """
     given = _unique_by_id(document.get("dispositions"), "action")
+    notes = _unique_by_id(document.get("dispositions"), "note")
     for row in _open_majors(current):
         if row.get("origin") != "loop" or row.get("status") != "open":
             continue
@@ -3989,6 +4060,8 @@ def _apply_dispositions(current: dict, document: dict) -> None:
         action = given.get(str(row.get("id")))
         if action not in DISPOSITION_ACTIONS.get(klass, ()):
             action = DISPOSITION_DEFAULTS.get(klass, "leave")
+        elif notes.get(str(row.get("id")), "").strip():
+            row["disposition_note"] = notes[str(row.get("id"))].strip()
         if action in DISPOSITION_STATUS:
             row["status"] = DISPOSITION_STATUS[action]
 
@@ -4075,16 +4148,51 @@ def _held_rows(rows: list[dict], documents: tuple, changed: list[str]) -> list[d
 
     A row is held by its own section and every descendant; a `document` row by any changed section.
     """
+    return [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("origin") == "loop"
+        and row.get("status") == "open"
+        and _holds(row, documents, changed)
+    ]
+
+
+def _holds(row: dict, documents: tuple, changed: list[str]) -> bool:
+    """Did the polish change the row's section or a descendant — any section, for a `document` row?"""
     if not changed:
-        return []
-    held = []
-    for row in rows:
-        if not isinstance(row, dict) or row.get("origin") != "loop" or row.get("status") != "open":
-            continue
-        section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
-        if section_id == WHOLE_DOCUMENT or _subtree(documents, {section_id}) & set(changed):
-            held.append(row)
-    return held
+        return False
+    section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
+    return section_id == WHOLE_DOCUMENT or bool(_subtree(documents, {section_id}) & set(changed))
+
+
+def _changed_cross_references(documents: tuple, changed: list[str]) -> list[str]:
+    """The changed sections of kind `executive_summary`, `conclusion` or `recommendations`, in `changed` order."""
+    kinds = {
+        section["section_id"]
+        for document in documents
+        for section in document["sections"]
+        if section.get("kind") in CROSS_REFERENCE_KINDS
+    }
+    return [section_id for section_id in changed if section_id in kinds]
+
+
+def _row_scope(row: dict, documents: tuple, changed: list[str]) -> set[str]:
+    """The sections a row's resolution covers: its own and every descendant.
+
+    D-213 (gate R1-2): a blocker row also covers every changed cross-reference section — the summary
+    bullet or the conclusion item that rested on the withdrawn statement.
+    """
+    scope = _subtree(documents, {str(row.get("section_id") or WHOLE_DOCUMENT)})
+    if _is_blocker_row(row):
+        scope |= set(_changed_cross_references(documents, changed))
+    return scope
+
+
+def _blocked(row: dict, scope: set[str], blockers: list[dict]) -> bool:
+    """Does a re-check blocker sit in the row's scope — anywhere, for a `document` row?"""
+    whole = str(row.get("section_id") or WHOLE_DOCUMENT) == WHOLE_DOCUMENT
+    return any(whole or str(blocker.get("section_id")) in scope for blocker in blockers)
 
 
 def polished_findings(rows: list[dict], before: str, after: str, *, language: str = i18n.DEFAULT) -> list[dict]:
@@ -4294,22 +4402,35 @@ def _polish_recheck_steps(state: dict, version: int) -> list[str]:
     return found
 
 
-def _recheck_scope(rows: list[dict], changed: list[str]) -> str:
-    """`${recheck_scope}`: the sections to grade and the findings that were polished there."""
+def _recheck_scope(rows: list[dict], changed: list[str], documents: tuple = ()) -> str:
+    """`${recheck_scope}`: the sections to grade and the findings that were polished there.
+
+    D-213 (gate R1-2): a blocker row brings in every changed cross-reference section, and the line
+    says that its resolution covers the statements there that rest on it.
+    """
     sections: list[str] = []
     for row in rows:
         section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
-        for candidate in changed if section_id == WHOLE_DOCUMENT else [section_id]:
+        candidates = list(changed) if section_id == WHOLE_DOCUMENT else [section_id]
+        if _is_blocker_row(row):
+            candidates += _changed_cross_references(documents, changed)
+        for candidate in candidates:
             if candidate not in sections:
                 sections.append(candidate)
     sections.sort(key=review._section_order)  # noqa: SLF001 - the document order D-210 sorts rows by
     findings = "; ".join(
-        f"{row.get('id')} · {row.get('class')} · {' '.join(str(row.get('issue') or '').split())}" for row in rows
+        " · ".join(
+            [str(row.get("id")), str(row.get("class"))]
+            + ([BLOCKER_MARK] if _is_blocker_row(row) else [])
+            + [" ".join(str(row.get("issue") or "").split())]
+        )
+        for row in rows
     )
-    return (
+    line = (
         f"Scope: sections {', '.join(sections)}; the open findings {findings} were polished. "
         "Grade CIT-01/02/04 on these sections. Record one `resolutions` row per listed id."
     )
+    return f"{line} {BLOCKER_SCOPE_NOTE}" if any(_is_blocker_row(row) for row in rows) else line
 
 
 def _dispatch_polish_recheck(work_dir: Path, state: dict, draft: str, version: int) -> dict | None:
@@ -4336,7 +4457,8 @@ def _dispatch_polish_recheck(work_dir: Path, state: dict, draft: str, version: i
     if not polished:
         return None
     base = reviewer_specs(work_dir, state, ["citations"], version)[0]
-    extra = dict(base["extra"], recheck_scope=_recheck_scope(polished, changed))
+    # D-214 (gate R1-7): the re-check grades the polished sections only and inherits no carry-over.
+    extra = dict(base["extra"], recheck_scope=_recheck_scope(polished, changed, documents), carry_over="none")
     spec = dispatch.spec(
         POLISH_RECHECK,
         base["agent"],
@@ -4412,30 +4534,28 @@ def _rows_after_polish(work_dir: Path, state: dict, draft: str, version: int) ->
     """D-211 steps 5-6: the rows readiness pass 2 sees — every `polish` row settled, re-check majors added.
 
     A `polish` row is `resolved` only when the polish touched it, the re-check is usable, its
-    `resolutions` marks the row `resolved`, and no re-check blocker sits in the row's section or below
-    it (anywhere, for a `document` row); otherwise it is `unresolved`.
+    `resolutions` marks the row `resolved`, and no re-check blocker sits in the row's scope — its
+    section or below it, anywhere for a `document` row, and for a blocker row also the changed
+    cross-reference sections (D-213); otherwise it is `unresolved`.
     """
     rows = copy.deepcopy(_open_majors(state))
     outcome = _polish_recheck(work_dir, state, version)
     texts = _polish_texts(work_dir, state, draft, version) if outcome["ran"] else None
     documents: tuple = ()
+    changed: list[str] = []
     listed: set[str] = set()
     if texts is not None:
         documents = _parse_pair(texts[0], texts[1], md_fallback.memo_language(state))
-        listed = {str(row.get("id")) for row in _held_rows(rows, documents, _changed_sections(*documents))}
+        changed = _changed_sections(*documents)
+        listed = {str(row.get("id")) for row in _held_rows(rows, documents, changed)}
     for row in rows:
         if row.get("origin") != "loop" or row.get("status") != "open":
             continue
-        section_id = str(row.get("section_id") or WHOLE_DOCUMENT)
-        scope = _subtree(documents, {section_id})
-        blocked = any(
-            section_id == WHOLE_DOCUMENT or str(blocker.get("section_id")) in scope for blocker in outcome["blockers"]
-        )
         resolved = (
             str(row.get("id")) in listed
             and outcome["usable"]
             and outcome["resolutions"].get(str(row.get("id"))) == "resolved"
-            and not blocked
+            and not _blocked(row, _row_scope(row, documents, changed), outcome["blockers"])
         )
         row["status"] = "resolved" if resolved else "unresolved"
     if outcome["majors"] and not any(row.get("origin") == "recheck" for row in rows):
@@ -4462,7 +4582,9 @@ def _moved_finding(row: dict) -> dict:
     return entry
 
 
-def _settle_open_majors(current: dict, blockers: list[dict], version: int) -> None:
+def _settle_open_majors(
+    current: dict, blockers: list[dict], version: int, *, lifted: set[str] | frozenset = frozenset()
+) -> None:
     """D-211 step 7: the open majors at the transition to `export`, inside that very state write.
 
     A loop row still `open` had no completed polish with a usable re-check, so it is `unresolved`.
@@ -4472,14 +4594,20 @@ def _settle_open_majors(current: dict, blockers: list[dict], version: int) -> No
     status becomes `manual_review_required_on_v<its version>`; a forced exit or a manual review keeps
     its label and only gains the reasons. `logic`/`counterarguments` rows and `origin: recheck` rows
     stay for `summary.md` and never change the status. An empty list changes nothing.
+
+    D-213: a blocker row (`blocker_of`) is never moved. Its blocker leaves `remaining_blocking_issues`
+    only when its id is in `lifted` — the evidence `_lifted_blockers` read at this very transition;
+    otherwise the blocker stays as it is and the row is `unresolved`. A lifted blocker recounts the
+    blocker banner, and a forced exit whose only reason was that blocker becomes `approved_on_v<N>`.
     """
     rows = _open_majors(current)
     if not rows and not blockers:
         return
+    remaining = current.setdefault("remaining_blocking_issues", [])
+    removed = _settle_blocker_rows(rows, remaining, lifted)
     for row in rows:
         if row.get("origin") == "loop" and row.get("status") == "open":
             row["status"] = "unresolved"
-    remaining = current.setdefault("remaining_blocking_issues", [])
     reasons: list[str] = []
     moved = [
         _moved_finding(row)
@@ -4487,6 +4615,7 @@ def _settle_open_majors(current: dict, blockers: list[dict], version: int) -> No
         if row.get("origin") == "loop"
         and row.get("class") == "citations"
         and row.get("status") in ("manual_review", "unresolved")
+        and not _is_blocker_row(row)
     ]
     for group, reason in ((moved, OPEN_MAJORS_REASON), ([dict(row) for row in blockers], RECHECK_BLOCKER_REASON)):
         for entry in group:
@@ -4494,10 +4623,88 @@ def _settle_open_majors(current: dict, blockers: list[dict], version: int) -> No
                 remaining.append(entry)
         if group:
             reasons.append(reason)
+    if removed:
+        _recount_blocker_banner(current)  # after the moves: the count is what the Status section lists
+    family, number = md_fallback.status_family(str(current.get("final_status") or ""))
+    left = list(current.get("final_status_reasons") or [])
+    if removed and not remaining:
+        if number and family == "forced_exit_with_remaining_issues" and left == [revision.REASON_UNRESOLVED_BLOCKERS]:
+            # D-213: the same label a clean branch-9 re-check gets from branch 4.
+            current["final_status"] = f"approved_on_v{number}"
+            current["final_status_reasons"] = []
+        elif revision.REASON_UNRESOLVED_BLOCKERS in left:
+            # D-213 fix round 1: no blocker is left, so the reason that says one is goes; the label and
+            # every other reason stay as the rules above decide.
+            current["final_status_reasons"] = [
+                reason for reason in left if reason != revision.REASON_UNRESOLVED_BLOCKERS
+            ]
     if not reasons:
         return
-    _, number = md_fallback.status_family(str(current.get("final_status") or ""))
     _require_manual_review(current, reasons, int(number) if number else version)
+
+
+def _settle_blocker_rows(rows: list[dict], remaining: list, lifted: set[str] | frozenset) -> bool:
+    """D-213: lift the blocker of every row in `lifted`, keep every other one; True once one was removed.
+
+    A lifted row is `resolved` and its linked entry leaves `remaining_blocking_issues`; any other blocker
+    row that was `open` or `resolved` is `unresolved` — a saved `resolved` alone never lifts a blocker.
+    """
+    removed = False
+    for row in rows:
+        if not _is_blocker_row(row):
+            continue
+        if str(row.get("id")) in lifted:
+            link = review.blocker_link(row["blocker_of"])
+            entry = next(
+                (item for item in remaining if isinstance(item, dict) and review.blocker_link(item) == link), None
+            )
+            if entry is not None:
+                remaining.remove(entry)
+                removed = True
+            row["status"] = "resolved"
+        elif row.get("status") in ("open", "resolved"):
+            row["status"] = "unresolved"
+    return removed
+
+
+def _recount_blocker_banner(current: dict) -> None:
+    """D-213 (gate R1-4): one blocker banner counting what is left, or none once nothing is left."""
+    banners = [row for row in current.get("fallback_banners") or [] if isinstance(row, dict)]
+    if not any(row.get("condition_key") == BLOCKER_BANNER for row in banners):
+        return
+    current["fallback_banners"] = [row for row in banners if row.get("condition_key") != BLOCKER_BANNER]
+    if current.get("remaining_blocking_issues"):
+        review.record_banner(current, BLOCKER_BANNER, count=len(current["remaining_blocking_issues"]))
+
+
+def _lifted_blockers(work_dir: Path, state: dict, version: int, outcome: dict) -> set[str]:
+    """D-213 (gate R1-1): the blocker rows whose evidence holds now, read from the files, never from a status.
+
+    A row is lifted when the polish touched it, the re-check is usable for the current draft sha, its
+    `resolutions` row says `resolved`, and no re-check blocker sits in its scope (its section, the
+    descendants and the changed cross-reference sections). A row the reader sent to `manual_review` is
+    never lifted. The export pin is checked where the settlement writes (`_to_export`).
+    """
+    rows = [
+        row
+        for row in _open_majors(state)
+        if _is_blocker_row(row) and row.get("origin") == "loop" and row.get("status") != "manual_review"
+    ]
+    if not rows or not outcome["usable"]:
+        return set()
+    draft = str(state.get("current_draft_path") or f"{DRAFTS_DIR}/v{version}.md")
+    texts = _polish_texts(work_dir, state, draft, version)
+    if texts is None:
+        return set()
+    documents = _parse_pair(texts[0], texts[1], md_fallback.memo_language(state))
+    changed = _changed_sections(*documents)
+    return {
+        str(row.get("id"))
+        for row in rows
+        if _holds(row, documents, changed)
+        and outcome["resolutions"].get(str(row.get("id"))) == "resolved"
+        and not _blocked(row, _row_scope(row, documents, changed), outcome["blockers"])
+    }
 
 
 def _settle_on_cancel(work_dir: Path, state: dict) -> None:
@@ -4528,7 +4735,8 @@ def _settle_on_cancel(work_dir: Path, state: dict) -> None:
     def settle(current: dict) -> None:
         if rows is not None:
             current["open_substance_majors"] = copy.deepcopy(rows)
-        _settle_open_majors(current, blockers, version)
+        # D-213 (gate R1-3, owner decision 1): a cancelled run keeps its blocker and its label.
+        _settle_open_majors(current, blockers, version, lifted=set())
 
     probe = copy.deepcopy(state)
     settle(probe)
@@ -4540,13 +4748,23 @@ def _to_export(work_dir: Path, state: dict, version: int, *, mutate=None, banner
     """Every exit of `client_readiness` to `export`: the phase's own mutation, then the settlement (D-211).
 
     With no open majors the settlement is a no-op and the write is what it always was.
+
+    D-213: the blocker rows whose evidence holds are read here, against the draft sha the re-check was
+    read for; they are lifted only if that is still the current sha after `mutate` and `export_pin` is
+    absent or pins it — so a scope error that put the baseline back lifts nothing.
     """
-    blockers = _polish_recheck(work_dir, state, version)["blockers"] if _open_majors(state) else []
+    outcome = _polish_recheck(work_dir, state, version) if _open_majors(state) else None
+    blockers = outcome["blockers"] if outcome is not None else []
+    lifted = _lifted_blockers(work_dir, state, version, outcome) if outcome is not None else set()
+    sha = str(current_draft_sha(state) or "")
 
     def settled(current: dict) -> None:
         if mutate is not None:
             mutate(current)
-        _settle_open_majors(current, blockers, version)
+        pin = current.get("export_pin")
+        pinned = str(pin.get("sha256") or "") if isinstance(pin, dict) else sha
+        held = lifted if str(current_draft_sha(current) or "") == sha and pinned == sha else set()
+        _settle_open_majors(current, blockers, version, lifted=held)
 
     return transition(work_dir, state, "export", mutate=settled, banners=banners)
 
@@ -4744,8 +4962,16 @@ def known_blockers_text(state: dict, draft_sha: str) -> str:
     reviewer's findings repeated blockers that were already written down. The list is handed over
     with the instruction to look for what is new; when the bytes have moved on since the aggregate
     (a polish round), the list no longer describes this draft and nothing is passed.
+
+    D-213: a blocker an open-finding row links (`blocker_of`) is left out — the reviewer disposes of
+    that row, so it must not also be told to ignore the finding.
     """
-    rows = [row for row in (state.get("remaining_blocking_issues") or []) if isinstance(row, dict)]
+    linked = [review.blocker_link(row["blocker_of"]) for row in _open_majors(state) if _is_blocker_row(row)]
+    rows = [
+        row
+        for row in (state.get("remaining_blocking_issues") or [])
+        if isinstance(row, dict) and review.blocker_link(row) not in linked
+    ]
     iterations = [row for row in (state.get("iterations") or []) if isinstance(row, dict)]
     if not rows or not draft_sha or not iterations:
         return KNOWN_BLOCKERS_NONE
@@ -4955,10 +5181,19 @@ def terminal_response(work_dir: Path, state: dict) -> dict:
     published = published_to(state)
     if published:
         lines.append(f"Published: {published}")
+        count = published_file_count(work_dir, state)
+        if count is not None:
+            lines.append(f"Files: {count}")
     if state.get("final_status"):
         lines.append(f"Status: {state['final_status']}")
+    # Final review of plan 70: through `banner_text_for`, like docx, md and `summary.md`, so a stored
+    # D-216 rewording ("listed in the appendix") prints as the Status section wording. The terminal
+    # text is English by design (the router translates it), so the language is the default.
     for banner in state.get("fallback_banners") or []:
-        text = banner.get("text") if isinstance(banner, dict) else str(banner)
+        if isinstance(banner, dict):
+            text = fallbacks.banner_text_for(banner, i18n.DEFAULT) if banner.get("text") else ""
+        else:
+            text = str(banner)
         if text:
             lines.append(f"- {text}")
     text = "\n".join(lines)

@@ -75,6 +75,7 @@ One file at the path the prompt names, schema `mediator`. It is your only output
 - A deterministic blocker is not negotiable and does not get dropped, whatever a reviewer said about that section.
 - An instruction never asks the writer to state what a provision or authority says unless that source is in the frozen source pack. If a reviewer's fix needs a norm that is not there, the instruction is to remove or qualify the claim that relied on it, and `resolution` says which source was missing.
 - An instruction that tells the writer what a source holds carries the reviewer's `source_evidence` passage; an issue without one is relayed as withdraw-or-qualify, never as restate.
+- An instruction that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
 - Do not prescribe a pinpoint in a form the citation rules reject: a pinpoint is `art N`, `para N`, `s N`, `reg N`, `p N`, `recital N`, `annex N` (with subdivisions), never a section heading or a sentence.
 - Anything you leave out goes in `dropped[]` with a reason. Nothing disappears quietly.
 - Issues from a reviewer that approved, and minor issues on sections nothing else touches, are the usual candidates for `dropped[]`.

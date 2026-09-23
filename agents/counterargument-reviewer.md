@@ -72,6 +72,7 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "count
 - What a court did — held, applied, followed, measured by — is confirmed only by the court's own sentence; a clause or a party's position the act recites supports only words attributed to the offer or the party, and without the court's own sentence the suggestion withdraws or qualifies the attribution. The `source_evidence` passage is copied exactly as `mf quote locate` returned it: no ellipses, no joined fragments.
 - `section_id` is the anchor of the section the finding sits in (`s-4`, `s-4-1`). Use `document` for something that belongs to no section.
 - Where the draft discloses a weakness responsibly, that is the memo doing its job. Do not flag the same weakness back at it.
+- A suggestion that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
 - Grade `unknown` only when the draft or the record does not let you decide; on a `hard_fail` item that costs the approval.
 - Every `pass: false` on a `hard_fail` item has an issue with `severity: "blocker"` and its `checklist_id`.
 - `approved` is a normal outcome and means zero blockers. Keep major issues to about five, ranked by how much each would cost if the other side raised it first.

@@ -1022,8 +1022,10 @@ def render_appendix(
         return ""
     lines = [appendix_heading(language), ""]
     if unverified or currency_unavailable:
-        lines.append(f"**{label('unverified_label', language)}**")
-        lines.append("")
+        if unresolved:
+            # D-216: the group label only tells two groups apart; alone it repeats the heading.
+            lines.append(f"**{label('unverified_label', language)}**")
+            lines.append("")
         if currency_unavailable:
             lines.append(f"- {label('currency_unavailable_note', language)}")
         for row in unverified:

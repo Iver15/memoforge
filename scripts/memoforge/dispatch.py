@@ -244,6 +244,7 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "max_questions": "10",
     "research_files": "`research/`",
     "lookup_budget": "0",  # D-208: only the citations and counterarguments reviewers read saved texts
+    "carry_over": "none",  # D-214: filled in only for the citations review of iteration 2 and later
     "drafting_warnings": "none",
     "verify_report": "`research/sources.json`",
     "sources_list": "see `research/sources.json`",

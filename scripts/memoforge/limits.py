@@ -46,7 +46,7 @@ MAX_TARGETED_FIX_PASSES = 1
 """`attempts.targeted_fix`: targeted citation passes of §4.5 п.4 branch 9 per run (D-165)."""
 
 MAX_TARGETED_FIX_BLOCKERS = 2
-"""Most `citations`/`unsupported_claim` blockers one targeted pass may be asked to close (D-165).
+"""Most `citations` blockers of a targeted category one pass may be asked to close (D-165, D-212).
 
 The 2026-09-16 run ended with exactly one; beyond a couple of missing tokens the draft needs a
 whole iteration, which the budget already refused.
@@ -195,8 +195,8 @@ Counted the same way as the pace, request by request. Over the cap the channel a
 `channel_budget_spent` and the fallbacks take over: the budget is politeness, and it is spent.
 """
 
-QUOTE_DEFAULT_MAX_WORDS = 30  # S3
-"""`quote extract --max-words` default (§4.4, §5.3)."""
+QUOTE_DEFAULT_MAX_WORDS = 60  # S3
+"""`quote extract --max-words` default (§4.4, §5.3); D-217: one sentence of a provision fits (Art 33(1) GDPR, 56)."""
 
 QUOTE_CANDIDATES_MAX = 5  # S3
 """`quote extract` returns at most this many `candidates` on `too_long`/`not_found` (§5.3)."""
@@ -218,6 +218,9 @@ REVIEWER_LOOKUP_BUDGET: dict[str, int] = {"citations": 20, "counterarguments": 8
 
 Only these two reviewers check a claim against the saved text; every other reviewer and agent gets 0.
 """
+
+CARRY_OVER_MAX = 10
+"""`${carry_over}` of the next citations review (D-214): at most this many unchecked `(source, section)` pairs."""
 
 # --- MCP budget (§4.3) ---------------------------------------------------
 RETRY_AFTER_CAP = 60  # S3

@@ -20,6 +20,13 @@ First action (Bash, before any other tool call):
 `approved` is a normal outcome and means zero blockers. Grade `unknown` only when the draft
 does not let you decide; on a `hard_fail` item that costs the approval.
 
+A suggestion that changes the direction of a conclusion — "not required" to "required", "low" to
+"medium", an obligation added or removed — names a source of the frozen source pack (its `source_id`,
+as the draft's `[[src:]]` tokens give it) that supports the new conclusion. Without one, the suggestion
+may only ask the writer to resolve a stated contradiction or to add the opposing argument, and the
+direction stays the writer's call. Flagging a contradiction between the facts, the assumptions and
+the draft's own conditions stays allowed.
+
 The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo
 language above is not English, a finding with `severity: blocker` also carries `issue_client` —

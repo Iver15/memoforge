@@ -242,10 +242,14 @@ FALLBACKS: list[dict] = [
         "condition_key": "max_iterations_with_blockers",
         "phase": "revision_loop",
         "action": (
-            "Forced exit: `final_status = forced_exit_on_v<N>_with_remaining_issues`, blockers listed in the appendix."
+            "Forced exit: `final_status = forced_exit_on_v<N>_with_remaining_issues`, blockers listed in the "
+            "Status section."
         ),
         "banner_id": "unresolved_blockers",
-        "banner_text": "REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the appendix).",
+        "banner_text": (
+            "REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the Status "
+            "section)."
+        ),
         "banner_params": ["count"],
     },
     {
@@ -259,9 +263,9 @@ FALLBACKS: list[dict] = [
     {
         "condition_key": "client_readiness_manual_review",
         "phase": "client_readiness",
-        "action": "Proceed to export; append the blocker list to the memo as an appendix section.",
+        "action": "Proceed to export; the blocker list is printed in the Status section of the memo.",
         "banner_id": "manual_review_required",
-        "banner_text": "Client-readiness: manual_review_required. Blocking issues listed in the appendix.",
+        "banner_text": "Client-readiness: manual_review_required. Blocking issues listed in the Status section.",
         "banner_params": [],
     },
     {
@@ -406,7 +410,7 @@ DASHBOARD_LABELS: dict[str, str] = {
     ),
     "mediator_unavailable": "Mediation unavailable; the run exited at the last validated draft.",
     "unresolved_blockers": (
-        "REVIEWER NOTES NOT FULLY RESOLVED — blocking issues remain (listed in the appendix)."
+        "REVIEWER NOTES NOT FULLY RESOLVED — blocking issues remain (listed in the Status section)."
     ),
     "output_folder_unavailable": (
         "Output folder write failed; the final artifact stays in the working directory."
@@ -426,6 +430,11 @@ The rendered text of those rows carries diagnostics — an absolute `work_dir`, 
 serves these instead. D-176b: `EN["ui"]["banners"]` mirrors this table key for key, and the four
 packs translate it, so the page prints the stand-in in the interface language.
 """
+
+REWORDED_BANNERS: frozenset[str] = frozenset({"unresolved_blockers", "manual_review_required"})
+"""D-216: banners whose wording changed after states were saved with the old text ("listed in the
+appendix"). `banner_text_for` re-renders them from `banner_id` + `params` in English too, so a state
+saved before the change prints the current sentence; no state is migrated."""
 
 DASHBOARD_UNAVAILABLE = "dashboard_unavailable"
 """Condition key and banner id of the §7.5 row; `machine` and `task` share this one name (D-87)."""
@@ -463,14 +472,17 @@ def banner_text_for(row: object, language: str) -> str:
     `banner_id` + `params` re-render the text from `memo.banners.<id>` of the memo language, so
     a banner raised before a language change prints in the language the run ends in. The stored
     `text` is kept — and returned — for English, for string rows, for unknown ids and for rows
-    that predate per-banner params: none of those have a pack entry to render from.
+    that predate per-banner params: none of those have a pack entry to render from. D-216: the
+    `REWORDED_BANNERS` are re-rendered in English too.
     """
     if not isinstance(row, dict):
         return str(row or "")
     banner_id = row.get("banner_id")
     stored = str(row.get("text") or banner_id or "")
     code = i18n.normalize(language) or i18n.DEFAULT
-    if code == i18n.DEFAULT or not isinstance(banner_id, str):
+    if not isinstance(banner_id, str):
+        return stored
+    if code == i18n.DEFAULT and banner_id not in REWORDED_BANNERS:
         return stored
     declared = BY_BANNER.get(banner_id)
     if declared is None:

@@ -813,6 +813,31 @@
         },
         "status": {
           "enum": ["open", "resolved", "unresolved", "manual_review", "left"]
+        },
+        "severity": {
+          "description": "D-213: `blocker` on a row that stands for a `remaining_blocking_issues[]` entry (the last targeted blocker of a forced exit); absent means a major.",
+          "enum": ["blocker"]
+        },
+        "blocker_of": {
+          "description": "D-213: the section, category and text of the `remaining_blocking_issues[]` entry a blocker row stands for; the settlement removes that entry only after a clean re-check of the final polish.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["section_id", "category", "issue"],
+          "properties": {
+            "section_id": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "issue": {
+              "type": "string"
+            }
+          }
+        },
+        "disposition_note": {
+          "description": "D-213/D-216: the one-sentence `note` of the readiness disposition of this row. Absent in a state written before it.",
+          "type": "string"
         }
       }
     },

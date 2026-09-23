@@ -27,8 +27,9 @@ PLACEHOLDER_ANGLE = re.compile(r"<[a-z][^<>\n]{2,60}>")
 
 SEVERITY: dict[str, str] = {
     # Structure, provenance and freeze rules stop the pipeline (`clean` = no blocker, §5.4, G5).
-    "L-01": "major",
-    "L-02": "major",
+    # D-216: sentence and paragraph length are `minor` — readability belongs to the form reviewer.
+    "L-01": "minor",
+    "L-02": "minor",
     "L-03": "minor",
     "L-04": "major",
     "L-05": "blocker",

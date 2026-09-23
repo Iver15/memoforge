@@ -863,7 +863,9 @@ def _render_appendix(
         return
     _plain_paragraph(doc, fallback.label("appendix_heading", language), bold=True)
     if unverified or currency_unavailable:
-        _plain_paragraph(doc, fallback.label("unverified_label", language), bold=True)
+        if unresolved:
+            # D-216: the group label only tells two groups apart; alone it repeats the heading.
+            _plain_paragraph(doc, fallback.label("unverified_label", language), bold=True)
         if currency_unavailable:
             _plain_paragraph(doc, fallback.label("currency_unavailable_note", language))
         for row in unverified:
@@ -923,7 +925,8 @@ def _render_banner(
     title_paragraph = cell.paragraphs[0]
     _apply_std_paragraph_format(title_paragraph, first_line_indent=Cm(0))
     title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    title_run = title_paragraph.add_run(banner_title(final_status, banners, code))
+    title = banner_title(final_status, banners, code)
+    title_run = title_paragraph.add_run(title)
     _style_run(title_run, bold=True)
 
     left = WD_ALIGN_PARAGRAPH.LEFT
@@ -937,12 +940,15 @@ def _render_banner(
         )
     _plain_paragraph(cell, subtitle, align=left)
 
-    if banners:
+    # D-216: a banner whose text opens with the title would say it twice in one table; the Status
+    # section still lists it.
+    listed = [text for text in (fallbacks.banner_text_for(row, code) for row in banners) if not text.startswith(title)]
+    if listed:
         _plain_paragraph(
             cell, i18n.t(code, "memo.banner_titles.fallbacks_heading"), bold=True, align=left
         )
-        for row in banners:
-            _plain_paragraph(cell, f"- {fallbacks.banner_text_for(row, code)}", align=left)
+        for text in listed:
+            _plain_paragraph(cell, f"- {text}", align=left)
     if reasons:
         _plain_paragraph(
             cell, i18n.t(code, "memo.banner_titles.reasons_heading"), bold=True, align=left

@@ -8,7 +8,7 @@ import functools
 import re
 from pathlib import Path
 
-from . import events, fallbacks, i18n, limits, schema, state_io, stepctx
+from . import events, fallbacks, i18n, limits, lint, schema, sources, state_io, stepctx
 
 REVIEWER_KINDS: tuple[str, ...] = ("logic", "form", "citations", "counterarguments")
 CLIENT_READINESS_KIND = "client-readiness"
@@ -702,8 +702,17 @@ def run_aggregate(args: argparse.Namespace) -> dict:
 # --- mediator assembled by the CLI (§4.5 п.4.6, п.5) ----------------------
 
 
-def build_mediator(record: dict) -> dict:
-    """Assemble `reviews/v<N>-mediator.json` from aggregated issues: substance first, minors dropped."""
+MINOR_DROP_REASON = "minor finding; substance blockers take priority this iteration"
+TARGETED_DROP_REASON = "targeted pass: only the named blockers are fixed"
+"""D-212: why a branch-9 mediator drops every issue it does not name."""
+
+
+def build_mediator(record: dict, *, only: list[dict] | None = None) -> dict:
+    """Assemble `reviews/v<N>-mediator.json` from aggregated issues: substance first, minors dropped.
+
+    D-212: with `only` (branch 9), the instructions are exactly those issues and every other issue of
+    the record, major or minor, is dropped with `TARGETED_DROP_REASON`.
+    """
     instructions: list[dict] = []
     dropped: list[dict] = []
     ordered = sorted(
@@ -717,7 +726,11 @@ def build_mediator(record: dict) -> dict:
         ),
     )
     for issue in ordered:
-        if issue.get("severity") == "minor":
+        if only is not None:
+            reason = None if issue in only else TARGETED_DROP_REASON
+        else:
+            reason = MINOR_DROP_REASON if issue.get("severity") == "minor" else None
+        if reason:
             dropped.append(
                 {
                     "section_id": issue["section_id"],
@@ -725,7 +738,7 @@ def build_mediator(record: dict) -> dict:
                     "category": issue["category"],
                     "severity": issue["severity"],
                     "issue": issue["issue"],
-                    "reason": "minor finding; substance blockers take priority this iteration",
+                    "reason": reason,
                 }
             )
             continue
@@ -851,6 +864,108 @@ def open_substance_majors(state: dict, version: int) -> list[dict]:
             found.append(((iteration, _section_order(row["section_id"]), position), row))
     found.sort(key=lambda item: item[0])
     return [{"id": f"om-{number}", **row} for number, (_, row) in enumerate(found, start=1)]
+
+
+def blocker_rows(record: dict, start: int) -> list[dict]:
+    """D-213: one open-finding row per targeted blocker of `record`, numbered `om-<start>`… in record order.
+
+    The row is a `citations` row of the loop with `severity: blocker` and `blocker_of` — the section,
+    category and text of the `remaining_blocking_issues[]` entry it stands for, which only a clean
+    re-check of the final polish removes at the settlement.
+    """
+    from . import revision  # noqa: PLC0415 - `revision` imports this module
+
+    rows = []
+    for number, issue in enumerate(revision.targeted_blockers(record), start=int(start)):
+        rows.append(
+            {
+                "id": f"om-{number}",
+                "class": "citations",
+                "reviewer": str(issue.get("source_reviewer") or ""),
+                "section_id": str(issue.get("section_id") or UNVERIFIED_SECTION_ID),
+                "category": str(issue.get("category") or ""),
+                "issue_category": issue.get("issue_category"),
+                "issue": str(issue.get("issue") or ""),
+                "issue_client": issue.get("issue_client"),
+                "suggestion": str(issue.get("suggestion") or ""),
+                "from_iteration": int(record.get("iteration") or 1),
+                "origin": "loop",
+                "status": "open",
+                "severity": "blocker",
+                "blocker_of": blocker_link(issue),
+            }
+        )
+    return rows
+
+
+def blocker_link(issue: dict) -> dict:
+    """D-213: what ties a blocker row to its `remaining_blocking_issues[]` entry — section, category, text."""
+    return {field: str(issue.get(field) or "") for field in ("section_id", "category", "issue")}
+
+
+# --- carry-over of the pairs no text check reached (D-214) -----------------
+
+CARRY_OVER_LAYERS: frozenset[str] = frozenset({"statutes", "case_law"})
+"""D-214: only a statute or a court act is checked against its saved text pair by pair."""
+
+
+def _counted_citations_review(work_dir: Path, state: dict, iteration: int) -> dict | None:
+    """D-214 (gate R1-7): the citations review of `iteration`, or None when it does not count.
+
+    It counts only when `published[]` lists it, its bytes are the published ones, it is not a stub, and
+    it validates against the draft sha of **its own** iteration — never the current one.
+    """
+    canonical = review_path(int(iteration), "citations")
+    record = iteration_record(state, int(iteration)) or {}
+    draft_sha = str(record.get("draft_sha") or "")
+    if not draft_sha or stepctx.published_entry(state, canonical) is None:
+        return None
+    try:
+        result = _read_review(work_dir, state, int(iteration), "citations", draft_sha)
+    except stepctx.OutputModifiedAfterPublish:
+        return None
+    if not result.get("valid") or result.get("stub"):
+        return None
+    document = result.get("document")
+    return document if isinstance(document, dict) else None
+
+
+def unchecked_pairs(work_dir: Path, state: dict, iteration: int, draft_text: str) -> list[dict]:
+    """D-214: the cited statute and case-law pairs of the draft that no earlier text check reached.
+
+    A pair is the `(source_id, section_id)` of a `[[src:]]` token. `not_reached`: its latest `text_checks`
+    row across the counted citations reviews of iterations before `iteration` says so; `never_checked`:
+    no counted review has a row for it. `not_reached` first, then `never_checked`, each in section order
+    and then by source id, at most `limits.CARRY_OVER_MAX`. Iteration 1 carries nothing.
+    """
+    if int(iteration) <= 1:
+        return []
+    try:
+        registry = sources.read_registry(work_dir).get("sources") or {}
+    except (OSError, ValueError):
+        return []
+    document = lint.parse_draft(str(draft_text or ""), lint.grammar(_memo_language(state)))
+    cited: list[tuple[str, str]] = []
+    for token in document["src_tokens"]:
+        pair = (str(token.get("id") or ""), str(token.get("section_id") or ""))
+        record = registry.get(pair[0])
+        if not all(pair) or pair in cited or not isinstance(record, dict):
+            continue
+        if record.get("layer") in CARRY_OVER_LAYERS:
+            cited.append(pair)
+    latest: dict[tuple[str, str], str] = {}
+    for earlier in range(1, int(iteration)):
+        counted = _counted_citations_review(work_dir, state, earlier) or {}
+        for row in counted.get("text_checks") or []:
+            if isinstance(row, dict):
+                latest[(str(row.get("source_id") or ""), str(row.get("section_id") or ""))] = str(row.get("status"))
+    rows = [
+        {"source_id": source_id, "section_id": section_id, "reason": reason}
+        for reason in ("not_reached", "never_checked")
+        for source_id, section_id in sorted(cited, key=lambda pair: (_section_order(pair[1]), pair[0]))
+        if (latest.get((source_id, section_id)) or "never_checked") == reason
+    ]
+    return rows[: limits.CARRY_OVER_MAX]
 
 
 # --- validate (§4.5 п.2) ---------------------------------------------------

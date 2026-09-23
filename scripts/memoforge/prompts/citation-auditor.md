@@ -59,6 +59,14 @@ Spend the budget in this order:
    at all, or a finding about something else. List them first and check each one before items 2–4: read
    the cited statute article whole (1 unit), or look up the court's own words. This is required before
    any such issue, so the budget is never spent before them.
+
+   The pairs the last review did not reach come next, before items 2–4: the cited statute and case-law
+   pairs that no earlier citations review checked against the saved text, one per line as
+   `source_id · section_id · reason` (`not_reached`: that review's budget ran out first; `never_checked`:
+   no review checked it; `none`: nothing is carried over).
+
+${carry_over}
+
 2. Every statement of what a court held or applied, for a `critical` case-law source that carries a
    conclusion of the draft.
 3. A statute rule on which a summary bullet, a conclusion or a risk line rests.
@@ -108,6 +116,12 @@ suggestion may only ask to withdraw the statement, qualify it or mark it as unre
 
 A rule stated on a source that does not contain it is CIT-01, `unsupported_claim`, even when a token is
 present. CIT-04 is only for "the rule is in the cited source, and the pinpoint points elsewhere".
+
+A statute rule on a time limit, a threshold or an exception is checked against the whole paragraph it sits
+in. A sibling limb of that paragraph that the facts engage and that changes the advice — a shorter limit,
+an exception — and that the draft leaves out means the paraphrase does not say what the source says:
+CIT-02 grades `false`, and the draft sentence gets a blocker with `checklist_id` `CIT-02` and
+`issue_category: source_drift`.
 
 For example, a draft that gives a submission the judgment records as the court's holding, where the
 court's own reasoning says otherwise:
