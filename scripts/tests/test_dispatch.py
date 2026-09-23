@@ -27,6 +27,7 @@ from memoforge import (  # noqa: E402
     modes,
     preflight,
     quotes,
+    review,
     routing,
     sources,
     state_io,
@@ -332,7 +333,7 @@ class PromptGoldenTest(unittest.TestCase):
         mediator = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "mediator")
         self.assertIn("research/source-pack.json", mediator)
         writer = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "writer")
-        self.assertIn("30 words", writer)
+        self.assertIn("60 words", writer)  # D-217
 
     def test_the_two_claim_reviewers_look_up_the_saved_text_within_their_budget(self):
         """D-208: citations spends 20 units, counterarguments 8; logic and form never look anything up."""
@@ -442,6 +443,78 @@ class PromptGoldenTest(unittest.TestCase):
         self.assertIn("pairing key", pairs)
         self.assertIn("the text wins", pairs)
         self.assertIn("`critical`", pairs)
+
+    def test_the_carry_over_follows_the_flagged_statements_and_the_adjacent_limb_rule_is_a_cit_02_blocker(self):
+        """D-214: `${carry_over}` right after item 1 of the budget order; a left-out sibling limb is `source_drift`."""
+        carry = (
+            "The pairs the last review did not reach come next, before items 2–4: the cited statute and case-law "
+            "pairs that no earlier citations review checked against the saved text, one per line as "
+            "`source_id · section_id · reason` (`not_reached`: that review's budget ran out first; "
+            "`never_checked`: no review checked it; `none`: nothing is carried over). none 2. Every statement"
+        )
+        limb = (
+            "A statute rule on a time limit, a threshold or an exception is checked against the whole paragraph "
+            "it sits in. A sibling limb of that paragraph that the facts engage and that changes the advice — a "
+            "shorter limit, an exception — and that the draft leaves out means the paraphrase does not say what "
+            "the source says: CIT-02 grades `false`, and the draft sentence gets a blocker with `checklist_id` "
+            "`CIT-02` and `issue_category: source_drift`."
+        )
+        for mode in ("brief", "full"):
+            prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in self._render(mode)["agents"]}
+            with self.subTest(mode=mode):
+                self.assertIn(carry, prompts["citations"])
+                self.assertIn(limb, prompts["citations"])
+                self.assertNotIn("did not reach come next", prompts["counterarguments"])
+                self.assertNotIn("sibling limb", prompts["counterarguments"])
+        self.assertEqual("none", dispatch._DEFAULT_EXTRAS["carry_over"])  # noqa: SLF001
+
+    def test_only_the_citations_spec_carries_the_unchecked_pairs(self):
+        """D-214: iteration 2 hands `citations` the pairs v1 did not reach; the other reviewers get `none`."""
+        work_dir = temp_root(self) / TASK_ID
+        (work_dir / "drafts").mkdir(parents=True, exist_ok=True)
+        (work_dir / "reviews").mkdir(parents=True, exist_ok=True)
+        (work_dir / "research").mkdir(parents=True, exist_ok=True)
+        state_io.write_json_atomic(
+            work_dir / "research" / "sources.json",
+            {"schema_version": 2, "sources": {"art-14": {"layer": "statutes"}, "case-1": {"layer": "case_law"}}},
+        )
+        (work_dir / "drafts" / "v2.md").write_text(
+            "# Memo\n\n## 1. Summary\n\nOne month [[src:art-14]].\n\n## 2. Analysis\n\nHeld [[src:case-1]].\n",
+            encoding="utf-8",
+        )
+        checklist = [
+            {"id": row["id"], "pass": True, "evidence": "Checked."} for row in review.load_checklist("citations")
+        ]
+        document = {
+            "reasoning": "All pass.",
+            "reviewer": "citations",
+            "draft_sha": "1" * 64,
+            "iteration": 1,
+            "checklist": checklist,
+            "issues": [],
+            "verdict": "approved",
+            "text_checks": [
+                {"source_id": "case-1", "section_id": "s-2", "status": "not_reached", "finding_disagrees": False,
+                 "note": "Budget spent."}
+            ],
+        }
+        path = state_io.write_json_atomic(work_dir / "reviews" / "v1-citations.json", document)
+        state = _state("full", work_dir)
+        state.update(current_iteration=2, current_draft_path="drafts/v2.md")
+        state["iterations"] = [{"iteration": 1, "draft_sha": "1" * 64}]
+        state["published"] = [{"canonical_path": "reviews/v1-citations.json", "sha256": state_io.sha256_file(path)}]
+        specs = machine.reviewer_specs(work_dir, state, ["logic", "form", "citations", "counterarguments"], 2)
+        self.assertEqual(
+            {
+                "logic": "none",
+                "form": "none",
+                "citations": "case-1 · s-2 · not_reached\nart-14 · s-1 · never_checked",
+                "counterarguments": "none",
+            },
+            {spec["slot"]: spec["extra"]["carry_over"] for spec in specs},
+        )
+        first = machine.reviewer_specs(work_dir, state, ["citations"], 1)[0]
+        self.assertEqual("none", first["extra"]["carry_over"])
 
     def test_every_output_names_its_schema_file(self):
         """D-79: `${outputs}` prints the schema name and the absolute schema path."""

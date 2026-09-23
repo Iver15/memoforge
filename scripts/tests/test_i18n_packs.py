@@ -453,6 +453,26 @@ class PackParityTest(unittest.TestCase):
                     for key, value in dict(i18n.node(code, node)).items():
                         self.assertNotIn("_", str(value).replace("{version}", ""), f"{node}.{key}")
 
+    def test_the_unresolved_blockers_banner_points_at_status_and_opens_with_the_title(self):
+        # D-216: the blockers are listed under Status, not in the appendix; the banner table drops the
+        # row whose text opens with its own title, so every pack keeps the title as the opening words.
+        for code in ("en",) + PACK_CODES:
+            status = i18n.node(code, "memo.labels.status_label")
+            # The stem of the appendix word: «приложение» is «в приложении» in the sentence.
+            appendix = i18n.node(code, "memo.labels.appendix_heading").split(" — ")[0].lower()[:-1]
+            title = i18n.node(code, "memo.banner_titles.forced_exit")
+            for dotted in ("memo.banners.unresolved_blockers", "ui.banners.unresolved_blockers"):
+                with self.subTest(language=code, key=dotted):
+                    text = i18n.node(code, dotted)
+                    self.assertIn(status, text)
+                    self.assertNotIn(appendix, text.lower())
+                    self.assertTrue(text.startswith(title), text)
+            # Fix round 1: the readiness banner lists its blockers under Status too.
+            with self.subTest(language=code, key="memo.banners.manual_review_required"):
+                text = i18n.node(code, "memo.banners.manual_review_required")
+                self.assertIn(status, text)
+                self.assertNotIn(appendix, text.lower())
+
     def test_the_russian_wording_the_owner_fixed(self):
         expected = {
             "memo.status_names.approved": "утверждён на версии {version}",

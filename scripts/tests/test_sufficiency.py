@@ -568,6 +568,59 @@ class WarningDeduplicationTest(unittest.TestCase):
         )
 
 
+class WarningTextTest(unittest.TestCase):
+    """D-215: a drafting warning carries the gap only; `why_blocking` is addressed to the researcher."""
+
+    # Run 74, s-014: the gap sentence, and a `why_blocking` that instructs the researcher.
+    GAP = (
+        "Issue I4 has no finding on Article 6(11) UK GDPR, which the Data (Use and Access) Act 2025 "
+        "inserted. ..."
+    )
+    WHY = (
+        "... The text is already saved in full in uk-gdpr-article-6-lawfulness-of-processing "
+        "(paragraphs 11-12, inserted from 5 February 2026), so no new retrieval is needed. "
+        "Record a contrary finding under I4 from Article 6(11)(a). ..."
+    )
+
+    def _gap(self) -> dict:
+        return {
+            "gap": self.GAP,
+            "target": "statutes",
+            "status": "missing",
+            "why_blocking": self.WHY,
+            "followup_question": None,
+        }
+
+    def test_the_warning_message_is_the_gap_text_only(self):
+        row = sufficiency._warning(self._gap())
+        self.assertEqual(self.GAP, row["message"])
+        self.assertNotIn("Record a contrary finding", row["message"])
+        self.assertEqual("unresolved_research_gap", row["code"])
+
+    def test_an_out_of_scope_warning_carries_the_gap_only(self):
+        # D-216 (carried from D-215): the D-112 warning reaches `summary.md` the same way.
+        rows = sufficiency._out_of_scope_warnings({}, [self._gap()], "brief")  # noqa: SLF001
+        self.assertEqual(["Out of scope for brief mode: " + self.GAP], [row["message"] for row in rows])
+        self.assertNotIn("Record a contrary finding", rows[0]["message"])
+
+    def test_the_routed_warning_keeps_why_blocking_out_of_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp))
+            document = {
+                "reviewer": "research_sufficiency",
+                "overall_verdict": "targeted_followup_needed",
+                "blocking_gaps": [dict(self._gap(), status="weak")],
+                "drafting_warnings": [],
+            }
+            self.assertEqual([], schema.validate(document, "research-sufficiency"))
+            state_io.write_json_atomic(work_dir / sufficiency.SUFFICIENCY_PATH, document)
+            sufficiency.run_route(route_args(work_dir))
+            rows = state_io.read_state(work_dir)["drafting_warnings"]
+            self.assertEqual([self.GAP], [row["message"] for row in rows])
+            saved = json.loads((work_dir / sufficiency.SUFFICIENCY_PATH).read_text(encoding="utf-8"))
+            self.assertEqual(self.WHY, saved["blocking_gaps"][0]["why_blocking"])
+
+
 class PublishedInputTest(unittest.TestCase):
     """D-41: the verdict is read from the published bytes, not from an edited file."""
 

@@ -172,6 +172,25 @@ class PhaseTableTest(unittest.TestCase):
         text = machine.terminal_response(driver.work_dir, driver.state())["text"]
         self.assertIn("Published: /mnt/user-data/outputs/memoforge/published", text)
         self.assertLess(text.index("Summary:"), text.index("Published:"))
+        self.assertNotIn("Files:", text, "D-217: no `result_published` manifest, no count")
+
+    def test_the_terminal_text_prints_the_banners_the_way_the_deliverable_does(self):
+        """Final review: a resumed run-74 state still stores the old "appendix" wording (D-216)."""
+        driver = Driver(temp_root(self), slug="banners")
+        driver.run_to_end()
+        stored = _run_74("state-exit.json")["fallback_banners"]
+        self.assertIn("appendix", stored[0]["text"])
+        unchanged = {"banner_id": "unknown_banner", "text": "A banner nothing re-renders."}
+
+        def mutator(current: dict) -> None:
+            current["fallback_banners"] = copy.deepcopy(stored) + [unchanged, "A plain string banner."]
+
+        state_io.write_state(driver.work_dir, mutator)
+        text = machine.terminal_response(driver.work_dir, driver.state())["text"]
+        self.assertIn("Status section", text)
+        self.assertNotIn("appendix", text)
+        self.assertIn("- A banner nothing re-renders.", text.splitlines())
+        self.assertIn("- A plain string banner.", text.splitlines())
 
     def test_the_terminal_text_names_the_memo_copy_only_when_there_is_one(self):
         """D-167: the `Memo:` line is the root-level copy the router presents, skipped otherwise."""
@@ -1149,6 +1168,51 @@ class ProgressTest(unittest.TestCase):
         action = driver.run_until("research")
         for agent in action["agents"]:
             self.assertTrue(agent["description"].startswith("P5/13 · legal-researcher · "))
+
+
+class McpCallCountTest(unittest.TestCase):
+    """D-217: a call the hook saw and the agent also reported is counted once (§4.3)."""
+
+    def journal(self, rows: list[tuple[str, str, str]]) -> Path:
+        """`events.jsonl` of `(ts seconds, actor, server)` rows, in journal order."""
+        work_dir = temp_root(self)
+        lines = []
+        for second, actor, server in rows:
+            record = events.build_event("mcp_call", actor, {"server": server, "tool": "search"})
+            record["ts"] = f"2026-09-22T10:00:{second}.000Z"
+            lines.append(json.dumps(record))
+        events.events_path(work_dir).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return work_dir
+
+    def test_a_self_report_after_the_first_hook_call_is_not_counted_again(self):
+        work_dir = self.journal(
+            [
+                ("01", "hook", "uklegal"),
+                ("02", "statutes", "uklegal"),
+                ("03", "hook", "uklegal"),
+                ("04", "statutes", "uklegal"),
+                ("05", "hook", "uklegal"),
+            ]
+        )
+        self.assertEqual({"uklegal": 3}, machine.mcp_call_counts(work_dir))
+        self.assertEqual(5, len(events.read_events(work_dir)), "the self-reports stay in the journal")
+
+    def test_without_a_hook_every_self_report_counts(self):
+        work_dir = self.journal([("01", "statutes", "casus"), ("02", "case_law", "casus"), ("03", "currency", "ldh")])
+        self.assertEqual({"casus": 2, "ldh": 1}, machine.mcp_call_counts(work_dir))
+
+    def test_a_hook_that_starts_mid_run_keeps_the_earlier_self_reports(self):
+        work_dir = self.journal(
+            [
+                ("01", "statutes", "casus"),
+                ("02", "statutes", "casus"),
+                ("03", "case_law", "ldh"),
+                ("04", "case_law", "ldh"),
+                ("05", "case_law", "casus"),
+                ("06", "hook", "casus"),
+            ]
+        )
+        self.assertEqual({"casus": 4, "ldh": 2}, machine.mcp_call_counts(work_dir))
 
 
 class CrashIdempotenceTest(unittest.TestCase):
@@ -3213,6 +3277,20 @@ class OpenMajorsReadinessTest(unittest.TestCase):
         self.assertIsNone(stepctx.published_entry(state, PREPOLISH_V1))
         self.assertFalse((driver.work_dir / PREPOLISH_V1).exists())
 
+    def test_the_polish_recheck_carries_no_pairs_over(self):
+        """D-214 (gate R1-7): `citations_polish` takes its base from `reviewer_specs` and overrides `carry_over`."""
+        pair = [{"source_id": "src-carried", "section_id": "s-3", "reason": "not_reached"}]
+        rows = [_major("om-1", "citations")]
+        with mock.patch.object(review, "unchecked_pairs", return_value=pair):
+            driver, recheck = _to_recheck(self, "om-carry", rows, dispositions=[("om-1", "polish")])
+            base = machine.reviewer_specs(driver.work_dir, driver.state(), ["citations"], 1)[0]
+        self.assertEqual("src-carried · s-3 · not_reached", base["extra"]["carry_over"])
+        agent = recheck["agents"][0]
+        self.assertEqual("citations_polish", agent["slot"])
+        prompt = " ".join(agent["prompt"].split())
+        self.assertIn("nothing is carried over). none 2. Every statement", prompt)
+        self.assertNotIn("src-carried", prompt)
+
     def test_a_polished_citations_row_the_recheck_resolves_keeps_the_approval(self):
         rows = [_major("om-1", "citations")]
         driver, first = _to_readiness(self, "om-resolved", rows)
@@ -4028,6 +4106,37 @@ class DispositionTest(unittest.TestCase):
                     self.statuses([("om-2", first), ("om-1", "polish"), ("om-3", "polish"), ("om-2", second)]),
                 )
 
+    def test_the_note_of_an_applied_disposition_is_kept_on_the_row(self):
+        # D-216: `summary.md` prints why a row was left; run 74 printed three `left` rows without it.
+        current = {"open_substance_majors": [dict(row) for row in self.ROWS]}
+        document = {
+            "dispositions": [
+                {"id": "om-1", "action": "manual_review", "note": "A lawyer checks  the pinpoint."},
+                {"id": "om-2", "action": "leave", "note": "Fixed in 4.2 of v3."},
+                {"id": "om-3", "action": "polish", "note": "Soften 5.3."},
+            ]
+        }
+        machine._apply_dispositions(current, document)  # noqa: SLF001
+        rows = current["open_substance_majors"]
+        self.assertEqual(
+            ["A lawyer checks  the pinpoint.", "Fixed in 4.2 of v3.", "Soften 5.3."],
+            [row.get("disposition_note") for row in rows],
+        )
+        self.assertEqual(["manual_review", "left", "open"], [row["status"] for row in rows])
+
+    def test_a_disposition_replaced_by_the_class_default_leaves_no_note(self):
+        current = {"open_substance_majors": [dict(row) for row in self.ROWS]}
+        document = {
+            "dispositions": [
+                {"id": "om-1", "action": "leave", "note": "Out of the class."},
+                {"id": "om-2", "action": "leave", "note": "First."},
+                {"id": "om-2", "action": "leave", "note": "Second."},
+            ]
+        }
+        machine._apply_dispositions(current, document)  # noqa: SLF001
+        self.assertEqual([None, None, None], [row.get("disposition_note") for row in current["open_substance_majors"]])
+        self.assertEqual(["manual_review", "left", "left"], [row["status"] for row in current["open_substance_majors"]])
+
     def test_unique_by_id_drops_every_row_of_a_duplicated_id(self):
         rows = [
             {"id": "om-1", "status": "open"},
@@ -4112,6 +4221,467 @@ class StateFieldsOfTheReadinessStepTest(unittest.TestCase):
         ):
             with self.subTest(field=field, value=value):
                 self.assertTrue(schema.validate(dict(state, **{field: value}), "state"))
+
+
+# --- D-213: the last blocker goes to the last reader ------------------------------------------
+
+RUN_20260922 = Path(__file__).resolve().parent / "fixtures" / "run-20260922"
+"""The 2026-09-22 run (run 74): `iterations[]` and the state fields at its end."""
+
+BLOCKER_BANNER = "max_iterations_with_blockers"
+UNRESOLVED_TEXT = "REVIEWER NOTES NOT FULLY RESOLVED"
+UNRESOLVED_REASON_TEXT = "blocking reviewer notes remain unresolved"
+"""The `unresolved_blockers` reason as the docx banner's reasons list prints it (D-197)."""
+
+
+def _run_74(name: str):
+    return json.loads((RUN_20260922 / name).read_text(encoding="utf-8-sig"))
+
+
+def _run_74_state(om_4: str | None = "open") -> dict:
+    """Run 74 at the end of iteration 3: the three majors left, the s-4-2 blocker and, unless None, its row."""
+    records = _run_74("state-iterations.json")
+    ending = _run_74("state-exit.json")
+    rows = copy.deepcopy(ending["open_substance_majors"])
+    if om_4 is not None:
+        rows += [dict(row, status=om_4) for row in review.blocker_rows(records[2], len(rows) + 1)]
+    return {
+        "iterations": records,
+        "current_draft_sha": records[2]["draft_sha"],
+        "final_status": ending["final_status"],
+        "final_status_reasons": list(ending["final_status_reasons"]),
+        "remaining_blocking_issues": copy.deepcopy(ending["remaining_blocking_issues"]),
+        "fallback_banners": copy.deepcopy(ending["fallback_banners"]),
+        "open_substance_majors": rows,
+    }
+
+
+def _blocker_banners(state: dict) -> list[dict]:
+    return [row for row in state.get("fallback_banners") or [] if row.get("condition_key") == BLOCKER_BANNER]
+
+
+class LastBlockerSettlementTest(unittest.TestCase):
+    """D-213: the readiness texts and the settlement on the run-74 state (1 citations blocker, 3 majors)."""
+
+    def test_known_blockers_leave_out_the_blocker_a_row_links(self):
+        state = _run_74_state()
+        sha = state["current_draft_sha"]
+        self.assertEqual(machine.KNOWN_BLOCKERS_NONE, machine.known_blockers_text(state, sha))
+        unlinked = _run_74_state(om_4=None)
+        text = machine.known_blockers_text(unlinked, sha)
+        self.assertIn("1 blocking issue(s)", text)
+        self.assertIn("s-4-2 · rule_not_in_source", text)
+
+    def test_open_findings_mark_the_blocker_row(self):
+        state = _run_74_state()
+        row = state["open_substance_majors"][3]
+        lines = machine.open_findings_text(state).splitlines()
+        self.assertEqual(4, len(lines))
+        self.assertEqual(
+            f"- om-4 · citations · blocker · s-4-2 · {row['issue']} · {row['suggestion']}", lines[3]
+        )
+        self.assertEqual(_finding_line(state["open_substance_majors"][0]), lines[0])
+
+    def test_a_lifted_blocker_turns_the_forced_exit_into_approved(self):
+        state = _run_74_state(om_4="resolved")
+        machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([], state["remaining_blocking_issues"])
+        self.assertEqual("approved_on_v3", state["final_status"])
+        self.assertEqual([], state["final_status_reasons"])
+        self.assertEqual([], _blocker_banners(state))
+        self.assertEqual(
+            ["left", "left", "left", "resolved"], [row["status"] for row in state["open_substance_majors"]]
+        )
+
+    def test_a_blocker_without_evidence_is_kept_verbatim(self):
+        ending = _run_74("state-exit.json")
+        for saved in ("open", "resolved"):
+            with self.subTest(saved=saved):
+                state = _run_74_state(om_4=saved)
+                banners = copy.deepcopy(state["fallback_banners"])
+                machine._settle_open_majors(state, [], 3, lifted=set())  # noqa: SLF001
+                self.assertEqual(ending["remaining_blocking_issues"], state["remaining_blocking_issues"])
+                self.assertEqual("forced_exit_on_v3_with_remaining_issues", state["final_status"])
+                self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+                self.assertEqual(banners, state["fallback_banners"])
+                self.assertEqual("unresolved", state["open_substance_majors"][3]["status"])
+        state = _run_74_state(om_4="manual_review")
+        machine._settle_open_majors(state, [], 3)  # noqa: SLF001
+        self.assertEqual(ending["remaining_blocking_issues"], state["remaining_blocking_issues"])
+        self.assertEqual("manual_review", state["open_substance_majors"][3]["status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+
+    def test_two_blockers_one_lifted_recount_the_banner_and_keep_the_label(self):
+        state = _run_74_state(om_4="resolved")
+        second = dict(state["remaining_blocking_issues"][0], section_id="s-5-4", issue="A second unsupported rule.")
+        state["remaining_blocking_issues"].append(second)
+        state["open_substance_majors"] += [
+            dict(row, id="om-5", status="unresolved")
+            for row in review.blocker_rows({"iteration": 3, "issues": [second]}, 5)
+        ]
+        state["fallback_banners"] = [dict(state["fallback_banners"][0], params={"count": "2"})]
+        machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([second], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+        banners = _blocker_banners(state)
+        self.assertEqual([{"count": "1"}], [row["params"] for row in banners])
+        self.assertIn("1 blocking issue(s)", banners[0]["text"])
+
+    def test_another_reason_keeps_the_label_and_drops_only_the_lifted_blocker(self):
+        state = _run_74_state(om_4="resolved")
+        state["final_status"] = "manual_review_required_on_v3"
+        state["final_status_reasons"] = ["unresolved_blockers", "length_overflow"]
+        review.record_banner(state, "length_overflow_recommendation")
+        machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([], state["remaining_blocking_issues"])
+        self.assertEqual("manual_review_required_on_v3", state["final_status"])
+        self.assertEqual(["length_overflow"], state["final_status_reasons"])
+        self.assertEqual([], _blocker_banners(state))
+        self.assertEqual(
+            ["length_overflow"], [row["banner_id"] for row in state["fallback_banners"]]
+        )
+
+        # Fix round 1: a blocker still left keeps the reason that says so.
+        state = _run_74_state(om_4="resolved")
+        second = dict(state["remaining_blocking_issues"][0], section_id="s-5-4", issue="A second unsupported rule.")
+        state["remaining_blocking_issues"].append(second)
+        state["open_substance_majors"] += review.blocker_rows({"iteration": 3, "issues": [second]}, 5)
+        state["final_status"] = "manual_review_required_on_v3"
+        state["final_status_reasons"] = ["unresolved_blockers", "length_overflow"]
+        machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([second], state["remaining_blocking_issues"])
+        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
+
+        state = _run_74_state(om_4="resolved")
+        recheck = {"severity": "blocker", "category": "unsupported_law", "section_id": "s-1", "issue": "No rule."}
+        machine._settle_open_majors(state, [recheck], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([recheck], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers", "polish_recheck_blocker"], state["final_status_reasons"])
+        self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(state)])
+
+    def test_a_state_written_before_d213_settles_exactly_as_today(self):
+        before = _run_74_state(om_4=None)
+        today = copy.deepcopy(before)
+        machine._settle_open_majors(today, [], 3)  # noqa: SLF001
+        lifted = copy.deepcopy(before)
+        machine._settle_open_majors(lifted, [], 3, lifted={"om-1", "om-2", "om-3"})  # noqa: SLF001
+        self.assertEqual(today, lifted)
+        self.assertEqual(before["remaining_blocking_issues"], lifted["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", lifted["final_status"])
+
+
+def _last_blocker(text: str = "The rule in section 3 is not in the cited article.") -> dict:
+    """A `citations`/`unsupported_claim` blocker on s-3, as the aggregate stores it."""
+    return review._normalize_issue(  # noqa: SLF001 - the stored shape of an aggregated issue
+        {
+            "severity": "blocker",
+            "category": "rule_not_in_source",
+            "section_id": "s-3",
+            "issue": text,
+            "suggestion": "Withdraw the statement or qualify it as unresolved.",
+            "checklist_id": "CIT-01",
+            "issue_category": "unsupported_claim",
+        },
+        "citations",
+    )
+
+
+WITHDRAW_S3 = {
+    "section_id": "s-3",
+    "severity": "blocker",
+    "issue": "The rule in section 3 is not in the cited article.",
+    "suggestion": (
+        "Withdraw or qualify the statement and every risk line or summary bullet that rests on it; "
+        "no new norm, no new source."
+    ),
+}
+"""The readiness issue a `polish` disposition of a blocker row in s-3 turns into (D-213)."""
+
+SUMMARY_EDIT = (
+    "- Records may not be kept beyond the purpose that justified them.",
+    "- Records may not be kept beyond the purpose that justified them, as section 3 states.",
+)
+"""A polish edit of the s-1 summary bullet that rests on the s-3 statement (gate R1-2)."""
+
+BLOCKER_SCOPE_NOTE = (
+    "The resolution of a blocker finding covers every statement in these sections that rests on it: "
+    "record it `resolved` only if none of them still carries the withdrawn statement."
+)
+
+
+class LastBlockerReadinessTest(unittest.TestCase):
+    """D-213: a blocker row is polished, re-checked and lifted only on the evidence at the export."""
+
+    def _forced_readiness(self, slug: str, blockers: list[dict], *, status=None, reasons=None, banners=()) -> tuple:
+        """Readiness pass 1 of a run that left the loop on the forced exit of v1 with `blockers` as rows."""
+        rows = review.blocker_rows({"iteration": 1, "issues": blockers}, 1)
+        driver, first = _to_readiness(self, slug, rows)
+
+        def forced(current: dict) -> None:
+            current["final_status"] = status or "forced_exit_on_v1_with_remaining_issues"
+            current["final_status_reasons"] = list(reasons or ["unresolved_blockers"])
+            current["remaining_blocking_issues"] = copy.deepcopy(blockers)
+            review.record_banner(current, BLOCKER_BANNER, count=len(blockers))
+            for key in banners:
+                review.record_banner(current, key)
+
+        state_io.write_state(driver.work_dir, forced)
+        return driver, first, rows
+
+    def _to_recheck(self, slug: str, blockers: list[dict], *, edit=None, **forced) -> tuple:
+        """Pass 1 polishes every blocker row, the fixture writer edits s-3; stop on the re-check dispatch."""
+        driver, first, rows = self._forced_readiness(slug, blockers, **forced)
+        dispositions = [(row["id"], "polish") for row in rows]
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[WITHDRAW_S3], dispositions=dispositions),
+        )
+        _act_writer(driver, driver.next(), edit=edit)
+        return driver, first, _next_dispatch_of(driver, "citation-auditor")
+
+    @staticmethod
+    def _delivered(driver: Driver) -> tuple[str, str]:
+        """The md view and the docx text of the delivered memo."""
+        state = driver.state()
+        memo = docx_export.memo_md_path(driver.work_dir, docx_export.slug_of(state, driver.work_dir))
+        with zipfile.ZipFile(driver.work_dir / "deliverable.docx") as archive:
+            docx = archive.read("word/document.xml").decode("utf-8")
+        return memo.read_text(encoding="utf-8"), docx
+
+    def test_a_clean_recheck_lifts_the_blocker_and_approves(self):
+        blocker = _last_blocker()
+        driver, first, recheck = self._to_recheck("lb-lifted", [blocker])
+        self.assertIn(
+            f"- om-1 · citations · blocker · s-3 · {blocker['issue']} · {blocker['suggestion']}\n",
+            first["agents"][0]["prompt"],
+        )
+        self.assertIn(
+            "Scope: sections s-3; the open findings om-1 · citations · blocker · ", recheck["agents"][0]["prompt"]
+        )
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+        second = driver.next()
+        self.assertTrue(second["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        driver.act(second)  # the fixture reviewer answers `client_ready`
+        driver.run_to_end()
+
+        state = driver.state()
+        self.assertEqual([], state["remaining_blocking_issues"])
+        self.assertEqual("approved_on_v1", state["final_status"])
+        self.assertEqual([], state["final_status_reasons"])
+        self.assertEqual([], _blocker_banners(state))
+        self.assertEqual("resolved", _row(state, "om-1")["status"])
+        self.assertEqual([], schema.validate(state, "state"))
+        memo, docx = self._delivered(driver)
+        self.assertNotIn(UNRESOLVED_TEXT, memo)
+        self.assertNotIn(UNRESOLVED_TEXT, docx)
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertEqual(0, summary.count(blocker["issue"]))
+
+    def test_an_open_resolution_keeps_the_blocker_and_the_label(self):
+        blocker = _last_blocker()
+        driver, _, recheck = self._to_recheck("lb-open", [blocker])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "open")]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual([blocker], state["remaining_blocking_issues"], "kept verbatim, no moved major")
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertEqual(1, summary.count(blocker["issue"]))
+        self.assertIn("## Open reviewer findings\n\n- none\n", summary)
+
+    def test_manual_review_keeps_the_blocker_and_the_label(self):
+        blocker = _last_blocker()
+        driver, first, _ = self._forced_readiness("lb-manual", [blocker])
+        _answer(driver, first, _readiness_document(driver, "client_ready", dispositions=[("om-1", "manual_review")]))
+        driver.next()
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"])
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+        self.assertEqual("manual_review", _row(state, "om-1")["status"])
+
+    def test_a_new_source_token_restores_the_baseline_and_keeps_the_blocker(self):
+        blocker = _last_blocker()
+        driver, first, _ = self._forced_readiness("lb-token", [blocker])
+        baseline_sha = state_io.sha256_bytes((driver.work_dir / "drafts/v1.md").read_bytes())
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[WITHDRAW_S3], dispositions=[("om-1", "polish")]),
+        )
+        _act_writer(
+            driver,
+            driver.next(),
+            edit=("exceeds that period (v1 review).", "exceeds that period (v1 review) [[src:tax-code s 147]]."),
+        )
+        render = driver.next()
+        self.assertEqual("docx.render", machine.command_key(render["command"]))
+        state = driver.state()
+        self.assertEqual(["new_source_token: s-3: tax-code"], state["polish_check"]["errors"])
+        self.assertEqual({"version": 1, "sha256": baseline_sha}, state["export_pin"])
+        self.assertEqual(baseline_sha, state_io.sha256_bytes((driver.work_dir / "drafts/v1.md").read_bytes()))
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers", "polish_out_of_scope"], state["final_status_reasons"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+
+    def test_a_cancel_after_a_clean_recheck_keeps_the_blocker_and_the_label(self):
+        blocker = _last_blocker()
+        driver, _, recheck = self._to_recheck("lb-cancel", [blocker])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+        second = driver.next()
+        self.assertTrue(second["agents"][0]["subagent_type"].endswith("client-readiness-reviewer"))
+        self.assertEqual("resolved", _row(driver.state(), "om-1")["status"])
+        state_io.write_state(driver.work_dir, lambda current: current.update({"cancel_requested": True}))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("cancelled_by_user", state["current_phase"])
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+
+    def test_a_recheck_drifted_after_pass_2_lifts_nothing(self):
+        blocker = _last_blocker()
+        driver, _, recheck = self._to_recheck("lb-drift", [blocker])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+        second = driver.next()
+        self.assertEqual("resolved", _row(driver.state(), "om-1")["status"], "saved by pass 2")
+        published = driver.work_dir / review.review_path(1, "citations_polish")
+        published.write_bytes(published.read_bytes() + b"\n")
+        driver.act(second)
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+
+    def test_an_export_pinned_to_other_bytes_lifts_nothing(self):
+        blocker = _last_blocker()
+        driver, _, recheck = self._to_recheck("lb-pin", [blocker])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+        second = driver.next()
+        baseline = stepctx.published_entry(driver.state(), PREPOLISH_V1)["sha256"]
+        state_io.write_state(
+            driver.work_dir, lambda current: current.update({"export_pin": {"version": 1, "sha256": baseline}})
+        )
+        driver.act(second)
+        driver.next()  # pass 2 answers `client_ready`: the transition to `export` settles
+        state = driver.state()
+        self.assertEqual("export", state["current_phase"])
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual("unresolved", _row(state, "om-1")["status"])
+
+    def test_the_recheck_scope_takes_in_the_changed_summary_bullet(self):
+        recheck_blocker = {
+            "severity": "blocker",
+            "category": "unsupported_law",
+            "section_id": "s-1",
+            "issue": "The summary bullet still states the withdrawn rule.",
+            "suggestion": "Withdraw it.",
+            "checklist_id": "CIT-01",
+            "issue_category": "unsupported_claim",
+        }
+        cases = (
+            ("the resolution is open", [("om-1", "open")], []),
+            ("a re-check blocker sits in the summary", [("om-1", "resolved")], [recheck_blocker]),
+        )
+        for label, resolutions, issues in cases:
+            with self.subTest(case=label):
+                blocker = _last_blocker()
+                driver, _, recheck = self._to_recheck(f"lb-scope-{len(issues)}", [blocker], edit=SUMMARY_EDIT)
+                prompt = recheck["agents"][0]["prompt"]
+                self.assertIn("Scope: sections s-1, s-3; the open findings om-1 · citations · blocker · ", prompt)
+                self.assertIn(BLOCKER_SCOPE_NOTE, prompt)
+                failed = ("CIT-01",) if issues else ()
+                document = _recheck_document(driver, resolutions=resolutions, issues=issues, failed=failed)
+                _answer(driver, recheck, document)
+                driver.run_to_end()
+                state = driver.state()
+                self.assertEqual("unresolved", _row(state, "om-1")["status"])
+                self.assertEqual(blocker, state["remaining_blocking_issues"][0])
+                self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+
+    def test_two_blockers_one_lifted_leave_one_counted_in_the_banner(self):
+        kept = _last_blocker("The second rule in section 3 is not in the cited article either.")
+        driver, _, recheck = self._to_recheck("lb-two", [_last_blocker(), kept])
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved"), ("om-2", "open")]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual([kept], state["remaining_blocking_issues"])
+        self.assertEqual("forced_exit_on_v1_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+        self.assertEqual(
+            [("resolved", "om-1"), ("unresolved", "om-2")],
+            [(row["status"], row["id"]) for row in state["open_substance_majors"]],
+        )
+        self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(state)])
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        memo, docx = self._delivered(driver)
+        for text in (status, memo, docx):
+            self.assertIn("1 blocking issue(s)", text)
+            self.assertNotIn("2 blocking issue(s)", text)
+
+    def test_a_length_overflow_keeps_its_label_and_loses_the_blocker_banner(self):
+        blocker = _last_blocker()
+        driver, _, recheck = self._to_recheck(
+            "lb-overflow",
+            [blocker],
+            status="manual_review_required_on_v1",
+            reasons=["unresolved_blockers", "length_overflow"],
+            banners=("length_overflow_recommendation",),
+        )
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual([], state["remaining_blocking_issues"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        # Fix round 1: the list is empty, so the reason that says blockers remain goes; the other one stays.
+        self.assertEqual(["length_overflow"], state["final_status_reasons"])
+        self.assertEqual([], _blocker_banners(state))
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        memo, docx = self._delivered(driver)
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        for text in (status, memo, docx, summary):
+            self.assertNotIn(UNRESOLVED_TEXT, text)
+            self.assertNotIn(UNRESOLVED_REASON_TEXT, text)
+            self.assertNotIn("unresolved_blockers", text)
+        self.assertIn(md_fallback.reason_name("length_overflow"), docx)
+
+    def test_a_length_overflow_with_a_blocker_left_keeps_the_unresolved_reason(self):
+        kept = _last_blocker("The second rule in section 3 is not in the cited article either.")
+        driver, _, recheck = self._to_recheck(
+            "lb-overflow-partial",
+            [_last_blocker(), kept],
+            status="manual_review_required_on_v1",
+            reasons=["unresolved_blockers", "length_overflow"],
+            banners=("length_overflow_recommendation",),
+        )
+        _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved"), ("om-2", "open")]))
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual([kept], state["remaining_blocking_issues"])
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
+        self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(state)])
+        _, docx = self._delivered(driver)
+        self.assertIn(UNRESOLVED_REASON_TEXT, docx)
+        self.assertIn("1 blocking issue(s)", docx)
+
+    def test_a_disposition_note_and_an_old_row_both_pass_the_state_schema(self):
+        driver = Driver(temp_root(self), slug="lb-schema")
+        row = review.blocker_rows({"iteration": 1, "issues": [_last_blocker()]}, 2)[0]
+        rows = [_major("om-1", "logic"), dict(row, status="manual_review", disposition_note="A lawyer checks it.")]
+        state = dict(driver.state(), open_substance_majors=rows)
+        self.assertEqual([], schema.validate(state, "state"))
+        state["open_substance_majors"][1]["blocker_of"]["extra"] = 1
+        self.assertTrue(schema.validate(state, "state"))
 
 
 class MachineWarningLanguageTest(unittest.TestCase):

@@ -1,0 +1,141 @@
+{
+ "attempts": {
+  "plan_edit": 0,
+  "research_dispatch_retry": 0,
+  "currency_regate": 0,
+  "client_polish": 1,
+  "lint_fix": {
+   "1": 1
+  },
+  "reviewer_json_retry": {},
+  "reviewer_rerun": {},
+  "single_dispatch_retry": {},
+  "inline_llm_retry": {},
+  "gate_parse_errors": {},
+  "sufficiency_user_followup": 1,
+  "sufficiency_research_followup": 2,
+  "targeted_fix": 1
+ },
+ "targeted_fix": {
+  "iteration": 3,
+  "reviewers": [
+   "citations"
+  ]
+ },
+ "final_status": "forced_exit_on_v3_with_remaining_issues",
+ "final_status_reasons": [
+  "unresolved_blockers"
+ ],
+ "remaining_blocking_issues": [
+  {
+   "severity": "blocker",
+   "category": "rule_not_in_source",
+   "section_id": "s-4-2",
+   "issue": "4.2 twice states, on DPA 2018 s 168(2)-(3), that a representative body may bring proceedings for several clients together, and the risk line relies on 'a representative route is open'. Section 168(2)-(3) only presupposes proceedings brought under rules of court by a representative body on behalf of a person and governs payment of compensation. It confers no power to bring proceedings and says nothing about grouping claimants.",
+   "suggestion": "Withdraw the statements that a representative body may bring the clients' claims together on s 168(2)-(3), or qualify the representative route as a point the research did not establish, consistent with the Limitations entry that representative damages authority was not reviewed. Adjust the 4.2 risk line accordingly.",
+   "source_reviewer": "citations",
+   "provenance": [
+    "citations"
+   ],
+   "tier": "substance",
+   "checklist_id": "CIT-01",
+   "issue_category": "unsupported_claim",
+   "grounded": true,
+   "conflict": false
+  }
+ ],
+ "open_substance_majors": [
+  {
+   "id": "om-1",
+   "class": "logic",
+   "reviewer": "logic",
+   "section_id": "s-4-2",
+   "category": "authority_weight",
+   "issue_category": null,
+   "issue": "The sentence 'The CJEU has held that an infringement alone is not damage and that the claimant must show damage, although no seriousness threshold applies' presents a post-exit CJEU ruling as the rule governing the clients' claims. It carries no persuasive-only marker, although the 'no seriousness threshold' point lowers the bar for claimants and feeds the medium compensation verdict.",
+   "issue_client": null,
+   "suggestion": "Mark the C-741/21 holding as persuasive only in that sentence, as 4.1 and 5.3 do. State that the medium verdict does not depend on UK courts adopting the no-threshold rule, or say how the verdict would change if they applied a seriousness threshold.",
+   "from_iteration": 2,
+   "origin": "loop",
+   "status": "left"
+  },
+  {
+   "id": "om-2",
+   "class": "counterarguments",
+   "reviewer": "counterarguments",
+   "section_id": "s-5-3",
+   "category": "unnamed_consequence",
+   "issue_category": null,
+   "issue": "The recommendation to contact individuals and sole traders, and to send statements to corporate clients who ask, will tell clients who did not know about the breach that their details were taken unlawfully. That enlarges the group able to bring Article 82 claims or s 164A complaints, which 4.2 rates as a real exposure. The memo does not name this consequence or connect 5.3 to 4.2.",
+   "issue_client": null,
+   "suggestion": "Say in 5.3 that communicating does not remove, and will probably increase, the compensation and complaints exposure described in 4.2 and 7.3. The Article 34 duty still governs. Recommend that the communication be factual, make no admission of a security failure, and be approved by Legal alongside the 4.2 claims log.",
+   "from_iteration": 2,
+   "origin": "loop",
+   "status": "left"
+  },
+  {
+   "id": "om-3",
+   "class": "counterarguments",
+   "reviewer": "counterarguments",
+   "section_id": "s-6-1",
+   "category": "overstated_confidence",
+   "issue_category": null,
+   "issue": "Section 1 and 6.1 treat the claim over the notice-period copying as firm ('relying firmly on the copying during the notice period'; 'The firm claim is therefore the copying itself'). Under the Faccenda framework set out in Hattons, the duty during employment covers information the employee is told is confidential or that is obviously confidential. The draft neither assumes nor shows that bare client contact details met that test, and the clause wording is left as an open question. The former employee's counsel will argue first that the names and numbers were not confidential at all.",
+   "issue_client": null,
+   "suggestion": "Qualify 'firmly'. The notice-period claim is the stronger of the two civil claims, but it depends on showing that the client list was treated as confidential or was obviously so (through access restriction, confidentiality marking or the clause wording) and that its entries were not freely available. Name that as the fact that would weaken the claim, next to the existing trigger about personal connections and public sources.",
+   "from_iteration": 2,
+   "origin": "loop",
+   "status": "left"
+  }
+ ],
+ "fallback_banners": [
+  {
+   "banner_id": "unresolved_blockers",
+   "condition_key": "max_iterations_with_blockers",
+   "text": "REVIEWER NOTES NOT FULLY RESOLVED — 1 blocking issue(s) remain (listed in the appendix).",
+   "params": {
+    "count": "1"
+   },
+   "at": "2026-09-22T23:39:37.761Z"
+  }
+ ],
+ "client_readiness": {
+  "verdict": "client_ready",
+  "draft_sha": "b1673f0a5577d50ccf9c1ec0cc3e304cd68e619fd6aefd125b19b7cef04edb08",
+  "version_reviewed": 3,
+  "at": "2026-09-22T23:47:28.268Z"
+ },
+ "polish_check": {
+  "draft_sha": "b1673f0a5577d50ccf9c1ec0cc3e304cd68e619fd6aefd125b19b7cef04edb08",
+  "errors": []
+ },
+ "draft_versions": [
+  {
+   "version": 1,
+   "path": "drafts/v1.md",
+   "sha256": "d596a4caa713b5ee13d5b76d00e3fcdbcf9143946490ff25a43f2df0170e187a",
+   "lint_clean": true,
+   "citations_clean": true,
+   "checked_at": "2026-09-22T23:03:17.203Z"
+  },
+  {
+   "version": 2,
+   "path": "drafts/v2.md",
+   "sha256": "6e5bcc35813e7bb43c83bb9bffbd27d5439eb80b140c723539b10c62a740ceb3",
+   "lint_clean": true,
+   "citations_clean": true,
+   "checked_at": "2026-09-22T23:22:34.562Z"
+  },
+  {
+   "version": 3,
+   "path": "drafts/v3.md",
+   "sha256": "b1673f0a5577d50ccf9c1ec0cc3e304cd68e619fd6aefd125b19b7cef04edb08",
+   "lint_clean": true,
+   "citations_clean": true,
+   "checked_at": "2026-09-22T23:45:00.660Z"
+  }
+ ],
+ "current_iteration": 3,
+ "current_draft_path": "drafts/v3.md",
+ "current_draft_sha": "b1673f0a5577d50ccf9c1ec0cc3e304cd68e619fd6aefd125b19b7cef04edb08"
+}

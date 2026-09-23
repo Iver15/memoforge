@@ -215,6 +215,18 @@ class TerminalPathsTest(_WorkDirMixin, unittest.TestCase):
         self.assert_delivered(work_dir)
         self.assertEqual(state_io.read_state(work_dir)["current_phase"], "done")
 
+    def test_the_summary_paths_are_the_ones_of_the_published_folder(self):
+        # D-216: run 74 printed `Work dir: /home/claude/...` and `State: state.json`, while the
+        # published folder the owner opens holds the state and the journal under `_run/`.
+        work_dir = self.make_task()
+        finalize.run_finalize(finalize_args(work_dir))
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        paths = summary.partition("## Paths\n")[2].partition("\n## ")[0]
+        self.assertIn("- State: `_run/state.json`\n", paths)
+        self.assertIn("- Journal: `_run/events.jsonl`\n", paths)
+        self.assertNotIn("Work dir", summary)
+        self.assertNotIn(str(work_dir), summary)
+
     def test_failed_path_leaves_deliverable_and_summary(self):
         work_dir = self.make_task()
         result = finalize.run_finalize(finalize_args(work_dir, reason="cli_error"))
@@ -791,6 +803,84 @@ class PublishTest(_WorkDirMixin, unittest.TestCase):
         self.assertEqual(machine.published_to(state), "")
         self.assertNotIn("Published:", machine.terminal_response(work_dir, state)["text"])
 
+    ROOT_COPIES = ("memo-gdpr-transcripts.md", "memo-gdpr-transcripts.summary.md")
+    """The two D-167 root copies of `make_published_task`: in the manifest, outside the folder."""
+
+    def files_line(self, text: str) -> str:
+        lines = text.splitlines()
+        published = next(i for i, line in enumerate(lines) if line.startswith("Published:"))
+        self.assertTrue(lines[published + 1].startswith("Files: "), text)
+        return lines[published + 1]
+
+    def manifest(self, work_dir: Path) -> list[str]:
+        """`files` of the last `result_published` event — the publication manifest (D-217)."""
+        rows = [row for row in events.read_events(work_dir) if row.get("event") == "result_published"]
+        return list(rows[-1]["data"]["files"])
+
+    def terminal_text(self, work_dir: Path) -> str:
+        action = machine.run_next(argparse.Namespace(workdir=str(work_dir), human=False))
+        self.assertEqual("terminal", action["kind"])
+        return action["text"]
+
+    def test_the_terminal_text_counts_the_manifest_without_the_root_copies(self):
+        """D-217: `Files: <n>` is the last manifest minus the two root copies, never a disk scan."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        first = finalize.run_finalize(finalize_args(work_dir))
+        manifest = self.manifest(work_dir)
+        self.assertEqual(first["published_files"], manifest)
+        for name in self.ROOT_COPIES:
+            self.assertIn(name, manifest)
+        expected = len(manifest) - len(self.ROOT_COPIES)
+        self.assertGreater(expected, 5)
+        self.assertEqual(f"Files: {expected}", self.files_line(self.terminal_text(work_dir)))
+
+        # A stale file in the folder is not part of the publication, so it does not change `n`.
+        (Path(first["published_to"]) / "notes.txt").write_text("mine", encoding="utf-8")
+        self.assertEqual(f"Files: {expected}", self.files_line(self.terminal_text(work_dir)))
+
+    def test_a_resumed_delivery_prints_the_count_of_its_own_manifest(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        finalize.run_finalize(finalize_args(work_dir))
+        first = len(self.manifest(work_dir)) - len(self.ROOT_COPIES)
+        self.assertEqual(f"Files: {first}", self.files_line(self.terminal_text(work_dir)))
+        # `next` again on the finished run: the same terminal text, the same count.
+        self.assertEqual(f"Files: {first}", self.files_line(self.terminal_text(work_dir)))
+
+        # finalize again (it republishes, one more source text this time): the last manifest counts.
+        (work_dir / "research" / "raw" / "doctrine").mkdir(parents=True, exist_ok=True)
+        (work_dir / "research" / "raw" / "doctrine" / "ico-guide.md").write_bytes(b"ICO raw text")
+        registry = state_io.read_json(work_dir / "research" / "sources.json")
+        registry["sources"]["ico-guide"]["raw_sha256"] = state_io.sha256_bytes(b"ICO raw text")
+        state_io.write_json_atomic(work_dir / "research" / "sources.json", registry)
+        result = finalize.run_finalize(finalize_args(work_dir, step="s-export-again"))
+        self.assertTrue(result["already_terminal"])
+        manifest = self.manifest(work_dir)
+        self.assertIn(f"{finalize.PUBLISH_SOURCES_DIRNAME}/ico-guide.txt", manifest)
+        self.assertEqual(
+            f"Files: {len(manifest) - len(self.ROOT_COPIES)}", self.files_line(self.terminal_text(work_dir))
+        )
+
+    def test_no_manifest_no_files_line(self):
+        """D-217: without a `result_published` event there is nothing to count — no `Files:` line."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        work_dir = self.make_published_task(root)
+        finalize.run_finalize(finalize_args(work_dir))
+        journal = events.events_path(work_dir)
+        kept = [
+            line
+            for line in journal.read_text(encoding="utf-8").splitlines()
+            if line.strip() and json.loads(line).get("event") != "result_published"
+        ]
+        journal.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        text = self.terminal_text(work_dir)
+        self.assertIn("Published:", text)
+        self.assertNotIn("Files:", text)
+
 
 class TerminalOrderTest(_WorkDirMixin, unittest.TestCase):
     def test_terminal_phase_is_written_only_after_deliverable_and_summary(self):
@@ -1366,7 +1456,9 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
 
         self.assertNotIn(ASSUMPTIONS_MD, appendix)
         self.assertNotIn("Nothing in intake", appendix)
-        self.assertIn(UNVERIFIED_MD, appendix)
+        # D-216: the only group of the appendix prints no label under the heading.
+        self.assertNotIn(UNVERIFIED_MD, appendix)
+        self.assertIn("- EDPB, Opinion 28/2024", appendix)
 
     def test_an_appendix_without_unverified_sources_is_absent(self):
         # D-191: warnings alone do not open the appendix.
@@ -1390,7 +1482,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
     def test_an_unavailable_currency_checker_is_one_line_not_one_per_source(self):
         work_dir = self.make_appendix_task(currency_unavailable=True)
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), UNVERIFIED_MD)
+        rows = self.bullets(self.appendix(work_dir), md_fallback.appendix_heading())
 
         self.assertEqual(rows[0], md_fallback.label('currency_unavailable_note'))
         self.assertNotIn("currency unchecked", "\n".join(rows))
@@ -1415,7 +1507,7 @@ class AppendixTest(_WorkDirMixin, unittest.TestCase):
     def test_a_currency_check_that_ran_keeps_its_per_source_lines(self):
         work_dir = self.make_appendix_task()
         finalize.run_finalize(finalize_args(work_dir))
-        rows = self.bullets(self.appendix(work_dir), UNVERIFIED_MD)
+        rows = self.bullets(self.appendix(work_dir), md_fallback.appendix_heading())
 
         self.assertNotIn(md_fallback.label('currency_unavailable_note'), rows)
         self.assertEqual(len([row for row in rows if "currency unchecked" in row]), 3)
@@ -2517,6 +2609,19 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
                         row = open_major(1, cls, status, origin=origin)
                         self.assertEqual(expected, finalize.lists_open_finding(row))
 
+    def test_a_blocker_row_is_never_listed_here(self):
+        # D-213: a lifted blocker is gone; an unlifted one stays under «Remaining blocking issues».
+        link = {"section_id": "s-4-2", "category": "rule_not_in_source", "issue": "The rule is not in s 168."}
+        for status in self.STATUSES:
+            with self.subTest(status=status):
+                row = dict(open_major(4, "citations", status), severity="blocker", blocker_of=link)
+                self.assertFalse(finalize.lists_open_finding(row))
+        blocker = {"severity": "blocker", "category": link["category"], "section_id": "s-4-2", "issue": link["issue"]}
+        row = dict(open_major(4, "citations", "unresolved", section_id="s-4-2", issue=link["issue"]), blocker_of=link)
+        summary = self.summary([row], blockers=[blocker])
+        self.assertEqual(1, summary.count(link["issue"]))
+        self.assertIn("## Open reviewer findings\n\n- none\n", summary)
+
     def test_the_section_follows_the_blocker_list_with_raw_ids(self):
         rows = [
             open_major(1, "counterarguments", "open"),
@@ -2547,6 +2652,21 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
             "- citations · recheck · open · s-9 · pinpoint_mismatch · The pinpoint sends the reader to point 3.\n"
             "\n## Paths\n",
             self.summary(rows),
+        )
+
+    def test_a_left_row_prints_the_note_of_its_disposition(self):
+        # D-216: run 74 printed three `left` rows the v3 text had already fixed, without the reason.
+        noted = dict(open_major(1, "logic", "left", section_id="s-4-2"), disposition_note="Fixed in 4.2 of v3.\n")
+        plain = open_major(2, "counterarguments", "left", section_id="s-5-3")
+        summary = self.summary([noted, plain])
+        self.assertIn(
+            "- logic · loop · left · s-4-2 · narrow_trigger · The trigger is drawn too narrowly."
+            " · Fixed in 4.2 of v3.\n",
+            summary,
+        )
+        self.assertIn(
+            "- counterarguments · loop · left · s-5-3 · narrow_trigger · The trigger is drawn too narrowly.\n",
+            summary,
         )
 
     def test_nothing_open_says_none(self):
@@ -2631,7 +2751,6 @@ class BannerLanguageSummaryTest(_WorkDirMixin, unittest.TestCase):
         "memo.summary.mcp_calls": "## Вызовы MCP",
         "memo.summary.remaining_blocking_issues": "## Оставшиеся блокирующие замечания",
         "memo.summary.paths": "## Пути",
-        "memo.summary.work_dir": "- Рабочий каталог: `{path}`",
         "memo.summary.deliverable": "- Деливерабл: `{name}`",
         "memo.summary.rendered_from": "- Отрендерено из: `{name}`",
         "memo.summary.state": "Состояние",

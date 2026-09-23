@@ -1,0 +1,639 @@
+[
+ {
+  "iteration": 1,
+  "draft_sha": "d596a4caa713b5ee13d5b76d00e3fcdbcf9143946490ff25a43f2df0170e187a",
+  "reviewers": [
+   "logic",
+   "form",
+   "citations",
+   "counterarguments"
+  ],
+  "coverage": [
+   "citations",
+   "counterarguments",
+   "form",
+   "logic"
+  ],
+  "failed_reviewers": [],
+  "downgraded_reviewers": [],
+  "substance_blockers": 3,
+  "form_blockers": 0,
+  "deterministic_blockers": 0,
+  "pass_ratio": 0.7111,
+  "conflict": false,
+  "stale_reports": [],
+  "issues": [
+   {
+    "severity": "blocker",
+    "category": "unexplained_rule",
+    "section_id": "s-6-1",
+    "issue": "The recommendation rests 'chiefly on the express confidentiality clause' for the continuing post-termination use. The subsection never states what an express confidentiality clause can protect once employment has ended. It answers the 'mere confidential information' objection by saying the argument does not reach 'the express clause' without explaining why. The Faccenda categories are invoked, but the quotation ('in respect of this information') is left without its referent.",
+    "suggestion": "Before the application, add a rule beat. Set out the three Faccenda categories as Hattons applied them, say which survive termination under the implied duty, and say what the draft takes the rule on express clauses after termination to be. Then apply it to basic contact details. If the express clause reaches no further than trade secrets, drop the reliance on it for post-termination use and rest the continuing-use claim on the notice-period copying and springboard relief.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-02",
+    "grounded": true,
+    "conflict": false
+   },
+   {
+    "severity": "blocker",
+    "category": "unsupported_conclusion",
+    "section_id": "s-4-2",
+    "issue": "The 'Risk: low' verdict relies on 'individual compensation for misuse of basic contact details is modest', a quantum point that appears only in the risk line and concerns a topic the memo excludes. The analysis above it points the other way on the company's own liability: no seriousness threshold, fear of misuse counts as damage, representative proceedings are available, and 4.1 finds the company unlikely to discharge its burden on appropriate measures. Low risk on vicarious liability does not carry low risk on own-failings liability.",
+    "suggestion": "Either add a reasoned step in the body explaining why aggregate own-failings exposure stays low despite the representative-action route and the 4.1 finding, or split the verdict: low for vicarious liability and medium for own-failings compensation. Update the summary bullet to match.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-04",
+    "grounded": true,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "non_sequitur",
+    "section_id": "s-6-3",
+    "issue": "'The argument does hold for named contacts at corporate clients, because regulation 22 applies only to individual subscribers' gives a PECR reason for accepting an Article 6(1)(f) argument. It also sits badly with the earlier statements that the balancing is 'hard to pass' and that Article 6(11)(a) does not cure the unlawful origin. The next sentence still lists 'the balancing test' as leverage for those same contacts.",
+    "suggestion": "Separate the two points. State that PECR does not protect corporate contacts (reg 22(1)). Then say whether Article 6(1)(f) balancing is arguable for business contacts, and why (reasonable expectation of sales approaches versus unlawful origin). Align the opening sentence, the risk line and the summary bullet with that single position.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-06",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "unmapped_assumption",
+    "section_id": "s-3",
+    "issue": "The provenance assumption ('Every contact ... came from the company's database extract, and the company can prove this') drives 6.1 and 6.2. Both subsections say their conclusions change if contacts were personal connections, yet no open question resolves it. The 'no action yet' and 'controller, not processor' assumptions are also unmapped.",
+    "suggestion": "Add an open question in section 8 asking for evidence matching each contacted client to the extract (sections 6.1 and 6.2). Either add open questions for the other two assumptions or mark them as not affecting any conclusion.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-07",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "authority_weight",
+    "section_id": "s-7-1",
+    "issue": "The 7.1 risk line states 'the company bears the burden of showing its measures were appropriate' on the sole authority of C-340/21. That ruling is post-exit and persuasive only, and it is used here to justify the 'high' verdict. 4.1 relies on the same CJEU burden without marking its weight.",
+    "suggestion": "Ground the burden in the UK text already cited (Articles 5(2) and 24(1), and the ICO's reading of 24(1)). Where C-340/21 is kept, add 'persuasive only' in the same sentence in 4.1 and 7.1.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-09",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "skipped_step",
+    "section_id": "s-5-4",
+    "issue": "The subsection treats every client query about how details were obtained as an Article 15 subject access request. It never says why an informal question qualifies.",
+    "suggestion": "Add one sentence stating that a request for the source of one's data is a request for Article 15(1)(g) information and needs no particular form, so the one-month period runs from receipt.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "element_not_applied",
+    "section_id": "s-6-2",
+    "issue": "The subsection concludes that the copying and retention 'fall within the section 170 offence' without applying the 'knowingly or recklessly' element to the facts.",
+    "suggestion": "Add one application sentence: the deliberate export during the notice period and use for a competing venture show the former employee knew that the company had not consented.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "unexplained_term",
+    "section_id": "s-6-1",
+    "issue": "The phrase 'Faccenda Chicken categories' names a legal test without stating what the categories are, leaving the in-house reader unable to judge whether bare contact details fall inside or outside protection after termination.",
+    "suggestion": "Name the categories in a phrase, e.g. 'the categories of protectable information set out in Faccenda Chicken (trade secrets, and confidential information so highly confidential it is treated the same way), which Hattons applied'.",
+    "source_reviewer": "form",
+    "provenance": [
+     "form"
+    ],
+    "tier": "form",
+    "checklist_id": "FRM-06",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unexplained_term",
+    "section_id": "s-4-2",
+    "issue": "'Obiter' is used twice (here and in 6.2) without explaining that it means a non-binding side observation, which a business stakeholder reading this memo would not know.",
+    "suggestion": "Replace with a plain gloss on first use, e.g. 'the Court also said, in a passing observation not necessary to its decision, that...'.",
+    "source_reviewer": "form",
+    "provenance": [
+     "form"
+    ],
+    "tier": "form",
+    "checklist_id": "FRM-06",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "authority_generalised",
+    "section_id": "s-7-1",
+    "issue": "7.1 turns a first-instance finding of fact into a general rule: 'No available measure could wholly prevent a trusted insider from taking data.' The judge's finding was limited to the measures available in 2013-14 and to an employee who had given no reason for distrust. It does not support a general rule, and the 'no reason for distrust' limit is exactly what the notice-period facts put in doubt.",
+    "suggestion": "Qualify the sentence to match the finding: the measures available in 2013 and 2014 could not altogether prevent the risk from a trusted employee who had given no real reason to doubt his trustworthiness.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-07",
+    "issue_category": "source_drift",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "weight_overstated",
+    "section_id": "s-7-2",
+    "issue": "7.2 calls the ICO's monitoring guidance 'the controlling statement'. The pack records it as persuasive regulator guidance, not binding law. The executive summary line for 7.2 ('lawful only if it is disclosed') also leaves out the covert-monitoring exception that 7.2 itself goes on to describe.",
+    "suggestion": "Describe the ICO guidance as the regulator's reading rather than the controlling statement. Qualify the summary line so that it allows for the narrow covert-monitoring exception already set out in 7.2.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-07",
+    "issue_category": "source_pack_mismatch",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "silence_asserted",
+    "section_id": "s-5-4",
+    "issue": "5.4 says the question whether a former employee who took the data is a 'recipient' is 'untested'. The research record lists no search for authority on that point, so the draft claims a silence the research did not establish.",
+    "suggestion": "Say that the research did not look for authority on this point, or mark it as unresolved, rather than calling it untested.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-08",
+    "issue_category": "unsupported_claim",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "blocker",
+    "category": "omitted_contrary_authority",
+    "section_id": "s-4-2",
+    "issue": "4.2 concludes that clients 'may claim compensation for the company's own security failings' but never deals with causation. The first-instance Morrisons judgment, recorded at critical tier, made liability depend on showing that the security failure caused the disclosure. It held the one failing found (no deletion check) ineffective to prevent the misuse because the data had already been copied. The draft cites paras 112-120 in 7.1 only for the adverse half.",
+    "suggestion": "In 4.2, take in the first-instance Morrisons point (DPA 1998, persuasive) that a claimant must show the security breach caused the disclosure. Then apply it: a determined insider copying during the notice period cuts toward no causation, but restricting exports during the notice period, the measure the memo recommends, might have prevented the copy. Say which way it falls on these facts, and name that as the trigger that moves the compensation risk.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-02",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "overstated_conclusion",
+    "section_id": "s-4-1",
+    "issue": "4.1 moves from 'authorised access does not cover use for a purpose outside the job' (Rooney, a criminal s 55 case about the employee) to 'The copying therefore breached the security principle in Article 5(1)(f)'. That treats the fact of unauthorised copying as the controller's infringement. The first-instance Morrisons judgment says the opposite, and the draft itself later treats infringement as turning on whether the measures were appropriate. The categorical sentence also carries the higher-tier fine figure in the Risk line and the executive summary.",
+    "suggestion": "Withdraw 'therefore breached'. Keep the Article 4(12) breach characterisation. State that infringement of Article 5(1)(f)/32 depends on whether the company's measures were appropriate, which the first-instance Morrisons judgment says the mere fact of disclosure does not settle. Present the Article 83(5)(a) tier as the exposure if infringement is found.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "hidden_assumption",
+    "section_id": "s-5-3",
+    "issue": "5.3 says a communication duty would arise 'if the extract included ... home addresses of individuals'. Section 3 assumes the clients include private individuals and sole traders, whose basic contact details will often be a home address, personal email or mobile. The draft never says which fields the extract holds, so its own trigger may already be met. The support that 'the clients being approached also already know that their details are in use' is weak: they do not know the details were taken unlawfully, and the other people in the extract have not been approached at all.",
+    "suggestion": "State the assumed fields of 'basic contact details' for private individuals and sole traders. Say whether the conclusion holds if those include home addresses or personal contact points. Otherwise split the conclusion, communicating to individuals and sole traders but not to corporate contacts, and drop or qualify the 'already know' reasoning.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-05",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "overstated_conclusion",
+    "section_id": "s-6-1",
+    "issue": "'The continuing use is caught by the standard confidentiality clause assumed to be in the contract' is written as settled. Hattons reproduces Faccenda Chicken's reasoning that a covenant will not be upheld to protect information that is not a trade secret or its equivalent. Section 3 assumes no enforceable post-termination restriction, and the draft itself treats bare contact details as possibly 'mere confidential information'. Whether an ordinary confidentiality clause restrains post-termination use of such information is contested, and the executive summary relies 'chiefly' on it.",
+    "suggestion": "Qualify the sentence. Whether the clause reaches post-termination use of bare contact details depends on its wording and on whether the details amount to more than mere confidential information, and that is unresolved. Rest the firm part of the claim on the copying during the notice period, which falls under the duty of fidelity and the clause while employment lasted, and describe the continuing-use claim as arguable.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unanswered_counterargument",
+    "section_id": "s-6-1",
+    "issue": "The counterargument that 'months of delay have spent any springboard advantage' is answered only by pointing to the copying and the express clause. Springboard relief is forward-looking and sized to a continuing advantage, and interim relief after delay was not researched. So the injunction limb of the recommendation ('backed by an injunction') is not tested against the objection the draft itself raises.",
+    "suggestion": "Say plainly that the delay objection is unresolved, and that relief may be limited to delivery-up, deletion and disclosure of use rather than a restraint on soliciting. Name the trigger: prompt action measured from the company's awareness, and evidence that the former employee is still drawing on the list.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-06",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "overstated_conclusion",
+    "section_id": "s-5-3",
+    "issue": "5.3 and 6.1 say that a deletion undertaking 'would support' the Article 34(3)(b) exception. The exception requires subsequent measures that 'ensure' the high risk is no longer likely to materialise. A promise from a person who has already breached a confidentiality clause, with no way to verify deletion, is thin support for 'ensure'.",
+    "suggestion": "Qualify the reliance: an undertaking alone is unlikely to meet Article 34(3)(b); a court order with delivery-up and verified deletion is the stronger footing. The primary no-high-risk conclusion should not depend on this exception.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "overstated_conclusion",
+    "section_id": "s-5-4",
+    "issue": "5.4 opens by saying a client who asks how the former employee got their details is entitled on a SAR to 'any available information about source'. The quoted Article 15(1)(g) applies only 'where the personal data are not collected from the data subject'. The company presumably collected the details from its clients, so the answer to 'how did they get my details' depends on the recipients limb, which the draft itself calls untested for the former employee.",
+    "suggestion": "Qualify the opening. Article 15(1)(g) is unlikely to reach the question where the company collected the data directly. The entitlement to learn of the extraction rests on the untested reading of 'recipients', so describing the extraction is a prudent choice, not a clear obligation.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "excluded_source_not_reconsidered",
+    "section_id": "s-4-2",
+    "issue": "Lloyd v Google [2021] UKSC 50 was excluded on the condition that the writer would pick it up if damages exposure were addressed. 4.2 does address it: collective proceedings under s 168(2)-(3), and 'individual compensation for misuse of basic contact details is modest', which cites no authority. The exclusion reason no longer holds, and the draft does not say whether that authority affects its account of collective exposure.",
+    "suggestion": "State that the authority on representative damages claims was not reviewed and that the 'modest' assessment is an unresearched estimate (quantum is out of scope). Alternatively, have the point researched before the collective-exposure remark is relied on.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-10",
+    "grounded": false,
+    "conflict": false
+   }
+  ],
+  "aggregated_at": "2026-09-22T23:11:36.869Z"
+ },
+ {
+  "iteration": 2,
+  "draft_sha": "6e5bcc35813e7bb43c83bb9bffbd27d5439eb80b140c723539b10c62a740ceb3",
+  "reviewers": [
+   "logic",
+   "form",
+   "citations",
+   "counterarguments"
+  ],
+  "coverage": [
+   "citations",
+   "counterarguments",
+   "form",
+   "logic"
+  ],
+  "failed_reviewers": [],
+  "downgraded_reviewers": [],
+  "substance_blockers": 1,
+  "form_blockers": 0,
+  "deterministic_blockers": 0,
+  "pass_ratio": 0.7556,
+  "conflict": false,
+  "stale_reports": [],
+  "issues": [
+   {
+    "severity": "major",
+    "category": "authority_weight",
+    "section_id": "s-4-2",
+    "issue": "The sentence 'The CJEU has held that an infringement alone is not damage and that the claimant must show damage, although no seriousness threshold applies' presents a post-exit CJEU ruling as the rule governing the clients' claims. It carries no persuasive-only marker, although the 'no seriousness threshold' point lowers the bar for claimants and feeds the medium compensation verdict.",
+    "suggestion": "Mark the C-741/21 holding as persuasive only in that sentence, as 4.1 and 5.3 do. State that the medium verdict does not depend on UK courts adopting the no-threshold rule, or say how the verdict would change if they applied a seriousness threshold.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-09",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unmapped_assumption",
+    "section_id": "s-3",
+    "issue": "Two assumptions that drive conclusions have no open question and are not marked as immaterial. One is the sector assumption, which drives 5.1's ICO-only conclusion. The other is the client-queries assumption, which drives 5.4 and 7.3. The direct-collection presumption in 5.4 ('presumably collected its clients' details directly') is also absent from the assumptions list.",
+    "suggestion": "Add an open question confirming the company's sector and any regulator-specific reporting duty, and one confirming which client queries have been received and when, mapped to 5.4 and 7.3. Add direct collection to the assumptions list and map it to 5.4, or mark it as not affecting the conclusion.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-07",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unmapped_assumption",
+    "section_id": "s-4-2",
+    "issue": "The causation reasoning that sets the 4.2 verdict treats 'the employee's route to a bulk copy was the database export' as given. The assumptions only say exports were unmonitored, and the logs open question lists sections 4.1 and 7.1 but not 4.2.",
+    "suggestion": "Add to the assumptions that the copy was made through the database export function, and add section 4.2 to the open question on the access and export logs, since that answer can move the 4.2 risk to low.",
+    "source_reviewer": "logic",
+    "provenance": [
+     "logic"
+    ],
+    "tier": "substance",
+    "checklist_id": "LOG-07",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "unexplained_term",
+    "section_id": "s-6-1",
+    "issue": "'Duty of fidelity' is used as a load-bearing legal ground for the letter-before-action ('still bound by the duty of fidelity and by the duty to keep confidential information confidential') without ever being explained, and the same gap applies to 'quantum' in the scope paragraph and 'special category data' in the Facts.",
+    "suggestion": "Add a short operational gloss on first use, e.g. 'the duty of fidelity — the implied duty not to act against the employer's interests during employment', matching the term-then-definition form already used in section 2.",
+    "source_reviewer": "form",
+    "provenance": [
+     "form"
+    ],
+    "tier": "form",
+    "checklist_id": "FRM-06",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "filler_announcement",
+    "section_id": "s-6-3",
+    "issue": "'Two points follow, and they are separate.' tells the reader what the next two paragraphs will do instead of making an argument, which is the house style's named anti-pattern for paragraphs that announce themselves.",
+    "suggestion": "Delete the sentence and let the two points ('First, ... Second, ...') stand on their own, or fold the distinction into the first point's opening clause.",
+    "source_reviewer": "form",
+    "provenance": [
+     "form"
+    ],
+    "tier": "form",
+    "checklist_id": "FRM-10",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "blocker",
+    "category": "rule_not_in_source",
+    "section_id": "s-5-4",
+    "issue": "5.4 cites Article 12A for the rule that a client's informal question 'needs no particular form' and is a request under the access provision. Article 12A, read whole, only defines the applicable time period (one month from receipt of the request, extension, and pausing the clock). It says nothing about the form of a request or what counts as one. The summary's 'within one month of their informal query' rests on this premise.",
+    "suggestion": "Keep Article 12A for the one-month period running from receipt. Withdraw the 'needs no particular form' premise from that citation, or support it with a pack source that actually states it, cited as the regulator's reading if it is ICO guidance.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-01",
+    "issue_category": "unsupported_claim",
+    "grounded": true,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "pinpoint_misdirected",
+    "section_id": "s-4-2",
+    "issue": "'An employee pursuing only their own interests falls outside that test' is pinpointed to UKSC Morrisons paras 2-7, which set out the facts. The Court states the distinction in para 47.",
+    "suggestion": "Repoint the citation to para 47, where the Court sets out the distinction between an employee furthering the employer's business and one 'engaged solely in pursuing his own interests'.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-04",
+    "issue_category": "source_drift",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "silence_overstated",
+    "section_id": "s-5-2",
+    "issue": "'No court decision addresses the content of the record' asserts an absolute silence. The research record only says that no UK judgment was found in a Find Case Law search that included the GRC.",
+    "suggestion": "Rephrase as 'No UK court decision was found on the content of the record', matching the limitation in section 3.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-08",
+    "issue_category": "unsupported_claim",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "unnamed_consequence",
+    "section_id": "s-5-3",
+    "issue": "The recommendation to contact individuals and sole traders, and to send statements to corporate clients who ask, will tell clients who did not know about the breach that their details were taken unlawfully. That enlarges the group able to bring Article 82 claims or s 164A complaints, which 4.2 rates as a real exposure. The memo does not name this consequence or connect 5.3 to 4.2.",
+    "suggestion": "Say in 5.3 that communicating does not remove, and will probably increase, the compensation and complaints exposure described in 4.2 and 7.3. The Article 34 duty still governs. Recommend that the communication be factual, make no admission of a security failure, and be approved by Legal alongside the 4.2 claims log.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-07",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "major",
+    "category": "overstated_confidence",
+    "section_id": "s-6-1",
+    "issue": "Section 1 and 6.1 treat the claim over the notice-period copying as firm ('relying firmly on the copying during the notice period'; 'The firm claim is therefore the copying itself'). Under the Faccenda framework set out in Hattons, the duty during employment covers information the employee is told is confidential or that is obviously confidential. The draft neither assumes nor shows that bare client contact details met that test, and the clause wording is left as an open question. The former employee's counsel will argue first that the names and numbers were not confidential at all.",
+    "suggestion": "Qualify 'firmly'. The notice-period claim is the stronger of the two civil claims, but it depends on showing that the client list was treated as confidential or was obviously so (through access restriction, confidentiality marking or the clause wording) and that its entries were not freely available. Name that as the fact that would weaken the claim, next to the existing trigger about personal connections and public sources.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unnamed_consequence",
+    "section_id": "s-5-1",
+    "issue": "5.1 presents notification only as a mitigating factor ('A prompt notification therefore also mitigates'). Under Article 33(3) the notification must describe the measures taken or proposed. On the assumed facts, that will show the ICO there was no export monitoring and no notice-period access review, which makes the ICO the first to test the demonstrability question that 4.1 says the company will struggle with.",
+    "suggestion": "Add a sentence saying that the notification will probably lead the ICO to look at the company's own Article 5(1)(f) and Article 32 compliance. The duty to notify is unchanged. Recommend that the notification describe the section 7.1 remediation already under way.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-07",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "untested_contrary_authority",
+    "section_id": "s-4-2",
+    "issue": "4.2 states that 'no seriousness threshold applies' to damage on the basis of C-741/21, without saying in that sentence that the ruling is persuasive only. It also relies on 'a representative route is open', while Lloyd v Google, which the research excluded as irrelevant to damages when 4.2 now addresses damages, is recorded only as 'not reviewed'. Whether UK law applies a seriousness threshold to distress claims over basic contact details is therefore unresolved on this record.",
+    "suggestion": "Mark the no-threshold point as persuasive and unresolved in UK law. State that the effect of Lloyd v Google on the representative route and on the threshold has not been assessed and could lower the 4.2 exposure. Do not rely on either point as settled when setting the medium rating.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-10",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "unnamed_trigger",
+    "section_id": "s-6-3",
+    "issue": "The Article 6(11)(a) counterargument is resolved with 'For business contacts the company's leverage therefore rests on Article 14, the balancing test and section 170'. The memo does not say what would tip the balancing test to the former employee.",
+    "suggestion": "Name the facts that would let the former employee's legitimate-interests case prevail, for example contacts shown to be public or personal relationships, or an Article 14 notice with an easy opt-out given at first contact. Say that the company's leverage then shifts to the notice-period copying and section 170 alone.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-03",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "overstated_confidence",
+    "section_id": "s-5-3",
+    "issue": "The conclusion that the Article 34 high-risk trigger 'is probably already met' for individuals and sole traders rests only on the assertion that unlawful possession of home addresses and personal numbers 'is more than a sales nuisance'. The memo admits there is no case law, and the ICO's own risk examples (sensitive information of vulnerable people, financial information leading to fraud, risks to safety, money, job or home) do not obviously cover this.",
+    "suggestion": "Say plainly that the high-risk point is finely balanced. Base the recommendation to communicate on caution, and on the Commissioner's power under Article 34(4) to require it, rather than on the threshold being probably met.",
+    "source_reviewer": "counterarguments",
+    "provenance": [
+     "counterarguments"
+    ],
+    "tier": "substance",
+    "checklist_id": "CTR-04",
+    "grounded": false,
+    "conflict": false
+   }
+  ],
+  "aggregated_at": "2026-09-22T23:29:27.631Z"
+ },
+ {
+  "iteration": 3,
+  "draft_sha": "7b2bd414fe3834634f4e2a07cfece422d47068f373f02cfefe97b8515c17fccc",
+  "reviewers": [
+   "citations"
+  ],
+  "coverage": [
+   "citations"
+  ],
+  "failed_reviewers": [],
+  "downgraded_reviewers": [],
+  "substance_blockers": 1,
+  "form_blockers": 0,
+  "deterministic_blockers": 0,
+  "pass_ratio": 0.7,
+  "conflict": false,
+  "stale_reports": [],
+  "issues": [
+   {
+    "severity": "blocker",
+    "category": "rule_not_in_source",
+    "section_id": "s-4-2",
+    "issue": "4.2 twice states, on DPA 2018 s 168(2)-(3), that a representative body may bring proceedings for several clients together, and the risk line relies on 'a representative route is open'. Section 168(2)-(3) only presupposes proceedings brought under rules of court by a representative body on behalf of a person and governs payment of compensation. It confers no power to bring proceedings and says nothing about grouping claimants.",
+    "suggestion": "Withdraw the statements that a representative body may bring the clients' claims together on s 168(2)-(3), or qualify the representative route as a point the research did not establish, consistent with the Limitations entry that representative damages authority was not reviewed. Adjust the 4.2 risk line accordingly.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-01",
+    "issue_category": "unsupported_claim",
+    "grounded": true,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "pinpoint_misdirected",
+    "section_id": "s-4-2",
+    "issue": "The Supreme Court's reasoning that an employee pursuing only their own interests falls outside the close-connection test, and its rejection of the authorised-access argument, are pinned to paras 2-7, which recite the facts. The court states both at para 47 (with the access comparison at para 40).",
+    "suggestion": "Repoint both citations to para 47 (and para 40 for the comparison with access given for an authorised purpose).",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-04",
+    "issue_category": "source_drift",
+    "grounded": false,
+    "conflict": false
+   },
+   {
+    "severity": "minor",
+    "category": "reach_overstated",
+    "section_id": "s-4-1",
+    "issue": "C-340/21 is offered in support of the reading that an insider's exfiltration is the insider's wrong. The research finding records that the ruling concerned third-party (outside) access and that persons under the controller's direct authority are not third parties, and the draft omits that limit.",
+    "suggestion": "Qualify the C-340/21 sentence so that it says the ruling concerned access by third parties and that its reach to copying by an employee is not established.",
+    "source_reviewer": "citations",
+    "provenance": [
+     "citations"
+    ],
+    "tier": "substance",
+    "checklist_id": "CIT-07",
+    "issue_category": "source_drift",
+    "grounded": false,
+    "conflict": false
+   }
+  ],
+  "aggregated_at": "2026-09-22T23:39:31.336Z"
+ }
+]

@@ -1143,7 +1143,7 @@ class AppendixTest(unittest.TestCase):
             }
         )
         rendered = fallback.render("Body [[src:us-case]] and [[src:clean]].", unverified)
-        self.assertIn("Unverified sources", rendered["markdown"])
+        self.assertIn(APPENDIX_HEADING, rendered["markdown"])
         self.assertIn("Doe v Roe, 1 F.3d 1", rendered["markdown"])
         self.assertIn("US citation unresolved", rendered["markdown"])
         self.assertIn("currency manual check", rendered["markdown"])
@@ -1159,6 +1159,23 @@ class AppendixTest(unittest.TestCase):
         rendered = fallback.render("Body [[src:ghost]].", index())
         self.assertIn("Unresolved references", rendered["markdown"])
         self.assertIn("`ghost`", rendered["markdown"])
+
+    def unverified_appendix(self, draft: str) -> str:
+        registry = fallback.SourceIndex(
+            sources={"stale": {"citation_form": "Some Circular 2011", "currency": {"status": "manual_check"}}}
+        )
+        return fallback.render(draft, registry)["markdown"].partition(APPENDIX_HEADING)[2]
+
+    def test_the_only_group_prints_no_label_under_the_heading(self):
+        # D-216: run 74 printed «Appendix — Unverified Sources» and then «Unverified sources».
+        appendix = self.unverified_appendix("Body [[src:stale]].")
+        self.assertNotIn(fallback.label("unverified_label"), appendix)
+        self.assertTrue(appendix.lstrip("\n").startswith("- Some Circular 2011"), appendix)
+
+    def test_two_groups_keep_both_labels(self):
+        appendix = self.unverified_appendix("Body [[src:stale]] and [[src:ghost]].")
+        self.assertIn(f"**{fallback.label('unverified_label')}**", appendix)
+        self.assertIn(f"**{fallback.label('unresolved_label')}**", appendix)
 
     def test_warnings_alone_write_no_appendix(self):
         # D-191: drafting warnings live in the facts section; only unverified sources, the
@@ -1316,6 +1333,27 @@ class StatusSectionTest(unittest.TestCase):
         rows = [row for row in status.splitlines() if row.startswith("- blocker · section ")]
         self.assertEqual(fallback.STATUS_ISSUE_LIMIT, len(rows))
         self.assertIn("- … and 3 more in summary.md", status)
+
+    def test_the_unresolved_blockers_banner_points_at_this_section(self):
+        # D-216: the blockers are listed here, under Status — not in the appendix.
+        banner = fallbacks.banner("max_iterations_with_blockers", count=1)
+        state = dict(FORCED_EXIT_STATE, fallback_banners=[banner])
+        markdown = fallback.render("Body [[src:ghost]].\n", index(), state=state)["markdown"]
+        status = self.status(markdown)
+        self.assertIn(f"- {banner['text']}", status)
+        self.assertIn("(listed in the Status section)", banner["text"])
+        self.assertEqual(1, markdown.count(banner["text"]))
+        self.assertNotIn("appendix", status.lower())
+
+    def test_a_state_saved_before_the_change_prints_the_current_wording(self):
+        # Fix round 1: run 74's own state stores "(listed in the appendix)"; the md prints the new text.
+        path = Path(__file__).resolve().parent / "fixtures" / "run-20260922" / "state-exit.json"
+        state = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("(listed in the appendix)", state["fallback_banners"][0]["text"])
+        markdown = fallback.render("Body.\n", index(), state=state)["markdown"]
+        status = self.status(markdown)
+        self.assertIn(f"- {fallbacks.banner('max_iterations_with_blockers', count=1)['text']}", status)
+        self.assertNotIn("appendix", markdown.lower())
 
     def test_the_banner_this_render_raised_is_listed_too(self):
         markdown = fallback.render("Body [[src:ghost]].\n", index(), state=FORCED_EXIT_STATE)[

@@ -47,10 +47,15 @@ reasoning is a gap for `case_law`.
 Judge sufficiency against the layers this mode researches: a gap in any other layer is one
 sentence in `out_of_scope_gaps[]`, which the memo carries as a caveat, and not a `blocking_gaps`
 entry — this mode runs no researcher for it.
+A gap closed by reading a text already saved in `research/raw/` — the source is registered and its
+saved text holds the provision, so no new retrieval is needed — is `status: weak`: it becomes a
+drafting warning and no researcher is re-run. `missing` means a new text has to be fetched.
 `drafting_warnings[]` is addressed to the client and is printed in the memo: state the limitation
 as the client should read it, with no instruction to the writer and no protocol file name
-(`statutes.json` and the like). `blocking_gaps[].why_blocking` may stay technical, but it is written
-in English too — the run summary prints it after the gap. Do not repeat a warning you already wrote as a gap: one of the two, not both.
+(`statutes.json` and the like). A gap that becomes a drafting warning carries `blocking_gaps[].gap`
+alone, so write `gap` the same way. `blocking_gaps[].why_blocking` is addressed to the researcher
+who closes the gap and stays in this file; it may stay technical, but it is written in
+English too. Do not repeat a warning you already wrote as a gap: one of the two, not both.
 
 The memo itself is written in English. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo

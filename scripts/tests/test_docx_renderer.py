@@ -8,6 +8,7 @@ readable in review and stable across runs. `MEMOFORGE_UPDATE_GOLDEN=1` rewrites 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -27,7 +28,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import i18n  # noqa: E402
+from memoforge import fallbacks, i18n  # noqa: E402
 from memoforge.docx import fallback, oscola, renderer, validate  # noqa: E402
 from test_docx_fallback import (  # noqa: E402
     CASUS_ENDPOINT,
@@ -648,6 +649,75 @@ class StatusSectionTest(GoldenCase):
         self.assertTrue(renderer.footnotes_map(self.result)["status_required"])
         self.render("Body of the memo.\n", final_status="client_ready_on_v2")
         self.assertFalse(renderer.footnotes_map(self.result)["status_required"])
+
+
+RUN_20260922 = Path(__file__).resolve().parent / "fixtures" / "run-20260922"
+
+
+class ForcedExitTextTest(GoldenCase):
+    """D-216: run 74 printed its banner three times and pointed the reader at the wrong section."""
+
+    def forced_exit(self, extra_banners: tuple = ()) -> tuple[str, str]:
+        # Fix round 1: the fixture's own saved banners, stored text "(listed in the appendix)" and all.
+        state = json.loads((RUN_20260922 / "state-exit.json").read_text(encoding="utf-8"))
+        self.assertIn("(listed in the appendix)", state["fallback_banners"][0]["text"])
+        path = self.render(
+            "Body of the memo.\n",
+            final_status=state["final_status"],
+            final_status_reasons=state["final_status_reasons"],
+            banners=[*state["fallback_banners"], *extra_banners],
+            remaining_blocking_issues=state["remaining_blocking_issues"],
+        )
+        with zipfile.ZipFile(path) as archive:
+            text = normalise(archive.read(DOCUMENT_PART))
+        return text, fallbacks.banner("max_iterations_with_blockers", count=1)["text"]
+
+    def test_the_banner_text_is_printed_once_in_the_table_and_once_in_status(self):
+        text, banner_text = self.forced_exit()
+        table, _, rest = text.partition("</w:tbl>")
+        title = renderer.banner_title("forced_exit_on_v3_with_remaining_issues", [])
+        self.assertEqual(1, table.count(escape(title)), "the title alone, not a fallbacks row repeating it")
+        self.assertNotIn(escape(banner_text), table)
+        self.assertNotIn(escape(i18n.t("en", "memo.banner_titles.fallbacks_heading")), table, "no list left")
+        self.assertEqual(1, rest.count(escape(title)))
+        self.assertEqual(1, rest.count(escape(banner_text)))
+        status = rest.partition(f"<w:t>{STATUS_LABEL}</w:t>")[2]
+        self.assertIn(escape(banner_text), status)
+
+    def test_neither_the_table_nor_status_points_at_the_appendix(self):
+        text, banner_text = self.forced_exit()
+        self.assertIn("the Status section", banner_text)
+        self.assertNotIn("appendix", text.lower())
+
+    def test_another_banner_stays_in_the_fallbacks_list(self):
+        other = fallbacks.banner("lint_not_converged")
+        text, banner_text = self.forced_exit((other,))
+        table = text.partition("</w:tbl>")[0]
+        self.assertIn(escape(f"- {other['text']}"), table)
+        self.assertNotIn(escape(banner_text), table)
+
+
+class AppendixLabelTest(GoldenCase):
+    """D-216: the group label is printed only when the appendix holds more than one group."""
+
+    def appendix(self, draft: str) -> str:
+        index = sample_index()
+        index.snapshot_ids.append("stale")
+        index.sources["stale"] = {"citation_form": "Some Circular 2011", "currency": {"status": "manual_check"}}
+        path = self.render(draft, index=index)
+        with zipfile.ZipFile(path) as archive:
+            text = normalise(archive.read(DOCUMENT_PART))
+        return text.partition(escape(APPENDIX_HEADING))[2]
+
+    def test_the_only_group_prints_no_label_under_the_heading(self):
+        appendix = self.appendix("Body [[src:stale]].\n")
+        self.assertIn("Some Circular 2011", appendix)
+        self.assertNotIn(escape(fallback.label("unverified_label")), appendix)
+
+    def test_two_groups_keep_both_labels(self):
+        appendix = self.appendix("Body [[src:stale]] and [[src:ghost]].\n")
+        self.assertIn(escape(fallback.label("unverified_label")), appendix)
+        self.assertIn(escape(fallback.label("unresolved_label")), appendix)
 
 
 class HtmlCommentTest(GoldenCase):

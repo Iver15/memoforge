@@ -222,6 +222,19 @@ class SentenceAndParagraphTest(LintTestCase):
     def test_l02_does_not_count_a_bullet_list_as_one_paragraph(self):
         self.assertNotIn("L-02", self.rules(self.lint(fixture("classical-clean"))))
 
+    def test_a_long_sentence_and_a_long_paragraph_are_minor_and_leave_the_draft_clean(self):
+        # D-216 (owner decision b): readability belongs to the form reviewer; 27 of the 32 majors of
+        # run 74 were L-01/L-02 that passed as `clean` all the same.
+        sentence = " ".join(["word"] * 45) + "."
+        text = fixture("classical-clean").replace("The flow has no withdrawal control today.", sentence)
+        text = text.replace(
+            "The company collects contact data from users located in the EU.", "One. Two. Three. Four."
+        )
+        findings = self.lint(text)
+        self.assertEqual(["minor"], [row["severity"] for row in self.only(findings, "L-01")])
+        self.assertEqual(["minor"], [row["severity"] for row in self.only(findings, "L-02")])
+        self.assertTrue(lint.build_report("0" * 64, findings)["clean"])
+
 
 class StyleRuleTest(LintTestCase):
     def test_l03_flags_an_em_dash_outside_a_definition(self):

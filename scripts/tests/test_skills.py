@@ -430,6 +430,15 @@ class TerminalCopyTest(unittest.TestCase):
                 self.assertIn("connected folder", text)
                 self.assertIn("memoforge/<slug>/", text)
 
+    def test_both_routers_copy_the_folder_whole_and_check_the_count(self):
+        """D-217: one recursive copy of the whole folder, then its file count against `Files:`."""
+        for path in self.FILES:
+            text = read(path)
+            with self.subTest(file=path.name):
+                self.assertIn("`Files:`", text)
+                self.assertIn("recursively", text)
+                self.assertIn("shortfall", text)
+
     def test_a_host_without_the_tools_does_nothing_extra(self):
         for path in self.FILES:
             text = read(path)

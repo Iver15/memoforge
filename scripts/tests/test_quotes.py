@@ -209,14 +209,23 @@ class ExtractTest(QuotesTestCase):
         self.assertIn("Consent must be freely given.", [row["text"] for row in result["candidates"]])
         self.assertEqual({}, quotes.read_quotes(self.work_dir)["quotes"])
 
-    def test_the_default_cap_is_thirty_words_and_it_bites(self):
-        long_sentence = "The controller " + " ".join(["shall"] * 30) + " document the decision."
-        source_id = self.register(text=f"Recital 1\n\n{long_sentence}\n", name="long.md")
-        self.assertEqual(30, limits.QUOTE_DEFAULT_MAX_WORDS)
+    def test_the_default_cap_is_sixty_words_and_it_bites(self):
+        """D-217: one sentence of a provision (Art 33(1) GDPR is 56 words) fits; 61 words do not."""
+        fits = "The controller " + " ".join(["shall"] * 50) + " document the decision."
+        too_long = "The processor " + " ".join(["must"] * 56) + " record the breach."
+        self.assertEqual((55, 61), (quotes.count_words(fits), quotes.count_words(too_long)))
+        source_id = self.register(text=f"Recital 1\n\n{fits} {too_long}\n", name="long.md")
+        self.assertEqual(60, limits.QUOTE_DEFAULT_MAX_WORDS)
+
         result = quotes.extract_quote(self.work_dir, source_id, "The controller shall")
+        self.assertNotIn("errors", result)
+        self.assertEqual(fits, result["text"])
+        self.assertEqual(55, result["words"])
+
+        result = quotes.extract_quote(self.work_dir, source_id, "The processor must")
         self.assertEqual("too_long", result["error"])
         self.assertEqual(limits.QUOTE_DEFAULT_MAX_WORDS, result["max_words"])
-        self.assertGreater(result["words"], limits.QUOTE_DEFAULT_MAX_WORDS)
+        self.assertEqual(61, result["words"])
 
     def test_too_long_without_any_short_enough_sentence_has_no_candidates(self):
         source_id = self.register()
@@ -392,8 +401,9 @@ class LocateTest(QuotesTestCase):
         self.assertEqual("not_found", result["status"])
         hits = [row for row in result["candidates"] if "явно обременительных" in row["text"]]
         self.assertTrue(hits)
-        # The extractor's candidates stop at 30 words; this sentence is longer and still comes back.
-        self.assertGreater(hits[0]["words"], limits.QUOTE_DEFAULT_MAX_WORDS)
+        # Locate has no word cap: this sentence is longer than the extractor's old 30-word default
+        # (D-207; the default is 60 since D-217) and still comes back.
+        self.assertGreater(hits[0]["words"], 30)
         for row in result["candidates"]:
             self.assertEqual(self.raw[row["char_start"] : row["char_end"]], row["text"])
 

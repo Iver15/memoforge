@@ -173,6 +173,15 @@ class QuestionCoverageTest(unittest.TestCase):
                 self.assertIn("word for word", header)
                 self.assertNotIn("restatement of the question", header)
 
+    def test_neither_template_asks_for_the_template_name(self):
+        # D-216: runs 71 and 74 printed `Template: classical-memo` in the client's header.
+        for name in ("executive-brief", "classical-memo"):
+            with self.subTest(template=name):
+                header = read(TEMPLATES / f"{name}.md").split("**Header block**", 1)[1]
+                header = header.split("\n", 1)[0]
+                self.assertIn("date (YYYY-MM-DD), jurisdictions, the question.", header)
+                self.assertNotIn("template name", header)
+
     def test_the_writer_keeps_every_sub_question_addressable(self):
         rules = read(agent_files()["memo-writer"]).split("## Rules", 1)[1].split("\n## ", 1)[0]
         self.assertIn("sub-question", rules)
@@ -341,6 +350,57 @@ class CourtWordsTest(unittest.TestCase):
         for needle in ("`mf quote locate`", "up to five", "gap for `case_law`"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, rules)
+
+
+def rules_of(stem: str) -> str:
+    return read(AGENTS / f"{stem}.md").split("## Rules", 1)[1].split("\n## ", 1)[0]
+
+
+class SourcedDirectionTest(unittest.TestCase):
+    """D-215: a reviewer needs a pack source to turn a conclusion; the writer marks what rests on an assumption."""
+
+    DIRECTION = ("logic-reviewer", "counterargument-reviewer", "revision-mediator", "client-readiness-reviewer")
+
+    def test_the_reviewers_and_the_mediator_turn_a_conclusion_only_with_a_pack_source(self):
+        for stem in self.DIRECTION:
+            with self.subTest(agent=stem):
+                rules = rules_of(stem)
+                self.assertIn("direction of a conclusion", rules)
+                self.assertIn("pack source", rules)
+                self.assertIn("the writer's call", rules)
+                text = " ".join(read(PROMPTS / f"{stem}.md").split())
+                for needle in (
+                    "changes the direction of a conclusion",
+                    "a source of the frozen source pack",
+                    "resolve a stated contradiction or to add the opposing argument",
+                    "the direction stays the writer's call",
+                    "the draft's own conditions",
+                ):
+                    self.assertIn(needle, text)
+
+    def test_no_limitation_becomes_an_instruction_to_delay_a_statutory_step(self):
+        for stem in ("client-readiness-reviewer", "memo-writer"):
+            with self.subTest(agent=stem):
+                self.assertIn("delay a statutory step", rules_of(stem))
+                self.assertIn("delay a statutory step", " ".join(read(PROMPTS / f"{stem}.md").split()))
+        readiness = " ".join(read(PROMPTS / "client-readiness-reviewer.md").split())
+        self.assertIn("already discloses and that changes no conclusion", readiness)
+        self.assertIn("already discloses", rules_of("client-readiness-reviewer"))
+
+    def test_the_writer_marks_a_conclusion_that_rests_on_an_assumption(self):
+        self.assertIn("on the assumed facts", rules_of("memo-writer"))
+        text = " ".join(read(PROMPTS / "memo-writer.md").split())
+        self.assertIn("depends on an assumption rather than on a stated fact", text)
+        self.assertIn('"on the assumed facts"', text)
+
+    def test_a_gap_closed_from_a_saved_text_is_weak_and_why_blocking_stays_with_the_researcher(self):
+        rules = rules_of("research-sufficiency-reviewer")
+        text = " ".join(read(PROMPTS / "research-sufficiency-reviewer.md").split())
+        for body in (rules, text):
+            self.assertIn("already saved in `research/raw/`", body)
+            self.assertIn("a new text has to be fetched", body)
+            self.assertIn("addressed to the researcher", body)
+            self.assertNotIn("the run summary prints it after the gap", body)
 
 
 class PlaceholderTest(unittest.TestCase):

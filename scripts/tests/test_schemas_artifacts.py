@@ -517,6 +517,49 @@ class ClientReadinessSchemaTest(unittest.TestCase):
                 self.assertTrue(errors_for("client-readiness", dict(report, dispositions=[broken])))
 
 
+class OpenSubstanceMajorRowSchemaTest(unittest.TestCase):
+    """D-213: `severity`, `blocker_of` and `disposition_note` are optional fields of an open-finding row."""
+
+    ROW = {
+        "id": "om-4",
+        "class": "citations",
+        "reviewer": "citations",
+        "section_id": "s-4-2",
+        "category": "rule_not_in_source",
+        "issue_category": "unsupported_claim",
+        "issue": "Section 168(2)-(3) confers no power to bring proceedings.",
+        "issue_client": None,
+        "suggestion": "Withdraw the statement or qualify it.",
+        "from_iteration": 3,
+        "origin": "loop",
+        "status": "open",
+    }
+    LINK = {"section_id": "s-4-2", "category": "rule_not_in_source", "issue": ROW["issue"]}
+
+    def errors(self, row: dict) -> list[str]:
+        definitions = load_schema("state")["$defs"]
+        schema = {"$defs": definitions, "$ref": "#/$defs/open_substance_major"}
+        return [error.message for error in Draft202012Validator(schema).iter_errors(row)]
+
+    def test_a_row_written_before_d213_is_valid(self):
+        self.assertEqual([], self.errors(dict(self.ROW)))
+
+    def test_the_new_fields_are_accepted(self):
+        row = dict(self.ROW, severity="blocker", blocker_of=dict(self.LINK), disposition_note="Withdrawn in 4.2.")
+        self.assertEqual([], self.errors(row))
+        self.assertEqual([], self.errors(dict(self.ROW, disposition_note="A lawyer checks the pinpoint.")))
+
+    def test_the_new_fields_are_closed(self):
+        for broken in (
+            dict(self.ROW, severity="major"),
+            dict(self.ROW, severity="blocker", blocker_of={"section_id": "s-4-2", "issue": "x"}),
+            dict(self.ROW, severity="blocker", blocker_of=dict(self.LINK, extra=1)),
+            dict(self.ROW, disposition_note=7),
+        ):
+            with self.subTest(row=broken):
+                self.assertTrue(self.errors(broken))
+
+
 class QuotesSchemaTest(unittest.TestCase):
     def _skip(self, **overrides) -> dict:
         skip = {

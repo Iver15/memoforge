@@ -1,0 +1,115 @@
+{
+  "iteration": 2,
+  "instructions": [
+    {
+      "section_id": "s-5-4",
+      "source_reviewer": "citations",
+      "category": "rule_not_in_source",
+      "severity": "blocker",
+      "instruction": "5.4 cites Article 12A for the rule that a client's informal question 'needs no particular form' and is a request under the access provision. Article 12A, read whole, only defines the applicable time period (one month from receipt of the request, extension, and pausing the clock). It says nothing about the form of a request or what counts as one. The summary's 'within one month of their informal query' rests on this premise. Keep Article 12A for the one-month period running from receipt. Withdraw the 'needs no particular form' premise from that citation, or support it with a pack source that actually states it, cited as the regulator's reading if it is ICO guidance."
+    },
+    {
+      "section_id": "s-4-2",
+      "source_reviewer": "logic",
+      "category": "authority_weight",
+      "severity": "major",
+      "instruction": "The sentence 'The CJEU has held that an infringement alone is not damage and that the claimant must show damage, although no seriousness threshold applies' presents a post-exit CJEU ruling as the rule governing the clients' claims. It carries no persuasive-only marker, although the 'no seriousness threshold' point lowers the bar for claimants and feeds the medium compensation verdict. Mark the C-741/21 holding as persuasive only in that sentence, as 4.1 and 5.3 do. State that the medium verdict does not depend on UK courts adopting the no-threshold rule, or say how the verdict would change if they applied a seriousness threshold."
+    },
+    {
+      "section_id": "s-5-3",
+      "source_reviewer": "counterarguments",
+      "category": "unnamed_consequence",
+      "severity": "major",
+      "instruction": "The recommendation to contact individuals and sole traders, and to send statements to corporate clients who ask, will tell clients who did not know about the breach that their details were taken unlawfully. That enlarges the group able to bring Article 82 claims or s 164A complaints, which 4.2 rates as a real exposure. The memo does not name this consequence or connect 5.3 to 4.2. Say in 5.3 that communicating does not remove, and will probably increase, the compensation and complaints exposure described in 4.2 and 7.3. The Article 34 duty still governs. Recommend that the communication be factual, make no admission of a security failure, and be approved by Legal alongside the 4.2 claims log."
+    },
+    {
+      "section_id": "s-6-1",
+      "source_reviewer": "counterarguments",
+      "category": "overstated_confidence",
+      "severity": "major",
+      "instruction": "Section 1 and 6.1 treat the claim over the notice-period copying as firm ('relying firmly on the copying during the notice period'; 'The firm claim is therefore the copying itself'). Under the Faccenda framework set out in Hattons, the duty during employment covers information the employee is told is confidential or that is obviously confidential. The draft neither assumes nor shows that bare client contact details met that test, and the clause wording is left as an open question. The former employee's counsel will argue first that the names and numbers were not confidential at all. Qualify 'firmly'. The notice-period claim is the stronger of the two civil claims, but it depends on showing that the client list was treated as confidential or was obviously so (through access restriction, confidentiality marking or the clause wording) and that its entries were not freely available. Name that as the fact that would weaken the claim, next to the existing trigger about personal connections and public sources."
+    },
+    {
+      "section_id": "s-6-1",
+      "source_reviewer": "form",
+      "category": "unexplained_term",
+      "severity": "major",
+      "instruction": "'Duty of fidelity' is used as a load-bearing legal ground for the letter-before-action ('still bound by the duty of fidelity and by the duty to keep confidential information confidential') without ever being explained, and the same gap applies to 'quantum' in the scope paragraph and 'special category data' in the Facts. Add a short operational gloss on first use, e.g. 'the duty of fidelity — the implied duty not to act against the employer's interests during employment', matching the term-then-definition form already used in section 2."
+    }
+  ],
+  "dropped": [
+    {
+      "section_id": "s-3",
+      "source_reviewer": "logic",
+      "category": "unmapped_assumption",
+      "severity": "minor",
+      "issue": "Two assumptions that drive conclusions have no open question and are not marked as immaterial. One is the sector assumption, which drives 5.1's ICO-only conclusion. The other is the client-queries assumption, which drives 5.4 and 7.3. The direct-collection presumption in 5.4 ('presumably collected its clients' details directly') is also absent from the assumptions list.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-4-2",
+      "source_reviewer": "citations",
+      "category": "pinpoint_misdirected",
+      "severity": "minor",
+      "issue": "'An employee pursuing only their own interests falls outside that test' is pinpointed to UKSC Morrisons paras 2-7, which set out the facts. The Court states the distinction in para 47.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-4-2",
+      "source_reviewer": "logic",
+      "category": "unmapped_assumption",
+      "severity": "minor",
+      "issue": "The causation reasoning that sets the 4.2 verdict treats 'the employee's route to a bulk copy was the database export' as given. The assumptions only say exports were unmonitored, and the logs open question lists sections 4.1 and 7.1 but not 4.2.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-4-2",
+      "source_reviewer": "counterarguments",
+      "category": "untested_contrary_authority",
+      "severity": "minor",
+      "issue": "4.2 states that 'no seriousness threshold applies' to damage on the basis of C-741/21, without saying in that sentence that the ruling is persuasive only. It also relies on 'a representative route is open', while Lloyd v Google, which the research excluded as irrelevant to damages when 4.2 now addresses damages, is recorded only as 'not reviewed'. Whether UK law applies a seriousness threshold to distress claims over basic contact details is therefore unresolved on this record.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-5-1",
+      "source_reviewer": "counterarguments",
+      "category": "unnamed_consequence",
+      "severity": "minor",
+      "issue": "5.1 presents notification only as a mitigating factor ('A prompt notification therefore also mitigates'). Under Article 33(3) the notification must describe the measures taken or proposed. On the assumed facts, that will show the ICO there was no export monitoring and no notice-period access review, which makes the ICO the first to test the demonstrability question that 4.1 says the company will struggle with.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-5-2",
+      "source_reviewer": "citations",
+      "category": "silence_overstated",
+      "severity": "minor",
+      "issue": "'No court decision addresses the content of the record' asserts an absolute silence. The research record only says that no UK judgment was found in a Find Case Law search that included the GRC.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-5-3",
+      "source_reviewer": "counterarguments",
+      "category": "overstated_confidence",
+      "severity": "minor",
+      "issue": "The conclusion that the Article 34 high-risk trigger 'is probably already met' for individuals and sole traders rests only on the assertion that unlawful possession of home addresses and personal numbers 'is more than a sales nuisance'. The memo admits there is no case law, and the ICO's own risk examples (sensitive information of vulnerable people, financial information leading to fraud, risks to safety, money, job or home) do not obviously cover this.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-6-3",
+      "source_reviewer": "counterarguments",
+      "category": "unnamed_trigger",
+      "severity": "minor",
+      "issue": "The Article 6(11)(a) counterargument is resolved with 'For business contacts the company's leverage therefore rests on Article 14, the balancing test and section 170'. The memo does not say what would tip the balancing test to the former employee.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    },
+    {
+      "section_id": "s-6-3",
+      "source_reviewer": "form",
+      "category": "filler_announcement",
+      "severity": "minor",
+      "issue": "'Two points follow, and they are separate.' tells the reader what the next two paragraphs will do instead of making an argument, which is the house style's named anti-pattern for paragraphs that announce themselves.",
+      "reason": "minor finding; substance blockers take priority this iteration"
+    }
+  ],
+  "draft_sha": "6e5bcc35813e7bb43c83bb9bffbd27d5439eb80b140c723539b10c62a740ceb3"
+}

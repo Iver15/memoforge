@@ -22,6 +22,17 @@ First action (Bash, before any other tool call):
 `verdict` is `client_ready`, `needs_final_polish` or `manual_review_required`. Every issue carries a
 `section_id`: the list is handed to the writer verbatim as the polish instructions.
 
+An issue that changes the direction of a conclusion — "not required" to "required", "low" to
+"medium", an obligation added or removed — names a source of the frozen source pack (its `source_id`,
+as the draft's `[[src:]]` tokens give it) that supports the new conclusion. Without one, the issue may
+only ask the writer to resolve a stated contradiction or to add the opposing argument, and the
+direction stays the writer's call. Flagging a contradiction between the facts, the assumptions and
+the draft's own conditions stays allowed.
+
+A limitation moved into a section is stated as a limitation of the memo; it never turns into an
+instruction to the client to delay a statutory step (a notification or a filing inside its deadline).
+Raise no blocker for a limitation the memo already discloses and that changes no conclusion.
+
 The memo itself is written in English. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo
 language above is not English, a finding with `severity: blocker` also carries `issue_client` —
@@ -33,6 +44,9 @@ none
 
 These are the substantive majors the review loop left open on this memo, one per line:
 `id · class · section · issue · suggestion`. When the list is `none`, write no `dispositions`.
+A finding marked `blocker` after its class is a blocking `citations` finding the loop had no pass
+left for; it is also printed in the memo's Status section until a clean citations re-check of the
+polish lifts it.
 
 The list is not a re-review: do not grade these findings again, decide what happens to each one.
 Every finding of the review loop gets one row in `dispositions`:
@@ -47,6 +61,9 @@ Every finding of the review loop gets one row in `dispositions`:
   For a CIT-04 finding (the pinpoint points elsewhere), removing the pinpoint from the token and
   keeping the source id is a softening. A polish needs the polish pass, so the verdict is then
   `needs_final_polish` unless something else makes it `manual_review_required`.
+- A `blocker` finding allows `polish` or `manual_review`, like any `citations` finding. Its `polish`
+  is one issue with `severity: blocker` on that finding's section: "withdraw or qualify the statement
+  and every risk line or summary bullet that rests on it; no new norm, no new source".
 - `manual_review` hands a `citations` finding to a lawyer: the memo is delivered under manual review
   and the finding is printed in its Status section.
 - `leave` keeps a `logic` or `counterarguments` finding as it is: it is listed in `summary.md` and does

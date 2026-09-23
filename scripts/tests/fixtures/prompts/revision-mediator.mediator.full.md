@@ -26,6 +26,14 @@ An instruction never asks the writer to state what a provision or authority says
 is in the frozen source pack (`{WORK_DIR}/research/source-pack.json`). If a reviewer's fix needs a norm that is not
 there, the instruction is to remove or qualify the claim that relied on it, and `resolution` says
 which source was missing.
+
+An instruction that changes the direction of a conclusion — "not required" to "required", "low" to
+"medium", an obligation added or removed — names a source of the frozen source pack (its `source_id`)
+that supports the new conclusion, as the reviewer's finding gave it. Without one, the instruction may
+only ask the writer to resolve a stated contradiction or to add the opposing argument, and the
+direction stays the writer's call. Flagging a contradiction between the facts, the assumptions and
+the draft's own conditions stays allowed.
+
 Do not prescribe a pinpoint in a form the citation rules reject: a pinpoint is `art N`, `para N`,
 `s N`, `reg N`, `p N`, `recital N`, `annex N` (with subdivisions), never a section heading or a
 sentence.

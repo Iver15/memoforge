@@ -18,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import i18n, modes, review, schema, state_io, stepctx, task  # noqa: E402
+from memoforge import i18n, limits, modes, review, schema, state_io, stepctx, task  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 DRAFT_SHA = "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e"
@@ -803,6 +803,48 @@ class MediatorTest(unittest.TestCase):
         self.assertEqual([], schema.validate(document, "mediator"))
 
 
+RUN_20260922 = Path(__file__).resolve().parent / "fixtures" / "run-20260922"
+"""D-212: `iterations[]` of the 2026-09-22 run and the `reviews/v2-mediator.json` it published."""
+
+
+def run_74_json(name: str):
+    return json.loads((RUN_20260922 / name).read_text(encoding="utf-8-sig"))
+
+
+class TargetedMediatorTest(unittest.TestCase):
+    """D-212: with `only`, the mediator names those issues and drops every other one."""
+
+    def setUp(self):
+        self.v2 = run_74_json("state-iterations.json")[1]
+        self.blocker = next(row for row in self.v2["issues"] if row["severity"] == "blocker")
+
+    def test_without_only_the_output_is_what_the_run_published(self):
+        published = run_74_json("v2-mediator.json")
+        document = review.build_mediator(self.v2)
+        self.assertEqual(published, document)
+        self.assertEqual(state_io.dumps(published), state_io.dumps(document))
+        self.assertEqual(review.build_mediator(self.v2), review.build_mediator(self.v2, only=None))
+
+    def test_only_names_the_blockers_and_drops_the_majors_and_minors(self):
+        document = review.build_mediator(self.v2, only=[self.blocker])
+        self.assertEqual([], schema.validate(document, "mediator"))
+        self.assertEqual(["s-5-4"], [row["section_id"] for row in document["instructions"]])
+        self.assertEqual(run_74_json("v2-mediator.json")["instructions"][:1], document["instructions"])
+        self.assertEqual(13, len(document["dropped"]))
+        self.assertEqual(
+            {"targeted pass: only the named blockers are fixed"}, {row["reason"] for row in document["dropped"]}
+        )
+        self.assertEqual(
+            {"major": 4, "minor": 9},
+            {
+                severity: len([row for row in document["dropped"] if row["severity"] == severity])
+                for severity in ("major", "minor")
+            },
+        )
+        self.assertEqual(2, document["iteration"])
+        self.assertEqual(self.v2["draft_sha"], document["draft_sha"])
+
+
 class FixtureShapeTest(unittest.TestCase):
     def test_every_review_fixture_is_schema_valid(self):
         for path in sorted(FIXTURES.glob("*.json")):
@@ -1199,6 +1241,229 @@ class PolishRecheckReadTest(unittest.TestCase):
         self.assertEqual((False, ["output_modified_after_publish"]), (drifted["valid"], drifted["errors"]))
         (work_dir / self.CANONICAL).unlink()
         self.assertEqual(["missing_review_file"], review.read_polish_recheck(work_dir, state, 2, DRAFT_SHA)["errors"])
+
+
+SHA_V1 = "1" * 64
+SHA_V2 = "2" * 64
+SHA_OTHER = "f" * 64
+
+CARRY_DRAFT = """# Memo
+
+## 1. Executive summary
+
+The notice is due within one month [[src:uk-gdpr-art-14]].
+
+## 2. Analysis
+
+### 2.1 Group claims
+
+A representative body may bring the claim [[src:dpa-2018-s168]].
+
+### 2.2 Information duties
+
+The controller must also inform the data subject [[src:uk-gdpr-art-13]], as the regulator explains
+[[src:ico-right-to-be-informed]].
+"""
+"""D-214: the draft under review at v2 — two pairs the v1 review saw, one new statute pair, one doctrine pair."""
+
+CARRY_REGISTRY = {
+    "uk-gdpr-art-14": "statutes",
+    "uk-gdpr-art-13": "statutes",
+    "dpa-2018-s168": "statutes",
+    "lloyd-v-google": "case_law",
+    "ico-right-to-be-informed": "doctrine",
+}
+
+
+def carry_row(source_id: str, section_id: str, status: str) -> dict:
+    return {"source_id": source_id, "section_id": section_id, "status": status, "finding_disagrees": False,
+            "note": "D-214 fixture row."}
+
+
+def citations_review(iteration: int, draft_sha: str, rows: list[dict]) -> dict:
+    """A valid `citations` review of `iteration` with the given `text_checks` rows."""
+    document = fixture("v1-citations")
+    document.update(iteration=iteration, draft_sha=draft_sha, text_checks=rows)
+    return document
+
+
+class UncheckedPairsTest(unittest.TestCase):
+    """D-214: the cited statute and case-law pairs no earlier text check reached, for the next citations reviewer."""
+
+    def setUp(self):
+        self.work_dir = Path(tempfile.mkdtemp(prefix="mf-carry-"))
+        self.addCleanup(shutil.rmtree, self.work_dir, ignore_errors=True)
+        (self.work_dir / "reviews").mkdir()
+        (self.work_dir / "research").mkdir()
+        registry = {
+            "schema_version": 2,
+            "sources": {source_id: {"layer": layer} for source_id, layer in CARRY_REGISTRY.items()},
+        }
+        (self.work_dir / "research" / "sources.json").write_text(json.dumps(registry), encoding="utf-8")
+        self.state = {
+            "language": "en",
+            "current_iteration": 2,
+            "current_draft_sha": SHA_V2,
+            "iterations": [{"iteration": 1, "draft_sha": SHA_V1}],
+            "published": [],
+        }
+
+    def put(self, iteration: int, document: dict, *, publish_it: bool = True) -> Path:
+        canonical = review.review_path(iteration, "citations")
+        path = self.work_dir / canonical
+        path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+        if publish_it:
+            self.state["published"].append({"canonical_path": canonical, "sha256": state_io.sha256_file(path)})
+        return path
+
+    def v1(self, draft_sha: str = SHA_V1) -> dict:
+        return citations_review(
+            1,
+            draft_sha,
+            [carry_row("uk-gdpr-art-14", "s-1", "confirmed"), carry_row("dpa-2018-s168", "s-2-1", "not_reached")],
+        )
+
+    def pairs(self, iteration: int = 2, draft: str = CARRY_DRAFT) -> list[tuple]:
+        rows = review.unchecked_pairs(self.work_dir, self.state, iteration, draft)
+        return [(row["source_id"], row["section_id"], row["reason"]) for row in rows]
+
+    ALL_NEVER = [
+        ("uk-gdpr-art-14", "s-1", "never_checked"),
+        ("dpa-2018-s168", "s-2-1", "never_checked"),
+        ("uk-gdpr-art-13", "s-2-2", "never_checked"),
+    ]
+
+    def test_the_unreached_pair_comes_first_then_the_new_statute_pair_and_no_doctrine(self):
+        self.put(1, self.v1())
+        self.assertEqual(
+            [("dpa-2018-s168", "s-2-1", "not_reached"), ("uk-gdpr-art-13", "s-2-2", "never_checked")],
+            self.pairs(),
+        )
+
+    def test_the_rows_carry_exactly_the_three_fields(self):
+        self.put(1, self.v1())
+        rows = review.unchecked_pairs(self.work_dir, self.state, 2, CARRY_DRAFT)
+        self.assertEqual(
+            {"source_id": "dpa-2018-s168", "section_id": "s-2-1", "reason": "not_reached"}, rows[0]
+        )
+
+    def test_iteration_one_carries_nothing(self):
+        self.put(1, self.v1())
+        self.assertEqual([], self.pairs(iteration=1))
+
+    def test_the_list_is_capped_in_section_order(self):
+        self.assertEqual(10, limits.CARRY_OVER_MAX)
+        sections = "\n".join(f"## {n}. Part {n}\n\nRule [[src:uk-gdpr-art-14]].\n" for n in range(1, 13))
+        pairs = self.pairs(draft=f"# Memo\n\n{sections}")
+        self.assertEqual([("uk-gdpr-art-14", f"s-{n}", "never_checked") for n in range(1, 11)], pairs)
+
+    def test_a_case_law_pair_is_carried_and_orders_by_section_then_source(self):
+        draft = CARRY_DRAFT + "\nThe court awarded nothing [[src:lloyd-v-google]] [[src:dpa-2018-s168]].\n"
+        self.put(1, self.v1())
+        self.assertEqual(
+            [
+                ("dpa-2018-s168", "s-2-1", "not_reached"),
+                ("dpa-2018-s168", "s-2-2", "never_checked"),
+                ("lloyd-v-google", "s-2-2", "never_checked"),
+                ("uk-gdpr-art-13", "s-2-2", "never_checked"),
+            ],
+            self.pairs(draft=draft),
+        )
+
+    def test_an_unpublished_review_contributes_nothing(self):
+        self.put(1, self.v1(), publish_it=False)
+        self.assertEqual(self.ALL_NEVER, self.pairs())
+
+    def test_a_drifted_review_contributes_nothing(self):
+        path = self.put(1, self.v1())
+        path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        self.assertEqual(self.ALL_NEVER, self.pairs())
+
+    def test_a_stub_contributes_nothing(self):
+        stub = {"reviewer": "citations", "status": "failed", "reason": "gave up", "iteration": 1,
+                "draft_sha": SHA_V1}
+        self.put(1, stub)
+        self.assertEqual(self.ALL_NEVER, self.pairs())
+
+    def test_a_review_valid_only_for_another_sha_contributes_nothing(self):
+        for sha in (SHA_OTHER, SHA_V2):  # SHA_V2: the current draft's sha is never the yardstick
+            with self.subTest(sha=sha):
+                self.state["published"] = []
+                self.put(1, self.v1(draft_sha=sha))
+                self.assertEqual(self.ALL_NEVER, self.pairs())
+
+    def test_an_invalid_review_contributes_nothing(self):
+        document = self.v1()
+        document["checklist"] = document["checklist"][:-1]
+        self.put(1, document)
+        self.assertEqual(self.ALL_NEVER, self.pairs())
+
+    def test_a_review_valid_for_its_own_sha_counts_while_the_current_sha_differs(self):
+        self.put(1, self.v1())
+        self.assertNotEqual(self.state["current_draft_sha"], self.state["iterations"][0]["draft_sha"])
+        self.assertEqual(("dpa-2018-s168", "s-2-1", "not_reached"), self.pairs()[0])
+
+    def test_the_targeted_iteration_s_review_counts_and_its_row_is_the_latest(self):
+        self.put(1, self.v1())
+        self.state["iterations"].append({"iteration": 2, "draft_sha": SHA_V2})
+        self.state["targeted_fix"] = {"iteration": 2, "reviewers": ["citations"]}
+        self.put(2, citations_review(2, SHA_V2, [carry_row("dpa-2018-s168", "s-2-1", "confirmed")]))
+        self.assertEqual([("uk-gdpr-art-13", "s-2-2", "never_checked")], self.pairs(iteration=3))
+
+    def test_a_later_not_reached_row_overrides_an_earlier_check(self):
+        self.put(1, self.v1())
+        self.state["iterations"].append({"iteration": 2, "draft_sha": SHA_V2})
+        self.put(2, citations_review(2, SHA_V2, [carry_row("uk-gdpr-art-14", "s-1", "not_reached")]))
+        self.assertEqual(
+            [
+                ("uk-gdpr-art-14", "s-1", "not_reached"),
+                ("dpa-2018-s168", "s-2-1", "not_reached"),
+                ("uk-gdpr-art-13", "s-2-2", "never_checked"),
+            ],
+            self.pairs(iteration=3),
+        )
+
+    def test_the_polish_recheck_is_never_read(self):
+        self.put(1, self.v1())
+        canonical = review.review_path(1, review.POLISH_RECHECK)
+        path = self.work_dir / canonical
+        path.write_text(
+            json.dumps(citations_review(1, SHA_V1, [carry_row("uk-gdpr-art-13", "s-2-2", "confirmed")])),
+            encoding="utf-8",
+        )
+        self.state["published"].append({"canonical_path": canonical, "sha256": state_io.sha256_file(path)})
+        self.assertIn(("uk-gdpr-art-13", "s-2-2", "never_checked"), self.pairs())
+
+
+class AdjacentLimbBlockerTest(unittest.TestCase):
+    """D-214 (gate R1-5): a sibling limb left out is a CIT-02 fail, so its issue must be a `source_drift` blocker."""
+
+    ISSUE = {
+        "category": "sibling_limb_omitted",
+        "section_id": "s-4-2",
+        "issue": "4.2 relies on Art 14(3)(b) and leaves out the one-month outer limit of Art 14(3)(a) beside it.",
+        "suggestion": "State the one-month limit of Art 14(3)(a) the facts engage, or qualify the timing as open.",
+        "checklist_id": "CIT-02",
+        "issue_category": "source_drift",
+    }
+
+    def document(self, severity: str) -> dict:
+        document = fixture("v1-citations")
+        cit02 = next(row for row in document["checklist"] if row["id"] == "CIT-02")
+        cit02.update({"pass": False, "evidence": "4.2 omits the Art 14(3)(a) limit in the same paragraph."})
+        document["issues"] = [dict(self.ISSUE, severity=severity)]
+        document["verdict"] = "needs_revision"
+        return document
+
+    def test_a_source_drift_blocker_passes(self):
+        result = review.validate_document("citations", self.document("blocker"))
+        self.assertEqual([], result["errors"])
+        self.assertEqual(1, result["blockers"])
+
+    def test_the_same_issue_as_a_major_fails_the_hard_fail_rule(self):
+        result = review.validate_document("citations", self.document("major"))
+        self.assertFalse(result["valid"])
+        self.assertIn("missing_blocker_for_hard_fail: CIT-02", result["errors"])
 
 
 class NoPreD40WrappersTest(unittest.TestCase):

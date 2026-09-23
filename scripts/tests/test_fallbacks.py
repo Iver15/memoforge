@@ -134,6 +134,34 @@ class BannerLanguageTest(unittest.TestCase):
         self.assertEqual("x", fallbacks.banner_text_for({"banner_id": "nope", "text": "x"}, "ru"))
         self.assertEqual("plain", fallbacks.banner_text_for("plain", "ru"))
 
+    def test_a_banner_whose_wording_changed_is_re_rendered_in_english_too(self):
+        # D-216: a state saved before the change stores "(listed in the appendix)"; the deliverable
+        # prints the current wording from `banner_id` + `params`, in English as in any language.
+        old = {
+            "banner_id": "unresolved_blockers",
+            "condition_key": "max_iterations_with_blockers",
+            "text": "REVIEWER NOTES NOT FULLY RESOLVED — 1 blocking issue(s) remain (listed in the appendix).",
+            "params": {"count": "1"},
+        }
+        self.assertEqual(
+            fallbacks.banner("max_iterations_with_blockers", count=1)["text"], fallbacks.banner_text_for(old, "en")
+        )
+        readiness = {
+            "banner_id": "manual_review_required",
+            "text": "Client-readiness: manual_review_required. Blocking issues listed in the appendix.",
+        }
+        self.assertEqual(
+            fallbacks.banner("client_readiness_manual_review")["text"], fallbacks.banner_text_for(readiness, "en")
+        )
+        self.assertNotIn("appendix", fallbacks.banner_text_for(readiness, "en"))
+        # Without its params the row cannot be re-rendered; its stored text stands.
+        legacy = {key: value for key, value in old.items() if key != "params"}
+        self.assertEqual(old["text"], fallbacks.banner_text_for(legacy, "en"))
+
+    def test_an_english_banner_whose_wording_did_not_change_keeps_its_stored_text(self):
+        row = {"banner_id": "no_checked_draft", "text": "No draft version passed lint and citation checks."}
+        self.assertEqual(row["text"], fallbacks.banner_text_for(row, "en"))
+
     def test_publish_failed_keeps_its_failure_class_in_every_language(self):
         """D-181: `_publish_failed_banner` used to append ` (PermissionError)` to the stored
         text, which `banner_text_for` then dropped when it re-rendered the row from the pack.

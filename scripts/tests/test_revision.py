@@ -8,12 +8,25 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import limits, modes, review, revision, schema, state_io, task  # noqa: E402
+from memoforge import (  # noqa: E402
+    events,
+    limits,
+    machine,
+    modes,
+    render,
+    review,
+    revision,
+    schema,
+    state_io,
+    stepctx,
+    task,
+)
 
 LINT_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 TASK_ID = "memo-20260908T120000Z-fixture"
@@ -100,6 +113,13 @@ CITATION_OTHER = issue(
     section_id="s-4-3",
     issue_category="source_drift",
     text="The pinpoint of the cited article moved.",
+)
+PACK_MISMATCH = issue(
+    "citations",
+    category="source_pack_mismatch",
+    section_id="s-4-4",
+    issue_category="source_pack_mismatch",
+    text="The cited guidance is used against its pack role.",
 )
 
 
@@ -641,7 +661,7 @@ class TargetedFixTest(unittest.TestCase):
     def test_branch_9_needs_only_citation_token_blockers(self):
         cases = (
             ("a logic blocker joins them", (MISSING_TOKEN, GROUNDED_LOGIC)),
-            ("another citations category", (MISSING_TOKEN, CITATION_OTHER)),
+            ("a pack-mismatch citations blocker", (MISSING_TOKEN, PACK_MISMATCH)),
             ("a deterministic blocker joins them", (MISSING_TOKEN, GROUNDED)),
             ("three missing tokens", (missing_token("s-1"), missing_token("s-2"), missing_token("s-3"))),
             ("a form blocker is still open", (MISSING_TOKEN, FORM_BLOCKER)),
@@ -651,6 +671,30 @@ class TargetedFixTest(unittest.TestCase):
                 decision = self.decide(2, issues=issues)
                 self.assertEqual(8, decision["branch"])
                 self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_branch_9_takes_an_unsupported_claim_and_a_source_drift_together(self):
+        # D-212, run of 2026-09-19: one `source_drift` blocker used to shut branch 9 for the other one.
+        decision = self.decide(2, issues=(MISSING_TOKEN, CITATION_OTHER))
+        self.assertEqual(9, decision["branch"])
+        self.assertTrue(decision["targeted"])
+        self.assertIsNone(decision["final_status"])
+
+    def test_a_source_pack_mismatch_blocker_still_closes_the_loop(self):
+        decision = self.decide(2, issues=(PACK_MISMATCH,))
+        self.assertEqual(8, decision["branch"])
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
+
+    def test_targeted_blockers_are_the_citations_substance_blockers_of_the_targeted_categories(self):
+        rebuilt = record(
+            iteration=2,
+            issues=(MISSING_TOKEN, CITATION_OTHER, PACK_MISMATCH, GROUNDED_LOGIC, MAJOR_CITATIONS, FORM_BLOCKER),
+        )
+        self.assertEqual(("unsupported_claim", "source_drift"), revision.TARGETED_FIX_CATEGORIES)
+        self.assertEqual([MISSING_TOKEN, CITATION_OTHER], revision.targeted_blockers(rebuilt))
+        merged = dict(
+            issue("logic", checklist_id="LOG-02", issue_category="source_drift"), provenance=["logic", "citations"]
+        )
+        self.assertEqual([merged], revision.targeted_blockers(record(iteration=2, issues=(merged,))))
 
     def test_branch_9_does_not_pre_empt_a_normal_iteration(self):
         decision = self.decide(1, issues=(MISSING_TOKEN,))
@@ -783,9 +827,13 @@ class RunOfSeptember21Test(unittest.TestCase):
         self.assertTrue(decision["targeted"])
         self.assertIsNone(decision["final_status"])
 
-    def test_the_same_error_labelled_as_drift_closes_the_loop(self):
-        # (b) why rule 7 binds the category: `source_drift` is outside branch 9, so the memo exits.
+    def test_the_same_error_labelled_as_drift_joins_the_targeted_pass_too(self):
+        # (b) D-212: `source_drift` is a targeted category now, so the label no longer closes the loop;
+        # a `source_pack_mismatch` label still does.
         decision = self.decide(run_record(2, citations_blocker("s-9", "source_drift", S9_RULE)))
+        self.assertEqual(9, decision["branch"])
+        self.assertTrue(decision["targeted"])
+        decision = self.decide(run_record(2, citations_blocker("s-9", "source_pack_mismatch", S9_RULE)))
         self.assertEqual(8, decision["branch"])
         self.assertEqual("forced_exit_on_v2_with_remaining_issues", decision["final_status"])
 
@@ -810,6 +858,280 @@ class RunOfSeptember21Test(unittest.TestCase):
         decision = self.decide(rebuilt, targeted_fix_used=1)
         self.assertEqual(4, decision["branch"])
         self.assertEqual("approved_on_v3", decision["final_status"])
+
+
+RUN_20260922 = Path(__file__).resolve().parent / "fixtures" / "run-20260922"
+"""D-212: `iterations[]` of the 2026-09-22 run and the `reviews/v2-mediator.json` it published."""
+TARGETED_REASON = "targeted pass: only the named blockers are fixed"
+
+
+def run_74_records() -> list[dict]:
+    return json.loads((RUN_20260922 / "state-iterations.json").read_text(encoding="utf-8-sig"))
+
+
+def render_args(work_dir: Path) -> argparse.Namespace:
+    """`mf render mediator --iteration 2` without a step, the way a manual call renders the view."""
+    return argparse.Namespace(
+        workdir=str(work_dir),
+        view="mediator",
+        iteration=2,
+        step=None,
+        attempt=1,
+        out=None,
+        print_markdown=False,
+        layer=None,
+    )
+
+
+class RunOfSeptember22Test(unittest.TestCase):
+    """D-212: branch 9 of the 2026-09-22 run handed the writer 1 blocker + 4 majors; it gets the blocker only."""
+
+    def test_the_targeted_mediator_names_the_blocker_and_drops_everything_else(self):
+        records = run_74_records()
+        v2 = records[1]
+        self.assertEqual(2, v2["iteration"])
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=2, versions=2)
+            set_iterations(work_dir, records[0], v2)
+            result = revision.run_next(next_args(work_dir, iteration=2))
+
+            self.assertEqual(9, result["branch"])
+            self.assertTrue(result["targeted"])
+            self.assertEqual("reviews/v2-mediator.json", result["mediator_path"])
+            document = state_io.read_json(work_dir / result["mediator_path"])
+            self.assertEqual([], schema.validate(document, "mediator"))
+
+            published = json.loads((RUN_20260922 / "v2-mediator.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(5, len(published["instructions"]), "what the run published before D-212")
+            self.assertEqual(
+                [("s-5-4", "citations", "blocker")],
+                [(row["section_id"], row["source_reviewer"], row["severity"]) for row in document["instructions"]],
+            )
+            self.assertEqual(published["instructions"][:1], document["instructions"])
+
+            dropped = document["dropped"]
+            self.assertEqual(13, len(dropped))
+            self.assertEqual({TARGETED_REASON}, {row["reason"] for row in dropped})
+            self.assertEqual(4, len([row for row in dropped if row["severity"] == "major"]))
+            self.assertEqual(9, len([row for row in dropped if row["severity"] == "minor"]))
+            others = sorted(
+                (row["section_id"], row["category"], row["issue"])
+                for row in v2["issues"]
+                if row["severity"] != "blocker"
+            )
+            self.assertEqual(others, sorted((row["section_id"], row["category"], row["issue"]) for row in dropped))
+
+    @staticmethod
+    def _publish_full_mediator(work_dir: Path) -> None:
+        """The supported way a full v2 mediator gets there first: `mf review mediator-from-issues` + `mf render`."""
+        issue_step(work_dir, "s-150")
+        review.run_mediator_from_issues(
+            argparse.Namespace(workdir=str(work_dir), iteration=2, step="s-150", attempt=1, human=False)
+        )
+        render.run_render(render_args(work_dir))
+
+    def test_targeted_pass_replaces_preexisting_full_mediator(self):
+        records = run_74_records()
+        v2 = records[1]
+        canonical = review.mediator_path(2)
+        instructions = machine.view_path(canonical)
+        self.assertEqual("reviews/v2-mediator.md", instructions, "the view the writer edits from (D-62)")
+        targeted = review.build_mediator(v2, only=revision.targeted_blockers(v2))
+        self.assertEqual(["s-5-4"], [row["section_id"] for row in targeted["instructions"]])
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=2, versions=2)
+            set_iterations(work_dir, records[0], v2)
+            # One millisecond for everything: the full view and the replacement JSON tie on `at`, so
+            # freshness can not be what makes the planner re-render.
+            with mock.patch.object(events, "utc_now", return_value="2026-09-22T18:00:00.000Z"):
+                self._publish_full_mediator(work_dir)
+                self.assertEqual(review.build_mediator(v2), state_io.read_json(work_dir / canonical))
+                self.assertTrue((work_dir / instructions).is_file())
+                self.assertTrue(machine.views_fresh(state_io.read_state(work_dir), [canonical]))
+
+                result = revision.run_next(next_args(work_dir, iteration=2))
+
+                self.assertEqual(9, result["branch"])
+                self.assertEqual(canonical, result["mediator_path"])
+                state = state_io.read_state(work_dir)
+                self.assertEqual(targeted, stepctx.read_published(work_dir, canonical, state=state))
+                self.assertEqual(
+                    state_io.sha256_bytes(state_io.dumps(targeted).encode("utf-8")),
+                    stepctx.published_sha(state, canonical),
+                )
+                # The full view is gone, file and `published[]` row: the planner's `render_step` sees a
+                # missing view and renders before the writer, whatever the timestamps say.
+                self.assertFalse((work_dir / instructions).exists())
+                self.assertIsNone(stepctx.published_entry(state, instructions))
+                self.assertFalse(machine.views_fresh(state, [canonical]))
+                render.run_render(render_args(work_dir))
+            self.assertEqual(
+                render.render_mediator(targeted), (work_dir / instructions).read_text(encoding="utf-8")
+            )
+
+    def test_missing_draft_is_refused_before_the_mediator_is_replaced(self):
+        records = run_74_records()
+        v2 = records[1]
+        canonical = review.mediator_path(2)
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=2, versions=2)
+            set_iterations(work_dir, records[0], v2)
+            self._publish_full_mediator(work_dir)
+            before = state_io.read_state(work_dir)
+            full_bytes = (work_dir / canonical).read_bytes()
+            view_bytes = (work_dir / "reviews/v2-mediator.md").read_bytes()
+            (work_dir / "drafts/v2.md").unlink()
+
+            result = revision.run_next(next_args(work_dir, iteration=2))
+
+            self.assertEqual(["missing_draft: v2.md"], result["errors"])
+            self.assertEqual(full_bytes, (work_dir / canonical).read_bytes())
+            self.assertEqual(view_bytes, (work_dir / "reviews/v2-mediator.md").read_bytes())
+            state = state_io.read_state(work_dir)
+            self.assertEqual(before["published"], state["published"])
+            self.assertEqual(review.build_mediator(v2), stepctx.read_published(work_dir, canonical, state=state))
+            self.assertFalse((work_dir / "drafts/v3.md").exists())
+
+    def test_targeted_pass_keeps_an_identical_published_mediator(self):
+        records = run_74_records()
+        v2 = records[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp), iteration=2, versions=2)
+            set_iterations(work_dir, records[0], v2)
+            targeted = review.build_mediator(v2, only=revision.targeted_blockers(v2))
+            issue_step(work_dir, "s-150")
+            entry = review.publish_result(
+                work_dir,
+                argparse.Namespace(step="s-150", attempt=1),
+                review.mediator_path(2),
+                state_io.dumps(targeted).encode("utf-8"),
+            )
+            state_io.write_state(work_dir, lambda state: stepctx.merge_published(state, [entry]))
+
+            result = revision.run_next(next_args(work_dir, iteration=2))
+            self.assertEqual(9, result["branch"])
+            self.assertNotIn("mediator_path", result)
+            state = state_io.read_state(work_dir)
+            self.assertEqual(entry, stepctx.published_entry(state, review.mediator_path(2)))
+            self.assertEqual(targeted, stepctx.read_published(work_dir, review.mediator_path(2), state=state))
+
+    def test_branch_6_keeps_the_full_mediator(self):
+        # A branch-6 iteration on a blocker and a major of one reviewer: the major is still an instruction.
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp))
+            major = issue("deterministic", severity="major", section_id="s-5", category="C-03")
+            set_iterations(work_dir, record(issues=(GROUNDED, major)))
+            result = revision.run_next(next_args(work_dir))
+            self.assertEqual(6, result["branch"])
+            document = state_io.read_json(work_dir / result["mediator_path"])
+            self.assertEqual(2, len(document["instructions"]))
+            self.assertEqual([], document["dropped"])
+
+
+def run_74_exit() -> dict:
+    """The state fields of the 2026-09-22 run at the end: the forced exit on v3 and its readiness step."""
+    return json.loads((RUN_20260922 / "state-exit.json").read_text(encoding="utf-8-sig"))
+
+
+class LastBlockerExitTest(unittest.TestCase):
+    """D-213: a branch-8 exit whose blockers are branch-9-shaped, with the pass spent, lists them as rows."""
+
+    def exit(self, records: list[dict], *, targeted_used: int = 1, overflow: bool = False) -> tuple[dict, dict]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        work_dir = new_task(Path(tmp.name), iteration=3, versions=3)
+        set_iterations(work_dir, *records)
+        state_io.write_state(
+            work_dir, lambda state: state.setdefault("attempts", {}).update({"targeted_fix": targeted_used})
+        )
+        if overflow:
+            report = json.loads((LINT_FIXTURES / "lint-length-overflow.json").read_text(encoding="utf-8-sig"))
+            state_io.write_json_atomic(work_dir / "lint.json", dict(report, draft_sha=DRAFT_SHA))
+        result = revision.run_next(next_args(work_dir, iteration=3))
+        return result, state_io.read_state(work_dir)
+
+    def test_the_run_74_exit_lists_the_last_blocker_after_the_three_majors(self):
+        records = run_74_records()
+        blocker = run_74_exit()["remaining_blocking_issues"][0]
+        result, state = self.exit(records)
+
+        self.assertEqual(8, result["branch"])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", state["final_status"])
+        self.assertEqual(["unresolved_blockers"], state["final_status_reasons"])
+        # A run that never reaches the settlement still delivers the blocker, exactly as today.
+        self.assertEqual([blocker], state["remaining_blocking_issues"])
+        rows = state["open_substance_majors"]
+        self.assertEqual(
+            [
+                ("om-1", "logic", "s-4-2"),
+                ("om-2", "counterarguments", "s-5-3"),
+                ("om-3", "counterarguments", "s-6-1"),
+                ("om-4", "citations", "s-4-2"),
+            ],
+            [(row["id"], row["class"], row["section_id"]) for row in rows],
+        )
+        for row in rows[:3]:
+            self.assertNotIn("severity", row)
+            self.assertNotIn("blocker_of", row)
+        self.assertEqual(
+            {
+                "id": "om-4",
+                "class": "citations",
+                "reviewer": "citations",
+                "section_id": "s-4-2",
+                "category": "rule_not_in_source",
+                "issue_category": "unsupported_claim",
+                "issue": blocker["issue"],
+                "issue_client": None,
+                "suggestion": blocker["suggestion"],
+                "from_iteration": 3,
+                "origin": "loop",
+                "status": "open",
+                "severity": "blocker",
+                "blocker_of": {"section_id": "s-4-2", "category": "rule_not_in_source", "issue": blocker["issue"]},
+            },
+            rows[3],
+        )
+        self.assertEqual([], schema.validate(state, "state"))
+
+    def test_blocker_rows_number_from_start_in_record_order(self):
+        records = run_74_records()
+        second = dict(records[2]["issues"][0], section_id="s-2", issue="A second unsupported rule.")
+        v3 = dict(records[2], issues=[*records[2]["issues"], second])
+        rows = review.blocker_rows(v3, 7)
+        self.assertEqual([("om-7", "s-4-2"), ("om-8", "s-2")], [(row["id"], row["section_id"]) for row in rows])
+        self.assertEqual([], review.blocker_rows({"iteration": 2, "issues": []}, 1))
+        logic = issue("logic", checklist_id="LOG-02")
+        self.assertEqual([], review.blocker_rows({"iteration": 2, "issues": [logic]}, 1))
+
+    def test_an_exit_the_targeted_pass_could_not_take_lists_no_blocker_row(self):
+        records = run_74_records()
+        v3 = records[2]
+        pack = dict(v3["issues"][0], issue_category="source_pack_mismatch")
+        logic = issue("logic", checklist_id="LOG-02", section_id="s-6-1", text="The conclusion does not follow.")
+        cases = (
+            ("a source_pack_mismatch blocker", [pack], 1),
+            ("a logic blocker joins it", [v3["issues"][0], logic], 1),
+        )
+        for label, blockers, used in cases:
+            with self.subTest(case=label):
+                changed = dict(
+                    v3,
+                    issues=[*blockers, *(row for row in v3["issues"] if row["severity"] != "blocker")],
+                    substance_blockers=len(blockers),
+                )
+                result, state = self.exit([records[0], records[1], changed], targeted_used=used)
+                self.assertEqual(8, result["branch"])
+                self.assertEqual(blockers, state["remaining_blocking_issues"])
+                self.assertEqual(3, len(state["open_substance_majors"]))
+                self.assertFalse(any("blocker_of" in row for row in state["open_substance_majors"]))
+
+    def test_a_length_overflow_exit_still_lists_the_blocker_row(self):
+        result, state = self.exit(run_74_records(), overflow=True)
+        self.assertEqual(8, result["branch"])
+        self.assertEqual("manual_review_required_on_v3", state["final_status"])
+        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
+        self.assertEqual("blocker", state["open_substance_majors"][-1]["severity"])
 
 
 class OpenSubstanceMajorsExitTest(unittest.TestCase):
