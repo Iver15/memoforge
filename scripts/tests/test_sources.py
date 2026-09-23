@@ -3090,6 +3090,17 @@ class SaveTest(SaveTestCase):
         self.assertEqual("excerpt:too_short", result["save_outcome"])
         self.assertEqual("excerpt", result["raw_kind"])
 
+    def test_a_russian_twin_read_as_non_russian_is_not_certified_on_a_plain_url(self):
+        """D-219: the token rule of the non-Russian branch never takes `(1,3)-2` for `(1,3)`."""
+        extract = "Дело № 305-ЭС24-8702 (1,3)-2\n\n" + "Текст страницы портала без реквизитов акта. " * 100
+        with LocalServer(portal_page(extract)) as base:
+            self.allow(sources.url_host(base))
+            result = self.save(f"{base}/ok", expect_number="305-ЭС24-8702 (1,3)")
+        self.assertEqual([], result.get("errors", []))
+        self.assertEqual("excerpt:identity_unverified", result["save_outcome"])
+        self.assertEqual("excerpt", result["raw_kind"])
+        self.assertEqual("excerpt", self.records()[result["source_id"]]["raw_kind"])
+
     # --- the admission rules ------------------------------------------------
 
     def test_an_answer_that_is_not_the_document_registers_nothing(self):

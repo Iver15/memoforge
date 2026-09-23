@@ -1076,10 +1076,31 @@ class RoutingParameterTest(unittest.TestCase):
         self.assertIn("LDH sources: EU/EUR-Lex, EU/ConsolidatedLegislation", text)
         self.assertIn("LDH sources: UK/Legislation", text)
 
+    def test_the_uk_statute_row_shows_the_act_unit_citation_and_the_short_name(self):
+        """D-218: the UK example of `save` reaches the researcher inside the UK statutes line."""
+        text = self._routing("statutes", "EU", "UK", "US")
+        block = text.split("  - UK: ", 1)[1].split("\n  - ", 1)[0]
+        self.assertIn('--citation "UK GDPR, art 82"', block)
+        self.assertIn("""--meta '{"short_name": "UK GDPR"}'""", block)
+
     def test_a_row_without_corpora_prints_no_ldh_sources_line(self):
         text = self._routing("case_law", "US")
         self.assertIn("US: courtlistener_search", text)
         self.assertNotIn("LDH sources:", text)
+
+
+class CurrencyUnresolvedChangeTest(unittest.TestCase):
+    """D-218, fix round 1: a listed change whose effect the checker could not resolve is `manual_check`."""
+
+    def test_the_rendered_currency_prompt_names_the_status_of_an_unresolved_change(self):
+        for mode in ("brief", "full"):
+            rendered = PromptGoldenTest._render(self, mode)
+            prompt = next(a["prompt"] for a in rendered["agents"] if a["agent"] == "currency-checker")
+            text = " ".join(prompt.split())
+            with self.subTest(mode=mode):
+                self.assertIn("If that lookup fails, the status is `manual_check`", text)
+                self.assertIn("names the amending instrument and says its effect is unresolved", text)
+                self.assertNotIn("the source is not `current` on that text", text)
 
 
 class ResearcherSaveRuleTest(unittest.TestCase):

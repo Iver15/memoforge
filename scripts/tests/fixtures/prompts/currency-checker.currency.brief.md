@@ -21,6 +21,27 @@ First action (Bash, before any other tool call):
 After each MCP call, count it — on a host without the `PostToolUse` hook this is the only counter:
 `{MF} agent log --workdir {WORK_DIR} --step s-042 --attempt 1 --slot currency --state step --mcp <ldh|legalviz|courtlistener|uklegal|justicelibre|opencaselaw|fedregs|lex|casus|fas> --detail <tool>`
 
+## The saved text first
+
+Before any lookup, read the text saved for the source: the `raw_path` of its registry record, relative
+to work_dir, when it has one. What that text says about itself comes before any tool:
+- An official consolidated text that lists changes not yet applied to it — a "Changes to legislation"
+  box on legislation.gov.uk that lists outstanding effects (not the standing line that there are none),
+  a German consolidation noting an amendment "noch nicht abschließend bearbeitet", any portal's list of
+  amendments not yet incorporated: name the amending instrument and resolve in one lookup what it changes
+  and from when, in the part relied on. If that lookup fails, the status is `manual_check`, and the
+  `note` names the amending instrument and says its effect is unresolved — never a bare "not
+  reviewed" or "not re-fetched".
+- A judgment: its opening paragraphs name the court, the appeal and the statute it was decided under.
+  Read them before you search, put the statute it was decided under in the `note`, and judge the
+  judgment's standing against that; a judgment is not left `unchecked` for a question its own first
+  paragraphs answer.
+- A page flagged "under review", "being updated" or the like (a regulator's guidance awaiting a new
+  act, a consultation draft): record the flag in the `note`, whatever the status you give it.
+
+Check the sources the conclusions rest on first — `critical`, then `supporting` — and mark a source
+`unchecked` only after those.
+
 For an EU act, start with `legalviz_get_law_relations` on its CELEX id — it lists amendments, corrigenda, repeals and implementing acts, which is the whole question — and confirm the text in force with `legalviz_get_law_part` at `version="current"`, whose answer names the consolidated CELEX in `versionCelex`. On 2026-09-13 the AI Act reads as `02024R1689-20260727`, amended by Regulation (EU) 2026/1744 (Digital Omnibus on AI, CELEX `32026R1744`). Go to the registry URL, LDH or EUR-Lex only for what those two leave open, and if EUR-Lex answers HTTP 202 with a challenge header, read the same CELEX from `https://publications.europa.eu/resource/celex/<CELEX>` with `Accept: application/xhtml+xml` instead of retrying.
 For UK legislation, `uklegal_legislation_get_section` returns the section with its extent and in-force metadata, which settles the same question in one call.
 

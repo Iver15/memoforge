@@ -943,6 +943,98 @@ class CyrillicPinpointTest(unittest.TestCase):
                     self.assertEqual(pinpoint, oscola.display_pinpoint(pinpoint, language))
 
 
+class CitationFormFixesTest(unittest.TestCase):
+    """D-219: the three local citation-form fixes (map rows F1, F11, F5) on the real records of runs 71 and 74.
+
+    `citation-records-71-74.json` holds each registry record verbatim with its `source_id`; the view is built
+    the way the renderer builds it, through `oscola.view_of`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = PLUGIN_ROOT / "scripts" / "tests" / "fixtures" / "source_text" / "citation-records-71-74.json"
+        cls.records = json.loads(path.read_text(encoding="utf-8"))
+
+    def real(self, key: str) -> dict:
+        entry = self.records[key]
+        return oscola.view_of(entry["source_id"], None, entry["record"])
+
+    def test_f1_the_cut_name_carries_no_trailing_comma(self):
+        """Run 71, А40-630/2025 with no `meta.short_name`: printed nine times as `АС города Москвы,,`."""
+        self.assertEqual("АС города Москвы", oscola._cut("АС города Москвы, решение", 3))
+        decision = self.real("f1-a40-630")
+        self.assertEqual("АС города Москвы", oscola.short_name(decision))
+        self.assertEqual(
+            "АС города Москвы, разд. «мотивировочная часть»",
+            oscola.short(decision, "разд. «мотивировочная часть»"),
+        )
+
+    def test_f11_the_fallback_name_stops_at_a_spaced_dash(self):
+        """Run 74: article-level records with no `meta.short_name`, printed as `UK GDPR Article 82 -`."""
+        article = self.real("f11-uk-gdpr-article-82-right-to-compensation-and-liability")
+        self.assertEqual("UK GDPR Article 82", oscola.short_name(article))
+        self.assertEqual("UK GDPR Article 82, art 82(1)-(2)", oscola.short(article, "art 82(1)-(2)"))
+        regulation = self.real("f11-pecr-2003-regulation-31-enforcement-provisions-applied")
+        self.assertEqual("PECR 2003 regulation 31", oscola.short_name(regulation))
+        # The dash of s.168 stood sixth, past the five-word cut: the name is the one of today.
+        section = self.real("f11-data-protection-act-2018-s-168-compensation-for-contravention-of-gdpr")
+        self.assertEqual("Data Protection Act 2018 s.168", oscola.short_name(section))
+        french = {"layer": "statutes", "title": "Code civil Article 1240 – Responsabilité extracontractuelle"}
+        self.assertEqual("Code civil Article 1240", oscola.short_name(view(french)))
+
+    def test_f11_an_unspaced_dash_and_a_designation_are_left_alone(self):
+        directive = {"layer": "statutes", "title": "Directive 95/46/EC"}
+        self.assertEqual("Directive 95/46/EC", oscola.short_name(view(directive)))
+        law = {"layer": "statutes", "title": "Law No. 2016-1321 of 7 October 2016 for a Digital Republic"}
+        self.assertEqual("Law No. 2016-1321 of 7", oscola.short_name(view(law)))
+
+    def test_f5_the_name_is_cut_and_the_pinpoint_is_printed_whole(self):
+        """Run 71, the GARANT encyclopedia: `_hard_cut` ate the section pinpoint."""
+        pinpoint = self.records["f5-garant-encyclopedia"]["pinpoint"]
+        rendered = oscola.compact(self.real("f5-garant-encyclopedia"), pinpoint)
+        tail = ", " + pinpoint
+        self.assertTrue(rendered.endswith(tail), rendered)
+        self.assertLessEqual(len(rendered), oscola.MAX_COMPACT_CHARS)
+        name = rendered[: -len(tail)]
+        self.assertTrue(name.startswith("ГАРАНТ Энциклопедия"), name)
+        self.assertTrue(name.endswith("…"), name)
+
+    def test_f5_a_long_pinpoint_leaves_the_name_only_the_room_that_is_left(self):
+        record = self.real("f5-garant-encyclopedia")
+        pinpoint = self.records["f5-garant-encyclopedia"]["pinpoint"][:-1] + " и порядок их доказывания»"
+        tail = ", " + pinpoint
+        self.assertLess(oscola.MAX_COMPACT_CHARS - len(tail), 40)
+        rendered = oscola.compact(record, pinpoint)
+        self.assertTrue(rendered.endswith(tail), rendered)
+        self.assertLessEqual(len(rendered), oscola.MAX_COMPACT_CHARS)
+
+    def test_f5_a_pinpoint_that_leaves_no_room_for_a_name_keeps_the_cut_of_today(self):
+        record = self.real("f5-garant-encyclopedia")
+        pinpoint = "разд. «" + "Обстоятельства непреодолимой силы " * 4 + "»"
+        self.assertGreaterEqual(len(", " + pinpoint), oscola.MAX_COMPACT_CHARS)
+        self.assertEqual(oscola._hard_cut(oscola.short(record, pinpoint)), oscola.compact(record, pinpoint))
+
+    def pinpoint_of_tail(self, length: int) -> str:
+        """A section pinpoint whose `, <pinpoint>` tail is exactly `length` characters."""
+        pinpoint = "разд. «" + "Обстоятельства непреодолимой силы " * 4
+        pinpoint = pinpoint[: length - 3].rstrip() + "»"
+        pinpoint = pinpoint[:-1] + "ы" * (length - 2 - len(pinpoint)) + "»"
+        self.assertEqual(len(", " + pinpoint), length)
+        return pinpoint
+
+    def test_f5_a_pinpoint_that_leaves_exactly_no_room_is_printed_whole(self):
+        record = self.real("f5-garant-encyclopedia")
+        pinpoint = self.pinpoint_of_tail(oscola.MAX_COMPACT_CHARS)
+        rendered = oscola.compact(record, pinpoint)
+        self.assertEqual(pinpoint, rendered)
+        self.assertLessEqual(len(rendered), oscola.MAX_COMPACT_CHARS)
+
+    def test_f5_one_character_past_the_room_keeps_the_cut_of_today(self):
+        record = self.real("f5-garant-encyclopedia")
+        pinpoint = self.pinpoint_of_tail(oscola.MAX_COMPACT_CHARS + 1)
+        self.assertEqual(oscola._hard_cut(oscola.short(record, pinpoint)), oscola.compact(record, pinpoint))
+
+
 class ProvenanceLivenessTest(unittest.TestCase):
     """D-197: `checked <date>` is printed only when the link check actually succeeded."""
 

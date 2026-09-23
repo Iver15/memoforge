@@ -526,6 +526,15 @@ class RuJurisdictionTest(unittest.TestCase):
         self.assertEqual("152", args.expect_article)
         self.assertIn("edition", json.loads(args.meta))
 
+    def test_the_statute_note_example_sets_the_short_name_of_the_act(self):
+        """D-218: every record carries `meta.short_name`, so the Russian example shows it too."""
+        saves = [
+            args
+            for args in self.commands(routing.route("statutes", "RU")["note"])
+            if args.func is sources.run_save
+        ]
+        self.assertEqual("ГК РФ", json.loads(saves[0].meta).get("short_name"))
+
     def test_the_case_law_note_names_both_resolvers_and_the_plenum_url(self):
         """D-205: `save --resolve vsrf`, `save --resolve sudact`, and `save --url` for a Plenum act."""
         commands = self.commands(routing.route("case_law", "RU")["note"])
@@ -740,6 +749,22 @@ class RouteTest(unittest.TestCase):
         self.assertIn("lex_lookup_legislation", row["note"])
         self.assertIn("lex_get_explanatory_note_by_section", row["note"])
         self.assertIn("lex_search_amendments", row["note"])
+
+    def test_uk_statutes_show_one_save_in_the_act_unit_form_with_the_short_name(self):
+        """D-218: the UK counterpart of the Russian examples — `--citation` "act, unit", `short_name` in `--meta`."""
+        saves = [
+            args
+            for args in note_commands(routing.route("statutes", "UK")["note"])
+            if args.func is sources.run_save
+        ]
+        self.assertEqual(1, len(saves))
+        args = saves[0]
+        self.assertEqual("statutes", args.layer)
+        self.assertEqual("UK GDPR, art 82", args.citation)
+        self.assertNotIn("[", args.title)
+        self.assertTrue(args.url.startswith("https://www.legislation.gov.uk/"), args.url)
+        self.assertEqual("82", args.expect_article)
+        self.assertEqual({"short_name": "UK GDPR"}, json.loads(args.meta))
 
     def test_uk_case_law_uses_find_case_law_and_never_bailii(self):
         row = routing.route("case_law", "UK")

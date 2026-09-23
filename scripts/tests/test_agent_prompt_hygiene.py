@@ -403,6 +403,128 @@ class SourcedDirectionTest(unittest.TestCase):
             self.assertNotIn("the run summary prints it after the gap", body)
 
 
+def flat(path: Path) -> str:
+    """A dispatch prompt with its line breaks folded, so a needle may span a wrapped line."""
+    return " ".join(read(path).split())
+
+
+class SavedTextFirstTest(unittest.TestCase):
+    """D-218: run 74 called 12 UK GDPR articles `current` over a saved text that listed changes not yet applied,
+    left a judgment `unchecked` although its first paragraph names the statute, and passed pages flagged
+    "under review" with no note. One line in the agent body; the dispatch prompt spells it out."""
+
+    def test_the_checker_body_reads_the_saved_text_before_any_lookup(self):
+        rules = rules_of("currency-checker")
+        for needle in (
+            "The saved text first",
+            "before any lookup",
+            "`raw_path`",
+            "not yet applied",
+            "opening paragraphs",
+            "under review",
+            'never as a bare "not reviewed"',
+            "`manual_check`, its note naming the amending instrument",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+
+    def test_the_checker_body_leaves_unchecked_for_after_the_sources_conclusions_rest_on(self):
+        task = read(AGENTS / "currency-checker.md").split("## Task", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("`critical`, then `supporting`", task)
+        self.assertIn("`unchecked` only after those", task)
+
+    def test_the_checker_prompt_spells_out_each_saved_text_signal(self):
+        text = flat(PROMPTS / "currency-checker.md")
+        for needle in (
+            "## The saved text first",
+            "Before any lookup",
+            "`raw_path`",
+            "changes not yet applied",
+            "name the amending instrument",
+            "in one lookup what it changes and from when",
+            'never a bare "not reviewed"',
+            "the statute it was decided under",
+            "opening paragraphs",
+            '"under review"',
+            '"being updated"',
+            "`critical`, then `supporting`",
+            "`unchecked` only after those",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+
+class OneFormPerActTest(unittest.TestCase):
+    """D-218: run 74 excluded a case after a guessed citation came back with confidence 0; runs 71 and 74
+    left 23 records without `meta.short_name` and wrote `citation_form` in two shapes."""
+
+    CITATIONS = (
+        "`UK GDPR, art 82`",
+        "`Data Protection Act 2018, s 168`",
+        "`42 U.S.C., § 1983`",
+        "`BGB, § 823`",
+        "`Code du travail, art. L1234-5`",
+        "`Федеральный закон от 31.07.2025 № 289-ФЗ, ст. 23`",
+    )
+    SHORT_NAMES = (
+        "`UK GDPR`",
+        "`DPA 2018`",
+        "`42 U.S.C.`",
+        "`BGB`",
+        "`ГК РФ`",
+        "`289-ФЗ`",
+        "`Определение № 66-КГ18-9`",
+    )
+
+    def test_the_researcher_body_finds_a_case_by_name_and_names_an_act_one_way(self):
+        rules = rules_of("legal-researcher")
+        for needle in (
+            "parties' names",
+            "guessed citation",
+            "does not mean the case is absent",
+            '"act, unit"',
+            "`meta.short_name` is always set",
+            "the same for every record of that act",
+            "no database or retrieval tag in brackets",
+            "content page",
+            "table of contents",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+        # The key the researcher sets itself is no longer among those it drops when a tool omits them.
+        self.assertNotIn("`date` and `short_name` for the keys the tool's answer actually gives you", rules)
+
+    def test_the_researcher_prompt_carries_the_forms_of_several_legal_systems(self):
+        text = flat(PROMPTS / "legal-researcher.md")
+        for needle in (
+            "## Find a case by name",
+            "parties' names",
+            "guessed citation",
+            "does not mean the case is absent",
+            "## One form per act",
+            '"act, unit"',
+            "`meta.short_name` is always set",
+            "the same for every record of that act",
+            "no database or retrieval tag in brackets",
+            "content page",
+            "table of contents",
+            *self.CITATIONS,
+            *self.SHORT_NAMES,
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn('"short_name": …}\'` to either command with the keys the tool', text)
+
+    def test_a_unit_other_than_an_article_is_expected_with_its_label(self):
+        """D-219: a bare `--expect-article 22` finds only an article or a section heading, never `Regulation 22`."""
+        text = flat(PROMPTS / "legal-researcher.md")
+        for needle in ('`--expect-article "reg 22"`', '`"Sch 1"`', '`"Rule 23"`'):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        rules = rules_of("legal-researcher")
+        self.assertIn('a regulation, schedule or rule with its label: `"reg 22"`, `"Sch 1"`', rules)
+
+
 class PlaceholderTest(unittest.TestCase):
     """D-78 / §4.2: the dispatch prompt substitutes the paths; the agent body names them in prose."""
 

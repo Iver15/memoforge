@@ -5,7 +5,9 @@ for byte, artifacts and all: `sudact-cassation-a53-28950-2022` (sudact.ru, cassa
 `vsrf-pdf-layer-305-es24-8702` (the `pypdf` text layer of the Supreme Court PDF `stor_pdf_ec/2383828`) and
 `consultant-gk-article-152` (the consultant.ru page of ст. 152 ГК РФ); they carry only what those published
 acts already made public. The other 18 are models written to the forms design §8 names, for shapes no
-specimen was fetched for, and their parties, judges and addresses are invented.
+specimen was fetched for, and their parties, judges and addresses are invented. D-219 adds five `uk-*.md` byte
+copies of run-74 raw texts (legislation.gov.uk and Find Case Law) and `de-gii-bgb-823.txt`, the gesetze-im-internet
+page of § 823 BGB after the repo's own `markup_to_text`.
 """
 
 from __future__ import annotations
@@ -621,6 +623,203 @@ class RealConsultantArticleTest(unittest.TestCase):
             source_text.verdict(self.text, layer="statutes", expect_article="152.1")["outcome"],
             "excerpt:article_not_found",
         )
+
+
+def saved(name: str) -> str:
+    """A saved raw text by its full file name — the run-74 pages are `.md`, as `mf sources save` wrote them."""
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+FILLER = "The court considered the submissions of both parties at length. " * 70
+"""4 000+ characters with no act marker in any language: the length test passes and only the number decides."""
+
+
+def long_judgment(head: str) -> str:
+    return head + "\n\n" + FILLER
+
+
+class RunSeventyFourUkTest(unittest.TestCase):
+    """D-219: the complete UK sources run 74 saved and `verdict` called excerpts.
+
+    Byte copies of the run-74 raw texts: three legislation.gov.uk pages of the PECR 2003 (a `Regulation N`
+    and a `SCHEDULE 1` heading, which the article grammar did not know) and two Find Case Law judgments whose
+    neutral citation is printed glued to its label (`Number[2017] EWHC 3113 (QB)`, `EWHC3113`, `00362`).
+    """
+
+    PECR_PAGES = (("uk-pecr-reg-22.md", "reg 22", "22"), ("uk-pecr-reg-31.md", "reg 31", "31"),
+                  ("uk-pecr-sch-1.md", "Sch 1", "1"))
+
+    def test_the_regulation_and_schedule_pages_are_whole_on_their_labelled_unit(self):
+        for name, unit, _ in self.PECR_PAGES:
+            with self.subTest(page=name):
+                answer = source_text.verdict(saved(name), layer="statutes", expect_article=unit)
+                self.assertEqual(answer["outcome"], "full_text")
+
+    def test_a_bare_number_does_not_reach_a_regulation_or_a_schedule(self):
+        for name, _, number in self.PECR_PAGES:
+            with self.subTest(page=name):
+                answer = source_text.verdict(saved(name), layer="statutes", expect_article=number)
+                self.assertEqual(answer["outcome"], "excerpt:article_not_found")
+
+    def test_the_judgments_are_whole_on_their_neutral_citation(self):
+        for name, number in (
+            ("uk-ewhc-qb-2017-3113-morrisons.md", "[2017] EWHC 3113 (QB)"),
+            ("uk-ukftt-grc-2024-362-triboo.md", "[2024] UKFTT 362 (GRC)"),
+        ):
+            with self.subTest(page=name):
+                answer = source_text.verdict(saved(name), layer="case_law", expect_number=number)
+                self.assertEqual(answer["outcome"], "full_text")
+                self.assertIsNone(answer["error"])
+                self.assertFalse(answer["found"]["russian"])
+
+    def test_a_neighbouring_neutral_citation_still_fails(self):
+        for name, number in (
+            ("uk-ewhc-qb-2017-3113-morrisons.md", "[2017] EWHC 3114 (QB)"),
+            ("uk-ukftt-grc-2024-362-triboo.md", "[2024] UKFTT 36 (GRC)"),
+        ):
+            with self.subTest(page=name):
+                answer = source_text.verdict(saved(name), layer="case_law", expect_number=number)
+                self.assertEqual(answer["outcome"], "excerpt:identity_unverified")
+
+    def test_a_german_statute_page_classifies_as_before(self):
+        """gesetze-im-internet § 823 BGB after `markup_to_text`: whole before D-219, whole after it."""
+        text = saved("de-gii-bgb-823.txt")
+        self.assertEqual(source_text.verdict(text, layer="statutes", expect_article="823")["outcome"], "full_text")
+        self.assertEqual(
+            source_text.verdict(text, layer="statutes", expect_article="82")["outcome"], "excerpt:article_not_found"
+        )
+
+
+class HeadingUnitTest(unittest.TestCase):
+    """D-219: a requested unit ending in a digit is not the unit that continues with a letter."""
+
+    BODY = "Article 12A.\n\n" + "The controller shall provide the information in a concise and intelligible form. " * 4
+
+    def test_a_bare_number_does_not_find_the_lettered_article(self):
+        self.assertEqual(source_text.article_body_chars(self.BODY, "12"), 0)
+        answer = source_text.verdict(self.BODY, layer="statutes", expect_article="12")
+        self.assertEqual(answer["outcome"], "excerpt:article_not_found")
+
+    def test_the_lettered_article_still_finds_itself(self):
+        self.assertEqual(source_text.article_body_chars(self.BODY, "12A"), len(self.BODY))
+        answer = source_text.verdict(self.BODY, layer="statutes", expect_article="12A")
+        self.assertEqual(answer["outcome"], "full_text")
+
+    def test_a_labelled_unit_finds_the_heading_of_its_own_kind(self):
+        for heading, unit, neighbour in (
+            ("Regulation 5", "reg 5", "Regulation 6"),
+            ("Reg. 5", "regulation 5", "Reg. 6"),
+            ("SCHEDULE 5", "Sch 5", "SCHEDULE 6"),
+            ("Sch. 5", "schedule 5", "Sch 6"),
+            ("Rule 5", "Rule 5", "Rule 6"),
+            ("Rule. 5", "Rule 5", "Rule. 6"),
+            ("Rule 5", "Rule. 5", "Rule 6"),
+            ("Rule. 5", "rule. 5", "Rule 6"),
+            ("Regulation. 5", "Reg. 5", "Regulation. 6"),
+            ("Schedule. 5", "sch. 5", "Schedule. 6"),
+        ):
+            with self.subTest(heading=heading, unit=unit):
+                text = heading + "\n\n" + "x " * 150 + "\n" + neighbour + "\n\n" + "y " * 150
+                self.assertEqual(source_text.article_body_chars(text, unit), text.index("\n" + neighbour) + 1)
+
+    def test_a_labelled_unit_finds_no_other_kind_of_unit(self):
+        text = "Article 5\n\n" + "x " * 150 + "\nRule 5\n\n" + "y " * 150
+        self.assertEqual(source_text.article_body_chars(text, "reg 5"), 0)
+        self.assertEqual(source_text.article_body_chars(text, "Sch 5"), 0)
+        self.assertEqual(source_text.article_body_chars(text, "reg 5A"), 0)
+
+    BODY_TEXT = "\n\n" + "The Commissioner may serve a notice on the person concerned. " * 6
+
+    def test_a_labelled_unit_never_finds_a_unit_that_continues_it(self):
+        """Final review: `reg 5A` is not `Regulation 5AB`, `Sch I` is not `SCHEDULE II`, `Rule 2` is not `Rule 23`."""
+        for heading, unit in (
+            ("Regulation 5AB", "reg 5A"),
+            ("Regulation 5A1", "reg 5A"),
+            ("Regulation 5A.1", "reg 5A"),
+            ("Regulation 5A-B", "reg 5A"),
+            ("Regulation 5A/2", "reg 5A"),
+            ("SCHEDULE II", "Sch I"),
+            ("SCHEDULE IA", "Sch I"),
+            ("Rule 23", "Rule 2"),
+        ):
+            with self.subTest(heading=heading, unit=unit):
+                text = heading + self.BODY_TEXT
+                self.assertEqual(source_text.article_body_chars(text, unit), 0)
+                answer = source_text.verdict(text, layer="statutes", expect_article=unit)
+                self.assertEqual(answer["outcome"], "excerpt:article_not_found")
+
+    def test_a_labelled_unit_finds_itself_however_its_heading_ends(self):
+        for heading, unit in (
+            ("Regulation 5A", "reg 5A"),
+            ("Regulation 5A.", "reg 5A"),
+            ("Regulation 5A—Title of the regulation", "reg 5A"),
+            ("SCHEDULE I", "Sch I"),
+            ("Schedule I. Enforcement", "Sch I"),
+        ):
+            with self.subTest(heading=heading, unit=unit):
+                text = heading + self.BODY_TEXT
+                self.assertEqual(source_text.article_body_chars(text, unit), len(text))
+                answer = source_text.verdict(text, layer="statutes", expect_article=unit)
+                self.assertEqual(answer["outcome"], "full_text")
+
+    def test_a_bare_number_never_finds_a_part_a_chapter_or_a_labelled_unit(self):
+        for heading in ("Part 5", "Chapter 5", "Regulation 5", "Schedule 5", "Rule 5"):
+            with self.subTest(heading=heading):
+                text = heading + "\n\n" + "x " * 150
+                self.assertEqual(source_text.article_body_chars(text, "5"), 0)
+                answer = source_text.verdict(text, layer="statutes", expect_article="5")
+                self.assertEqual(answer["outcome"], "excerpt:article_not_found")
+
+
+class NonRussianNumberTest(unittest.TestCase):
+    """D-219: outside the Russian rule, the expected number is also accepted token by token."""
+
+    def outcome(self, head: str, number: str) -> str:
+        return source_text.verdict(long_judgment(head), layer="case_law", expect_number=number)["outcome"]
+
+    def test_the_number_glued_to_its_label_and_zero_padded_is_found(self):
+        self.assertEqual(self.outcome("Neutral Citation Number[2017] EWHC3113 (QB)Case No: HQ15X05099",
+                                      "[2017] EWHC 3113 (QB)"), "full_text")
+        self.assertEqual(self.outcome("Neutral Citation Number: [2024] UKFTT 00362 (GRC)",
+                                      "[2024] UKFTT 362 (GRC)"), "full_text")
+
+    def test_a_bracketed_year_after_whitespace_does_not_continue_the_number(self):
+        self.assertEqual(self.outcome("Obergefell v. Hodges, 576 U.S. 644 (2015)", "576 U.S. 644"), "full_text")
+
+    def test_a_longer_number_never_matches(self):
+        for head, number in (
+            ("Neutral Citation Number: [2020] UKSC 12", "[2020] UKSC 1"),
+            ("Neutral Citation Number: [2020] UKSC 1A", "[2020] UKSC 1"),
+            ("Obergefell v. Hodges, 576 U.S. 6440", "576 U.S. 644"),
+            ("Judgment in Case C-3402/1", "C-340/21"),
+            ("Judgment in Case C-340/210", "C-340/21"),
+        ):
+            with self.subTest(head=head):
+                self.assertEqual(self.outcome(head, number), "excerpt:identity_unverified")
+
+    def test_a_number_continued_without_whitespace_never_matches(self):
+        self.assertEqual(self.outcome("ECLI:NL:HR:2023:123.1", "ECLI:NL:HR:2023:123"), "excerpt:identity_unverified")
+        self.assertEqual(self.outcome("Case 7-C-340/21", "C-340/21"), "excerpt:identity_unverified")
+
+    def test_a_russian_twin_is_not_matched_even_when_the_text_reads_as_non_russian(self):
+        text = "Дело № 305-ЭС24-8702 (1,3)-2\n\n" + "Текст страницы портала без реквизитов акта. " * 100
+        self.assertGreater(len(text), source_text.FULL_TEXT_MIN_CHARS_CASE)
+        self.assertFalse(source_text.is_russian_act(text))
+        answer = source_text.verdict(text, layer="case_law", expect_number="305-ЭС24-8702 (1,3)")
+        self.assertEqual(answer["outcome"], "excerpt:identity_unverified")
+        base = source_text.verdict(
+            "Дело № 305-ЭС24-8702 (1,3)\n\n" + "Текст страницы портала без реквизитов акта. " * 100,
+            layer="case_law",
+            expect_number="305-ЭС24-8702",
+        )
+        self.assertEqual(base["outcome"], "excerpt:identity_unverified")
+
+    def test_the_russian_branch_does_not_use_the_token_rule(self):
+        text = fixture("vs-chamber-pdf-layer")
+        answer = source_text.verdict(
+            text, layer="case_law", expect_number="305-ЭС24-8702 (1,3)", expect_date="2025-10-27"
+        )
+        self.assertEqual(answer["error"], "requisites_mismatch")
 
 
 if __name__ == "__main__":  # pragma: no cover

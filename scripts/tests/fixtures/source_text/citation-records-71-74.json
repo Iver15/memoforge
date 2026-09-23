@@ -1,0 +1,235 @@
+{
+ "f5-garant-encyclopedia": {
+  "source_id": "entsiklopediia-reshenii-obstoiatelstva-nepreodolimoi-sily-fors-mazhor-i",
+  "record": {
+   "layer": "doctrine",
+   "title": "Энциклопедия решений. Обстоятельства непреодолимой силы (форс-мажор) и последствия их наступления",
+   "citation_form": "ГАРАНТ: Энциклопедия решений — Обстоятельства непреодолимой силы (октябрь 2025)",
+   "url": "https://base.garant.ru/58075068/",
+   "retrieved_at": "2026-09-21T19:48:15.062Z",
+   "retrieval_tool": "mf-save base.garant.ru",
+   "provenance": "agent_saved",
+   "tier": "critical",
+   "raw_path": "research/raw/doctrine/entsiklopediia-reshenii-obstoiatelstva-nepreodolimoi-sily-fors-mazhor-i.md",
+   "raw_sha256": "a25a131378787462170f4d675263b120b1c08464358dc69d09a1d34c377dd1c0",
+   "raw_chars": 36335,
+   "liveness": {
+    "status": "changed",
+    "code": 200,
+    "checked_at": "2026-09-21T21:01:04.160Z"
+   },
+   "verification": {
+    "us": "n/a",
+    "us_by": null,
+    "eu_syntax_ok": null,
+    "checked_at": "2026-09-21T21:03:49.862Z"
+   },
+   "currency": {
+    "status": "outdated_but_usable",
+    "checked_at": "2026-09-22T00:00:00Z",
+    "note": "Same GARANT encyclopedia format; liveness flagged 'changed' since retrieval (October 2025 snapshot). Reasoning likely still current but the passage should be re-verified against the live page given this is tier 'critical'."
+   },
+   "pack": {
+    "role_by_issue": {
+     "I2-mugs-liability": "application",
+     "I4-offer-clauses": "rule"
+    },
+    "weight": "non_binding",
+    "confidence": "medium",
+    "use_in_memo": "rule"
+   },
+   "raw_kind": "full_text",
+   "meta": {
+    "issuing_body": "ГАРАНТ",
+    "text_outcome": "full_text",
+    "save_outcome": "full_text"
+   }
+  },
+  "pinpoint": "разд. «Обстоятельства, которые не могут быть признаны обстоятельствами непреодолимой силы»"
+ },
+ "f1-a40-630": {
+  "source_id": "as-goroda-moskvy-reshenie-po-delu-no-a40-630-2025-ip-protiv-ooo-internet",
+  "record": {
+   "layer": "case_law",
+   "title": "АС города Москвы, решение по делу № А40-630/2025 (ИП против ООО «Интернет Решения» / Ozon, утрата и утилизация товара FBO)",
+   "citation_form": "Решение АС города Москвы от 13.10.2025 по делу № А40-630/25-100-1",
+   "url": "https://sudact.ru/arbitral/doc/7B7Ky5zufdUZ/",
+   "retrieved_at": "2026-09-21T20:53:07.644Z",
+   "retrieval_tool": "mf-save sudact.ru",
+   "provenance": "confirmed",
+   "tier": "critical",
+   "raw_path": "research/raw/case_law/as-goroda-moskvy-reshenie-po-delu-no-a40-630-2025-ip-protiv-ooo-internet.md",
+   "raw_sha256": "8bc100157c877b5c4efbd788b108d417c6d2be831d0afd4a7b40c3f10457763c",
+   "raw_chars": 46813,
+   "liveness": {
+    "status": "ok",
+    "code": 200,
+    "checked_at": "2026-09-21T21:00:43.187Z"
+   },
+   "verification": {
+    "us": "n/a",
+    "us_by": null,
+    "eu_syntax_ok": null,
+    "checked_at": "2026-09-21T21:03:49.862Z"
+   },
+   "currency": {
+    "status": "unchecked",
+    "checked_at": "2026-09-22T00:00:00Z",
+    "note": "First-instance (АС города Москвы) decision; URL live and full text on file. The text only recites the general right to appeal (АПК РФ) with no outcome; no Russian court-docket/appellate-tracking MCP was available this pass (casus corpus covers КС/ВС/ВАС practice, not this regional first-instance case), so whether it was appealed, upheld or reversed could not be established."
+   },
+   "pack": {
+    "role_by_issue": {
+     "I1-contract-nature": "application",
+     "I2-mugs-liability": "application",
+     "I3-bags-liability": "background",
+     "I4-offer-clauses": "application",
+     "I6-buyers-money": "background",
+     "I7-strategy": "application"
+    },
+    "weight": "binding",
+    "confidence": "medium",
+    "use_in_memo": "application"
+   },
+   "raw_kind": "full_text",
+   "meta": {
+    "text_outcome": "full_text",
+    "save_outcome": "full_text"
+   }
+  }
+ },
+ "f11-uk-gdpr-article-82-right-to-compensation-and-liability": {
+  "source_id": "uk-gdpr-article-82-right-to-compensation-and-liability",
+  "record": {
+   "layer": "statutes",
+   "title": "UK GDPR Article 82 - Right to compensation and liability",
+   "citation_form": "UK GDPR, Article 82",
+   "url": "https://www.legislation.gov.uk/eur/2016/679/article/82",
+   "retrieved_at": "2026-09-22T22:18:59.770Z",
+   "retrieval_tool": "mf-save www.legislation.gov.uk",
+   "provenance": "confirmed",
+   "tier": "critical",
+   "raw_path": "research/raw/statutes/uk-gdpr-article-82-right-to-compensation-and-liability.md",
+   "raw_sha256": "89efce6fe080a948f0541781378d7b7c3a0edbcf52531c148a0476e0c07a533a",
+   "raw_chars": 11118,
+   "liveness": {
+    "status": "ok",
+    "code": 200,
+    "checked_at": "2026-09-22T22:37:36.090Z"
+   },
+   "verification": {
+    "us": "n/a",
+    "us_by": null,
+    "eu_syntax_ok": null,
+    "checked_at": "2026-09-22T22:37:51.301Z"
+   },
+   "currency": {
+    "status": "current",
+    "checked_at": "2026-09-23T00:00:00Z",
+    "note": "Live consolidated source; provenance confirmed. Not independently re-fetched at section level in this pass; no known repeal. Consistent with confirmed-current DPA 2018 s.168, which construes this Article."
+   },
+   "pack": {
+    "role_by_issue": {
+     "I4-containment-remedies": "risk"
+    },
+    "weight": "binding",
+    "confidence": "high",
+    "use_in_memo": "risk"
+   },
+   "raw_kind": "full_text",
+   "meta": {
+    "text_outcome": "full_text",
+    "save_outcome": "full_text"
+   }
+  }
+ },
+ "f11-pecr-2003-regulation-31-enforcement-provisions-applied": {
+  "source_id": "pecr-2003-regulation-31-enforcement-provisions-applied",
+  "record": {
+   "layer": "statutes",
+   "title": "PECR 2003 regulation 31 - Enforcement provisions applied",
+   "citation_form": "Privacy and Electronic Communications (EC Directive) Regulations 2003, reg.31",
+   "url": "https://www.legislation.gov.uk/uksi/2003/2426/regulation/31",
+   "retrieved_at": "2026-09-22T22:19:18.542Z",
+   "retrieval_tool": "mf-save www.legislation.gov.uk",
+   "provenance": "confirmed",
+   "tier": "critical",
+   "raw_path": "research/raw/statutes/pecr-2003-regulation-31-enforcement-provisions-applied.md",
+   "raw_sha256": "9cb2c09e79be1cc331cc24be42ac8b8995ea50997e26c03c46787100d573bfda",
+   "raw_chars": 8362,
+   "liveness": {
+    "status": "ok",
+    "code": 200,
+    "checked_at": "2026-09-22T22:36:57.369Z"
+   },
+   "verification": {
+    "us": "n/a",
+    "us_by": null,
+    "eu_syntax_ok": null,
+    "checked_at": "2026-09-22T22:37:51.301Z"
+   },
+   "currency": {
+    "status": "current",
+    "checked_at": "2026-09-23T00:00:00Z",
+    "note": "Confirmed current via legislation.gov.uk (version dated 2026-02-05); still applies Parts 5-7 DPA 2018 enforcement provisions, with modifications, via Schedule 1."
+   },
+   "pack": {
+    "role_by_issue": {
+     "I4-containment-remedies": "rule"
+    },
+    "weight": "binding",
+    "confidence": "high",
+    "use_in_memo": "rule"
+   },
+   "raw_kind": "excerpt",
+   "meta": {
+    "text_outcome": "excerpt:article_not_found",
+    "save_outcome": "excerpt:article_not_found"
+   }
+  }
+ },
+ "f11-data-protection-act-2018-s-168-compensation-for-contravention-of-gdpr": {
+  "source_id": "data-protection-act-2018-s-168-compensation-for-contravention-of-gdpr",
+  "record": {
+   "layer": "statutes",
+   "title": "Data Protection Act 2018 s.168 - Compensation for contravention of GDPR",
+   "citation_form": "Data Protection Act 2018, s.168",
+   "url": "https://www.legislation.gov.uk/ukpga/2018/12/section/168",
+   "retrieved_at": "2026-09-22T22:19:12.084Z",
+   "retrieval_tool": "mf-save www.legislation.gov.uk",
+   "provenance": "confirmed",
+   "tier": "critical",
+   "raw_path": "research/raw/statutes/data-protection-act-2018-s-168-compensation-for-contravention-of-gdpr.md",
+   "raw_sha256": "6b1c6496b7546222639669b8eaaa19e3fd9128d0f21be5652597ca81df8b44c2",
+   "raw_chars": 12227,
+   "liveness": {
+    "status": "ok",
+    "code": 200,
+    "checked_at": "2026-09-22T22:35:47.563Z"
+   },
+   "verification": {
+    "us": "n/a",
+    "us_by": null,
+    "eu_syntax_ok": null,
+    "checked_at": "2026-09-22T22:37:51.301Z"
+   },
+   "currency": {
+    "status": "current",
+    "checked_at": "2026-09-23T00:00:00Z",
+    "note": "Confirmed current via legislation.gov.uk (version dated 2020-12-31, no later amendment recorded); still in force."
+   },
+   "pack": {
+    "role_by_issue": {
+     "I4-containment-remedies": "risk"
+    },
+    "weight": "binding",
+    "confidence": "high",
+    "use_in_memo": "risk"
+   },
+   "raw_kind": "full_text",
+   "meta": {
+    "text_outcome": "full_text",
+    "save_outcome": "full_text"
+   }
+  }
+ }
+}
