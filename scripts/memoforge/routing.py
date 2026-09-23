@@ -310,7 +310,12 @@ ROUTING: dict[str, dict[str, dict]] = {
                 "section and lex_search_amendments the amendments that touched it — use it for "
                 "explanatory notes and amendment history, or when uklegal is down; its case law is "
                 "disabled, so judgments stay on uklegal. Fall back to a "
-                "WebFetch of legislation.gov.uk, which is authoritative and point-in-time addressable."
+                "WebFetch of legislation.gov.uk, which is authoritative and point-in-time addressable. "
+                "The source is one provision, saved by code from its legislation.gov.uk page with the "
+                "act's short name in --meta (D-218): `mf sources save --workdir <work_dir> --layer statutes "
+                "--title \"UK GDPR, Article 82\" --citation \"UK GDPR, art 82\" --tier critical "
+                "--url https://www.legislation.gov.uk/eur/2016/679/article/82 --expect-article 82 "
+                "--meta '{\"short_name\": \"UK GDPR\"}'`."
             ),
         },
         "US": {
@@ -654,7 +659,7 @@ _RU_STATUTE_SAVE = (
     "mf sources save --workdir <work_dir> --layer statutes --title \"ГК РФ, ст. 152\" "
     "--citation \"Гражданский кодекс РФ (часть первая), ст. 152\" --tier critical "
     "--url https://www.consultant.ru/document/cons_doc_LAW_5142/<hash>/ --expect-article 152 "
-    "--meta '{\"edition\": \"<the «ред. от …» line of the page>\"}'"
+    "--meta '{\"edition\": \"<the «ред. от …» line of the page>\", \"short_name\": \"ГК РФ\"}'"
 )
 _RU_VSRF_SAVE = (
     "mf sources save --workdir <work_dir> --layer case_law "

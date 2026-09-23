@@ -38,7 +38,7 @@ Every `critical` and `supporting` source is saved or registered before it appear
 
 A web source is saved by code, not by you: `sources save` fetches the page, certifies that it is the document you named and that it is whole, and registers it.
 `${mf} sources save --workdir ${work_dir} --layer ${layer} --title "<t>" --citation "<c>" --tier critical --url "<the public address of the document itself>"`
-Add the requisites the code certifies, or the text stays an excerpt: `--expect-article <N>` for a statute article (`152` is not `152.1`); `--expect-number` for a judgment, and for a Russian court act `--expect-date` too. The number goes in as printed, suffix included (`305-ЭС24-8702 (1,3)`): never strip it — the code strips it for a portal's search by itself, and the suffix is what tells the twins of one chain apart. `--expect-date` is the date of the act itself, `YYYY-MM-DD`, never the date a portal's listing shows. A Russian court act can be found from its requisites instead of an address — `--resolve vsrf` or `--resolve sudact` in place of `--url`, both requisites required, as your routing note shows.
+Add the requisites the code certifies, or the text stays an excerpt: `--expect-article <N>` for a statute article (`152` is not `152.1`), and for a unit other than an article or a section its label with the number (`--expect-article "reg 22"`, `"Sch 1"`, `"Rule 23"`); `--expect-number` for a judgment, and for a Russian court act `--expect-date` too. The number goes in as printed, suffix included (`305-ЭС24-8702 (1,3)`): never strip it — the code strips it for a portal's search by itself, and the suffix is what tells the twins of one chain apart. `--expect-date` is the date of the act itself, `YYYY-MM-DD`, never the date a portal's listing shows. A Russian court act can be found from its requisites instead of an address — `--resolve vsrf` or `--resolve sudact` in place of `--url`, both requisites required, as your routing note shows.
 A document that needs headers takes the transport options of `sources fetch` — `--accept <mime>`, `--lang <code>`, `--method POST --json '<body>'` — so where a routing note names `sources fetch` for the document itself, `save` it with the same options. A `--method POST` save also takes `--public-url "<the public page of the document the body asks for>"`: the endpoint answers every document at one address, so it names none and a client cannot open it. That page becomes the source's url — for a Normattiva article, `https://www.normattiva.it/uri-res/N2Ls?` followed by the URN of the body — and the save is refused without it. `sources fetch` stays for what you only read (an index, a manifest, a listing), and its file is never registered.
 
 `save` answers with one JSON object — `save_outcome` when it saved, `errors` (its code first) when it refused; act on its answer:
@@ -59,7 +59,7 @@ A document that needs headers takes the transport options of `sources fetch` —
 `${mf} sources register --workdir ${work_dir} --layer ${layer} --title "<t>" --citation "<c>" --tier critical --tool "<the tool that returned the text>" --raw-kind excerpt --raw-file "<a real file you wrote — not a process substitution such as /dev/fd/N; HTML is converted to text for you>"`
 A `register` that follows a refused `save` of the same source carries the refusal, so the sufficiency review does not ask for that save again: `"save_outcome": "refused:<code>"` in `--meta` — `refused:host_not_allowed`, `refused:captcha`; `register` refuses any other `save_outcome`, since `full_text` and `excerpt:*` are written by `save` alone. An excerpt or a summary is raised to the full text by running `save` over the same record — the same `--citation` or the same `--url` — once you find the document on an allowed page.
 
-Add `--meta '{"court": …, "year": …, "issuing_body": …, "date": …, "short_name": …}'` to either command with the keys the tool's answer gives you — the OSCOLA footnotes are built from them — and drop the ones it does not.
+Add `--meta '{"court": …, "year": …, "issuing_body": …, "date": …, "short_name": …}'` to either command — the OSCOLA footnotes are built from it. `court`, `year`, `issuing_body` and `date` are the keys the tool's answer gives you; drop the ones it does not. `short_name` is always there, and you set it (below).
 An address an MCP tool returns is an endpoint, never a `--url` — for `save` or for `register`: what a legal-database tool answers with is not a page the client can open. Pass the public page when you found one, else register the MCP answer with no `--url` at all.
 
 For an EU act the CELEX id is the key: `legalviz_search_eu_law` or `legalviz_resolve` to get it, `legalviz_get_law_part` with `part="structure"` for the table of contents, then one more call for the article you need — register that slice as the MCP answer it is (`--raw-kind excerpt`) with `--tool legalviz_get_law_part`, or the tool that actually returned the text (`legalviz_get_case_law`, `ldh_search`).
@@ -79,6 +79,18 @@ any web source. Commercial re-uploads of the same file are not the citation.
 
 To read one provision back out of a raw file you already saved:
 `${mf} sources slice --workdir ${work_dir} --source <source_id> --article <N>`
+
+## One form per act
+
+Every record of one act names it the same way, in any legal system:
+- `--citation` is "act, unit" — the act as it is cited, a comma, then the unit you rely on: `UK GDPR, art 82`; `Data Protection Act 2018, s 168`; `42 U.S.C., § 1983`; `BGB, § 823`; `Code du travail, art. L1234-5`; `Федеральный закон от 31.07.2025 № 289-ФЗ, ст. 23`. A judgment cited as a whole has no unit.
+- `meta.short_name` is always set, by you, not taken from a tool: the act without its unit, the same for every record of that act — `UK GDPR`, `DPA 2018`, `42 U.S.C.`, `BGB`, `ГК РФ`, `289-ФЗ`, `Определение № 66-КГ18-9`.
+- `--title` carries no database or retrieval tag in brackets — no `[legislation.gov.uk]`, `[LDH]` or `[via uklegal]`.
+- A multi-page guide is saved from its content page, the page that carries the passage you rely on, not from its table of contents.
+
+## Find a case by name
+
+When a case is expected — an appeal from a decision you hold, the leading case an issue is known for — search for it by the parties' names. A failed lookup of a guessed citation (not found, or a match with confidence 0) does not mean the case is absent: search by name before you drop it or enter it in `considered_excluded`.
 
 ## What a court held
 

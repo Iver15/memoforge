@@ -36,6 +36,13 @@ ARTICLE_HEADING_PREFIX = (
 
 ANY_ARTICLE_HEADING_RE = re.compile(ARTICLE_HEADING_PREFIX + r"\d+", re.MULTILINE | re.IGNORECASE)
 
+_HEADING_LEAD = r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*"
+_LABELLED_UNIT_RE = re.compile(r"^(reg(?:ulation)?|sch(?:edule)?|rule)\.?\s*(\S+)$", re.IGNORECASE)
+_LABEL_HEADINGS = {"reg": r"(?:Regulation|Reg)\.?", "sch": r"(?:Schedule|Sch)\.?", "rul": r"Rule\.?"}
+"""A unit that is not an article or a section is asked for with its label (`reg 22`, `Sch 1`, `Rule 23`)
+and found only under a heading of its own kind (D-219). A bare number keeps the article grammar alone, so
+`5` never finds `Regulation 5`, `Part 5` or `Chapter 5`."""
+
 _ACT_TYPES = ("определение", "постановление", "решение", "приговор")
 _IMENEM = "именем российской федерации"
 _OPERATIVE_MARKERS = ("определил", "определила", "постановил", "постановила", "решил", "решила", "приговорил")
@@ -295,6 +302,67 @@ def has_number(text: str, expected: str, zone: tuple[int, int]) -> bool:
     return re.search(pattern, _normalise(_slice(text, zone))) is not None
 
 
+_TOKEN_RE = re.compile(r"([^\W\d_]+)|(\d+)")
+_BRACKET_GROUP_RE = re.compile(r"[(\[][^)\]]*")
+
+
+def _tokens(text: str) -> list:
+    """`[(value, start, end)]`: maximal runs of letters or of digits, lower-cased, digits as integers."""
+    folded = []
+    for match in _TOKEN_RE.finditer(text):
+        value = match.group(1) if match.group(1) is not None else int(match.group(2))
+        folded.append((value, match.start(), match.end()))
+    return folded
+
+
+def _continues(text: str, found: list, first: int, stop: int) -> bool:
+    """Whether the identifier matched at `found[first:stop]` goes on past the match — a longer number."""
+    glued = stop < len(found) and found[stop - 1][2] == found[stop][1]
+    if glued and isinstance(found[stop - 1][0], int):
+        return True  # `[2020] UKSC 1A` is not `[2020] UKSC 1`
+    if stop < len(found) and isinstance(found[stop][0], int):
+        gap = text[found[stop - 1][2] : found[stop][1]]
+        if not any(char.isspace() for char in gap):
+            return True  # `…:123.1`, `…(1,3)-2`
+        if gap.rstrip().endswith(("(", "[")):
+            group = _BRACKET_GROUP_RE.match(text, found[stop - 1][2] + len(gap.rstrip()) - 1)
+            if group is not None and "," in group.group():
+                return True  # `305-ЭС24-8702` against `305-ЭС24-8702 (1,3)`
+    if first > 0 and isinstance(found[first - 1][0], int):
+        gap = text[found[first - 1][2] : found[first][1]]
+        if not any(char.isspace() for char in gap):
+            return True
+    return False
+
+
+def has_number_tokens(text: str, expected: str, zone: tuple[int, int]) -> bool:
+    """Whether `expected` is printed inside `zone` token for token — the non-Russian identity rule (D-219).
+
+    A page prints a neutral citation glued to its label and zero-padded (`Number[2017] EWHC3113 (QB)Case`,
+    `UKFTT 00362 (GRC)`), which `has_number`'s whole-token bounds refuse. Here both sides are cut into runs
+    of letters or of digits, digits compared as integers, and the expected tokens must stand consecutively.
+    The match is refused when the identifier visibly continues: letters glued to its last number (`UKSC 1A`),
+    a number glued on either side, or a bracketed group with a comma behind it (a Russian twin).
+    `576 U.S. 644 (2015)` still names `576 U.S. 644`.
+    """
+    wanted = [value for value, _, _ in _tokens(_fold(expected))]
+    if not wanted:
+        return False
+    haystack = _fold(_slice(text, zone))
+    found = _tokens(haystack)
+    size = len(wanted)
+    for first in range(len(found) - size + 1):
+        if [value for value, _, _ in found[first : first + size]] != wanted:
+            continue
+        if not _continues(haystack, found, first, first + size):
+            return True
+    return False
+
+
+def _fold(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).lower().replace("ё", "е")
+
+
 def _dates_in(chunk: str):
     for line in chunk.splitlines():
         if _LIST_LINE_RE.match(line.lstrip()):
@@ -369,25 +437,44 @@ def is_complete_plenum(text: str) -> bool:
     return any(signature.search(body) is not None for signature in _PLENUM_SIGNATURE_RES)
 
 
+_UNIT_CONTINUES = r"(?![^\W_])(?![./\-][^\W_])"
+"""What may not follow a requested unit: a letter or a digit, or `.`/`-`/`/` before one (D-219)."""
+
+
 def article_body_chars(text: str, article: str) -> int:
     """Length of the requested article, from its heading to the next article heading or the end; 0 if absent.
 
     The heading is matched as a whole token with the same alternation `sources.py` uses, so `152` never finds
     `152.1`, and a table of contents («Статья 36 / Статья 37») yields a body far under `ARTICLE_BODY_MIN_CHARS`.
+    A unit never finds one that goes on past it — a letter or a digit, or `.`/`-`/`/` before one: `12` is not
+    `Article 12A`, `reg 5A` is not `Regulation 5AB`, `Sch I` is not `SCHEDULE II` (D-219).
+    A labelled unit (`reg 22`, `Sch 1`, `Rule 23`) is looked for under headings of its own kind only, and its
+    body also ends at the next heading of that kind (`_heading_prefix`).
     """
-    wanted = article.strip()
+    prefix, wanted = _heading_prefix(article.strip())
     if not wanted:
         return 0
     heading = re.compile(
-        ARTICLE_HEADING_PREFIX + re.escape(wanted) + r"(?!\d)(?!\.\d)",
+        prefix + re.escape(wanted) + _UNIT_CONTINUES,
         re.MULTILINE | re.IGNORECASE,
     )
     match = heading.search(text)
     if match is None:
         return 0
-    following = ANY_ARTICLE_HEADING_RE.search(text, match.end())
-    end = following.start() if following is not None else len(text)
+    ends = [ANY_ARTICLE_HEADING_RE.search(text, match.end())]
+    if prefix != ARTICLE_HEADING_PREFIX:
+        ends.append(re.compile(prefix + r"\d+", re.MULTILINE | re.IGNORECASE).search(text, match.end()))
+    end = min((found.start() for found in ends if found is not None), default=len(text))
     return end - match.start()
+
+
+def _heading_prefix(article: str) -> tuple[str, str]:
+    """`(heading prefix, unit number)`: the article grammar for a bare number, the unit's own for a label."""
+    labelled = _LABELLED_UNIT_RE.match(article)
+    if labelled is None:
+        return ARTICLE_HEADING_PREFIX, article
+    label = _LABEL_HEADINGS[labelled.group(1).lower()[:3]]
+    return _HEADING_LEAD + label + r"[ \t]*", labelled.group(2)
 
 
 def verdict(
@@ -407,7 +494,8 @@ def verdict(
     A Russian judicial act needs both requisites, and a requisite missing from its zone is
     `requisites_mismatch` — the caller refuses and nothing is registered. Outside that rule the same failure is
     only `excerpt:identity_unverified`: the asymmetry is deliberate, because the Russian rule is the one v1
-    certifies.
+    certifies. Outside it the number is also accepted token by token (`has_number_tokens`, D-219); the Russian
+    branch never uses that rule.
     """
     russian = is_russian_act(text)
     found = {"number": False, "date": False, "russian": russian, "chars": len(text)}
@@ -437,7 +525,8 @@ def verdict(
         if len(text) < FULL_TEXT_MIN_CHARS_CASE:
             return answer("excerpt:too_short")
         if expect_number:
-            found["number"] = has_number(text, expect_number, (0, HEADER_ZONE_CHARS))
+            zone = (0, HEADER_ZONE_CHARS)
+            found["number"] = has_number(text, expect_number, zone) or has_number_tokens(text, expect_number, zone)
         if not found["number"]:
             return answer("excerpt:identity_unverified")
         return answer("full_text")

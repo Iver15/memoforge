@@ -502,7 +502,8 @@ def display_pinpoint(pinpoint: str, language: str = i18n.DEFAULT) -> str:
 
 def _cut(text: str, words: int = MAX_SHORT_WORDS) -> str:
     parts = text.split()
-    return " ".join(parts[:words])
+    # D-219 (F1): the cut word's own comma is not the separator `short` adds — `АС города Москвы,,`.
+    return " ".join(parts[:words]).rstrip(" ,;:")
 
 
 def _strip_company(name: str) -> str:
@@ -529,6 +530,8 @@ def _parenthetical(view: dict) -> str:
 _ARTICLE_TAIL_RE = re.compile(
     r"\s+(?:art(?:icle)?s?|annexe?s?|recitals?|s|§)\b.*$", re.IGNORECASE
 )
+_SPACED_DASH_RE = re.compile(r"\s+[-–—]\s+")
+"""` - `, ` – `, ` — `: where a registry title's heading words begin (D-219); `2016-1321` is no such dash."""
 
 
 def _instrument_short(view: dict) -> str:
@@ -582,7 +585,8 @@ def short_name(view: dict) -> str:
         joined = " ".join(part for part in (body, document) if part).strip()
         if joined:
             return joined
-    head = title.split(",")[0].strip()
+    # D-219 (F11): a spaced dash ends the name — `UK GDPR Article 82 - Right to …` is not `… 82 -`.
+    head = _SPACED_DASH_RE.split(title)[0].split(",")[0].strip()
     return _cut(head) or str(view.get("source_id") or "source")
 
 
@@ -853,13 +857,22 @@ def compact(view: dict, pinpoint: str = "", language: str = i18n.DEFAULT) -> str
         text = _trim(short(view, pinpoint, language=language))
     if len(text) <= MAX_COMPACT_CHARS:
         return text
-    return _hard_cut(text)
+    # D-219 (F5): the name is shortened, never the pinpoint — `…наступления, разд…` lost the section.
+    tail = f", {pin}" if pin else ""
+    room = MAX_COMPACT_CHARS - len(tail)
+    if not tail or not text.endswith(tail) or room < 0:
+        return _hard_cut(text)  # no pinpoint, another shape, or a pinpoint longer than the cap itself
+    if room == 0:
+        return pin  # an empty name fits, and with no name there is no separator either
+    return _hard_cut(text[: -len(tail)], room) + tail
 
 
-def _hard_cut(text: str) -> str:
-    cut = text[: MAX_COMPACT_CHARS - 1]
+def _hard_cut(text: str, limit: int = MAX_COMPACT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
     head, space, _ = cut.rpartition(" ")
-    if space and len(head) > MAX_COMPACT_CHARS // 2:
+    if space and len(head) > limit // 2:
         cut = head
     return cut.rstrip(" ,;:.") + "…"
 

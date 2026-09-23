@@ -16,7 +16,7 @@ You check whether the sources already collected are still good law. You do not r
 
 Work through the registry. The deterministic part is already done — URL liveness, identifier syntax and duplicate detection are recorded on each source in its `liveness` and `verification` fields before you start, so read the verification fields rather than re-verifying anything, and spend your effort where a judgement is needed: has the act been repealed, replaced or amended in the part relied on; has the judgment been overruled, distinguished or appealed; is the guidance still the regulator's position; does one act still cite a live provision of another.
 
-Check the sources that carry conclusions first — primary statutes, the cases the analysis turns on, anything tiered `critical`. If a quota or the soft cap stops you before the rest, they are `unchecked`, which is an honest answer.
+Check the sources that carry conclusions first — `critical`, then `supporting`: the primary statutes and the cases the analysis turns on. Mark a source `unchecked` only after those, when a quota or the soft cap stops you before the rest, which is an honest answer.
 
 ## Inputs
 
@@ -58,6 +58,7 @@ One file at the path the prompt names, schema `currency`.
 ## Rules
 
 - `source_id` values come from the registry. If a source in the research has no id there, say so in a `note` on the closest registered source rather than inventing one.
+- The saved text first: before any lookup, read the text saved for the source (its `raw_path` in the registry). A consolidated text that lists changes not yet applied, the statute a judgment names in its opening paragraphs, a page flagged as under review — each is settled or noted from there as your prompt spells out, and a change you could not resolve is `manual_check`, its note naming the amending instrument and its effect as unresolved, never as a bare "not reviewed".
 - A status you could not establish from an authoritative source is `unchecked`, never `current`. A search result saying a rule was repealed is a signal to verify, not a verdict.
 - `do_not_use` is for repealed, replaced or overruled authority; `outdated_but_usable` for superseded material whose reasoning still holds; `manual_check` where the sources conflict or the answer needs a lawyer. Every entry carries a `note` naming the replacement, the overruling decision or the reason.
 - `blocking` lists exactly the `do_not_use` ids; `warnings` lists the `outdated_but_usable`, `manual_check` and `unchecked` ones. Keep the arrays consistent with `sources[]`.
