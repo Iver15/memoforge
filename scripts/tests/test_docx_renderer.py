@@ -1189,5 +1189,160 @@ class LocalizedDocxTest(GoldenCase):
         self.assertIn('<w:footnoteReference w:id="1"/>', normalise(text.encode("utf-8")))
 
 
+CLASSICAL_DRAFT = Path(__file__).resolve().parent / "fixtures" / "drafts" / "classical-clean.md"
+
+BRIEF_TITLE = "DECISION BRIEF — CHECK BEFORE USE"
+BRIEF_BANNERS = [{"banner_id": "brief_unverified", "text": "Fidelity check BF-02 not closed."}]
+
+
+def classical_index() -> fallback.SourceIndex:
+    """The three ids `classical-clean.md` cites, each registered with a public url."""
+    return fallback.SourceIndex(
+        sources={
+            "gdpr-art-6": {"citation_form": "Regulation (EU) 2016/679, art 6", "url": "https://eur-lex.europa.eu/6"},
+            "gdpr-art-7": {"citation_form": "Regulation (EU) 2016/679, art 7", "url": "https://eur-lex.europa.eu/7"},
+        },
+        quotes={"q-gdpr-art-6-1": {"source_id": "gdpr-art-6"}},
+    )
+
+
+def unverified_index() -> fallback.SourceIndex:
+    """`sample_index` plus one cited source whose currency sends it to the appendix."""
+    index = sample_index()
+    index.snapshot_ids.append("stale")
+    index.sources["stale"] = {
+        "citation_form": "Some Circular 2011",
+        "url": "https://example.org/circular-2011",
+        "currency": {"status": "manual_check"},
+    }
+    return index
+
+
+class RendererSwitchesTest(GoldenCase):
+    """D-221: `sources`, `appendix`, `banner_title` and `banner_subtitle` of the decision brief."""
+
+    UNVERIFIED_DRAFT = (
+        "## 1. Bottom line\n\nThe circular applies [[src:stale para 3]].\n\n<!-- sources: generated -->\n"
+    )
+
+    def document(self, path: Path) -> str:
+        with zipfile.ZipFile(path) as archive:
+            return normalise(archive.read(DOCUMENT_PART))
+
+    def valid(self, path: Path) -> dict:
+        return validate.validate_path(path, footnotes_map=renderer.footnotes_map(self.result))
+
+    def test_the_defaults_render_the_bytes_of_today(self):
+        draft = CLASSICAL_DRAFT.read_text(encoding="utf-8")
+        for style in (oscola.STYLE_FOOTNOTES, oscola.STYLE_INLINE):
+            with self.subTest(style=style):
+                plain = self.render(draft, index=classical_index(), citation_style=style)
+                switched = self.render(
+                    draft,
+                    index=classical_index(),
+                    citation_style=style,
+                    sources=True,
+                    appendix=True,
+                    banner_title=None,
+                    banner_subtitle=None,
+                )
+                with zipfile.ZipFile(plain) as one, zipfile.ZipFile(switched) as two:
+                    self.assertEqual(one.read(DOCUMENT_PART), two.read(DOCUMENT_PART))
+                    self.assertEqual(one.read(FOOTNOTES_PART), two.read(FOOTNOTES_PART))
+
+    def test_the_fixture_opens_both_parts_by_default(self):
+        path = self.render(self.UNVERIFIED_DRAFT, index=unverified_index(), citation_style=oscola.STYLE_INLINE)
+        text = self.document(path)
+        self.assertIn(escape(fallback.label("sources_heading")), text)
+        self.assertIn(escape(APPENDIX_HEADING), text)
+
+    def test_sources_and_appendix_left_out(self):
+        path = self.render(
+            self.UNVERIFIED_DRAFT,
+            index=unverified_index(),
+            citation_style=oscola.STYLE_INLINE,
+            sources=False,
+            appendix=False,
+        )
+        text = self.document(path)
+        self.assertNotIn(escape(fallback.label("sources_heading")), text)
+        self.assertNotIn(escape(APPENDIX_HEADING), text)
+        self.assertNotIn("sources: generated", text)
+        self.assertIn("<w:hyperlink", text)
+        self.assertIn("Some Circular 2011", text, "the inline citation stays in the body")
+        self.assertTrue(self.valid(path)["valid"], self.valid(path))
+
+    def test_the_brief_banner_carries_its_own_title_and_no_fallbacks_heading(self):
+        path = self.render(
+            "Body of the brief.\n",
+            citation_style=oscola.STYLE_INLINE,
+            banners=BRIEF_BANNERS,
+            banner_title=BRIEF_TITLE,
+            banner_subtitle="Sub",
+            sources=False,
+            appendix=False,
+        )
+        table = self.document(path).partition("</w:tbl>")[0]
+        self.assertIn(escape(BRIEF_TITLE), table)
+        self.assertIn("<w:t>Sub</w:t>", table)
+        self.assertIn(escape("- Fidelity check BF-02 not closed."), table)
+        self.assertNotIn("Pipeline fallbacks that fired during this run:", table)
+        self.assertNotIn(escape(i18n.t("en", "memo.banner_titles.fallbacks_heading")), table)
+        self.assertNotIn(escape(i18n.t("en", "memo.banner_titles.reasons_heading")), table)
+        self.assertNotIn(escape(i18n.t("en", "memo.banner_titles.subtitle")), table)
+        self.assertEqual(["brief_unverified"], [row["banner_id"] for row in self.result["banners"]])
+
+    def test_a_banner_opening_with_the_brief_title_is_still_listed(self):
+        banners = [{"banner_id": "brief_too_long", "text": f"{BRIEF_TITLE}: this brief is longer than three pages."}]
+        path = self.render(
+            "Body of the brief.\n",
+            citation_style=oscola.STYLE_INLINE,
+            banners=banners,
+            banner_title=BRIEF_TITLE,
+            banner_subtitle="Sub",
+        )
+        table = self.document(path).partition("</w:tbl>")[0]
+        self.assertIn(escape(f"- {BRIEF_TITLE}: this brief is longer than three pages."), table)
+
+    def test_an_empty_brief_title_is_no_title(self):
+        def table(**kwargs) -> bytes:
+            path = self.render(
+                "Body of the brief.\n", citation_style=oscola.STYLE_INLINE, banners=BRIEF_BANNERS, **kwargs
+            )
+            with zipfile.ZipFile(path) as archive:
+                return archive.read(DOCUMENT_PART)
+
+        empty = table(banner_title="", banner_subtitle="Sub")
+        self.assertEqual(table(), empty)
+        self.assertIn(escape(i18n.t("en", "memo.banner_titles.fallbacks_heading")), normalise(empty))
+
+    def test_without_banners_the_brief_title_draws_nothing(self):
+        text = self.document(
+            self.render("Body of the brief.\n", citation_style=oscola.STYLE_INLINE, banner_title=BRIEF_TITLE)
+        )
+        self.assertNotIn(escape(BRIEF_TITLE), text)
+        self.assertNotIn("FFF3CD", text)
+
+    def test_a_brief_without_any_token_validates(self):
+        path = self.render(
+            "## 1. Bottom line\n\nNo citation at all.\n",
+            citation_style=oscola.STYLE_INLINE,
+            sources=False,
+            appendix=False,
+        )
+        report = self.valid(path)
+        self.assertTrue(report["valid"], report)
+        self.assertNotIn(validate.E_COUNT_MISMATCH, report["errors"])
+        self.assertEqual(0, report["footnotes"])
+
+    def test_a_brief_whose_only_token_repeats_validates(self):
+        draft = "The rule [[src:gdpr art 6]] and again [[src:gdpr art 6]].\n"
+        mentions = fallback.scan_mentions(draft, sample_index(), oscola.STYLE_INLINE)["mentions"]
+        self.assertEqual(oscola.FORM_OMITTED, mentions[1].get("form"), "the repeat is an omitted mention")
+        path = self.render(draft, citation_style=oscola.STYLE_INLINE, sources=False, appendix=False)
+        report = self.valid(path)
+        self.assertTrue(report["valid"], report)
+
+
 if __name__ == "__main__":
     unittest.main()

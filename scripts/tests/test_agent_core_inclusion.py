@@ -51,7 +51,7 @@ class AgentCoreInclusionTest(unittest.TestCase):
     """The composition B-01/B-02 broke: §4.2 is normative in both directions."""
 
     def test_every_pipeline_agent_has_a_prompt_on_disk(self):
-        self.assertEqual(11, len(dispatch.PIPELINE_AGENTS))
+        self.assertEqual(13, len(dispatch.PIPELINE_AGENTS))
         for agent in dispatch.PIPELINE_AGENTS:
             self.assertTrue(dispatch.prompt_path(agent).is_file(), agent)
 
@@ -78,6 +78,16 @@ class AgentCoreInclusionTest(unittest.TestCase):
         for agent in sorted(STYLE_PROFILE_READERS):
             with self.subTest(agent=agent):
                 self.assertIn("${prose_style_path}", read(dispatch.prompt_path(agent)), agent)
+
+    def test_the_brief_agents_get_the_universal_blocks_and_no_style_profile(self):
+        """D-223: the decision brief takes no style profile (spec DB-04), so neither brief prompt names one."""
+        for agent in ("brief-writer", "brief-fidelity-reviewer"):
+            with self.subTest(agent=agent):
+                self.assertIn(agent, dispatch.PIPELINE_AGENTS)
+                self.assertEqual(set(UNIVERSAL), included(agent))
+                text = read(dispatch.prompt_path(agent))
+                self.assertNotIn("${prose_style_path}", text)
+                self.assertNotIn("style-profile.md", text)
 
     def test_no_other_prompt_prints_the_style_profile_path(self):
         """§4.2: «Other agents ignore it even when the path is present» — so it is not present."""

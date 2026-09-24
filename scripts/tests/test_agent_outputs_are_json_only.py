@@ -18,8 +18,10 @@ AGENTS = PLUGIN_ROOT / "agents"
 PROMPTS = PLUGIN_ROOT / "scripts" / "memoforge" / "prompts"
 CHECKLISTS = PLUGIN_ROOT / "lib" / "checklists"
 
-# §6: the two authored markdown artefacts of the pipeline — primary texts, not views of JSON.
+# §6: the authored markdown artefacts of the pipeline — primary texts, not views of JSON.
 MD_AUTHORS = {"memo-writer", "style-extractor"}
+# D-223: the decision brief is a markdown text too, the one file its writer produces.
+MD_AUTHORS |= {"brief-writer"}
 # §11: the P9 diagnostic writes no file at all.
 NO_OUTPUT = {"probe-echo"}
 
@@ -35,6 +37,8 @@ EXAMPLE_SCHEMA = {
     "counterargument-reviewer": "review",
     "revision-mediator": "mediator",
     "client-readiness-reviewer": "client-readiness",
+    # D-223: the fidelity review of the decision brief has its own document shape.
+    "brief-fidelity-reviewer": "brief-review",
 }
 
 # §4.5: the checklist file each grader works from.
@@ -44,6 +48,7 @@ EXAMPLE_CHECKLIST = {
     "citation-auditor": "citations",
     "counterargument-reviewer": "counterarguments",
     "client-readiness-reviewer": "client-readiness",
+    "brief-fidelity-reviewer": "brief-fidelity",
 }
 
 # "write research/statutes.md", "produce a human-readable currency-report.md", …

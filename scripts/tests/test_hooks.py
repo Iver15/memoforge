@@ -1127,7 +1127,7 @@ class BuildHooksTest(unittest.TestCase):
         names = build_hooks.agent_names(PLUGIN_ROOT)
         self.assertIn("legal-researcher", names)
         self.assertIn("memo-writer", names)
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 14)  # D-223: twelve + the two brief agents
         document = build_hooks.build(PLUGIN_ROOT, agent_fallback=True)
         matcher = document["hooks"]["SubagentStart"][0]["matcher"]
         self.assertTrue(matcher.startswith("^memoforge:("))

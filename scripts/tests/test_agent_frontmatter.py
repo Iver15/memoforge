@@ -75,15 +75,15 @@ def agent_files() -> dict[str, Path]:
 
 
 class RosterTest(unittest.TestCase):
-    """§4.1: 16 - 6 + 2 = 12 agents, plus the P9 probe."""
+    """§4.1: 16 - 6 + 2 = 12 agents, plus the two of the decision brief (D-223) and the P9 probe."""
 
-    def test_models_md_lists_exactly_twelve_agents(self):
-        self.assertEqual(12, len(models_table()))
+    def test_models_md_lists_exactly_fourteen_agents(self):
+        self.assertEqual(14, len(models_table()))
 
-    def test_agents_directory_holds_the_twelve_plus_probe_echo(self):
+    def test_agents_directory_holds_the_fourteen_plus_probe_echo(self):
         files = agent_files()
         self.assertEqual(set(models_table()) | {PROBE}, set(files))
-        self.assertEqual(13, len(files))
+        self.assertEqual(15, len(files))
 
     def test_merged_and_scripted_v1_agents_are_gone(self):
         for name in (

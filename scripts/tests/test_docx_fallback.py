@@ -2373,5 +2373,115 @@ class LocalizedStatusSignatureTest(_PackedTestCase):
         self.assertEqual(state_io.sha256_bytes(payload.encode("utf-8")), self.signature("ru"))
 
 
+CLASSICAL_DRAFT = Path(__file__).resolve().parent / "fixtures" / "drafts" / "classical-clean.md"
+
+BRIEF_TITLE = "DECISION BRIEF — CHECK BEFORE USE"
+BRIEF_BANNERS = [{"banner_id": "brief_unverified", "text": "Fidelity check BF-02 not closed."}]
+
+
+def unverified_index() -> fallback.SourceIndex:
+    """`index()` plus one cited source whose currency sends it to the appendix."""
+    result = index()
+    result.sources["stale"] = {
+        "citation_form": "Some Circular 2011",
+        "url": "https://example.org/circular-2011",
+        "currency": {"status": "manual_check"},
+    }
+    return result
+
+
+class RenderSwitchesTest(unittest.TestCase):
+    """D-221: the markdown twin of the decision brief's renderer switches."""
+
+    DRAFT = "## 1. Bottom line\n\nThe circular applies [[src:stale para 3]].\n\n<!-- sources: generated -->\n"
+
+    def brief(self, **kwargs) -> str:
+        kwargs.setdefault("citation_style", INLINE)
+        return fallback.render(
+            self.DRAFT,
+            unverified_index(),
+            sources=False,
+            appendix=False,
+            banners=BRIEF_BANNERS,
+            banner_title=BRIEF_TITLE,
+            banner_subtitle="Sub",
+            **kwargs,
+        )["markdown"]
+
+    def test_the_defaults_render_the_bytes_of_today(self):
+        draft = CLASSICAL_DRAFT.read_text(encoding="utf-8")
+        classical = index(
+            sources={
+                "gdpr-art-6": {"citation_form": "Regulation (EU) 2016/679, art 6", "url": "https://eur-lex.europa.eu/6"},
+                "gdpr-art-7": {"citation_form": "Regulation (EU) 2016/679, art 7", "url": "https://eur-lex.europa.eu/7"},
+            },
+            quotes={"q-gdpr-art-6-1": {"source_id": "gdpr-art-6"}},
+        )
+        for style in (FOOTNOTES, INLINE):
+            with self.subTest(style=style):
+                plain = fallback.render(draft, classical, citation_style=style)
+                switched = fallback.render(
+                    draft,
+                    classical,
+                    citation_style=style,
+                    sources=True,
+                    appendix=True,
+                    banners=None,
+                    banner_title=None,
+                    banner_subtitle=None,
+                )
+                self.assertEqual(plain, switched)
+
+    def test_banners_without_a_title_change_nothing(self):
+        plain = fallback.render(self.DRAFT, unverified_index(), citation_style=INLINE)
+        with_banners = fallback.render(self.DRAFT, unverified_index(), citation_style=INLINE, banners=BRIEF_BANNERS)
+        self.assertEqual(plain, with_banners)
+
+    def test_an_empty_title_is_no_title(self):
+        plain = fallback.render(self.DRAFT, unverified_index(), citation_style=INLINE)
+        empty = fallback.render(
+            self.DRAFT, unverified_index(), citation_style=INLINE, banners=BRIEF_BANNERS, banner_title=""
+        )
+        self.assertEqual(plain, empty)
+
+    def test_a_banner_opening_with_the_title_is_still_listed(self):
+        banners = [{"banner_id": "brief_too_long", "text": f"{BRIEF_TITLE}: longer than three pages."}]
+        markdown = fallback.render(
+            self.DRAFT, unverified_index(), citation_style=INLINE, banners=banners, banner_title=BRIEF_TITLE
+        )["markdown"]
+        self.assertIn(f"> - {BRIEF_TITLE}: longer than three pages.\n", markdown)
+
+    def test_the_fixture_opens_both_parts_by_default(self):
+        markdown = fallback.render(self.DRAFT, unverified_index(), citation_style=INLINE)["markdown"]
+        self.assertIn(SOURCES_HEADING, markdown)
+        self.assertIn(APPENDIX_HEADING, markdown)
+
+    def test_the_brief_starts_with_its_banner_and_carries_no_annex(self):
+        markdown = self.brief()
+        self.assertTrue(
+            markdown.startswith(
+                f"> **{BRIEF_TITLE}**\n> Sub\n>\n> - Fidelity check BF-02 not closed.\n\n## 1. Bottom line\n"
+            ),
+            markdown,
+        )
+        self.assertNotIn(SOURCES_HEADING, markdown)
+        self.assertNotIn(APPENDIX_HEADING, markdown)
+        self.assertNotIn(STATUS_HEADING, markdown)
+        self.assertIn("([Some Circular 2011 para 3](https://example.org/circular-2011))", markdown)
+
+    def test_the_returned_banners_are_only_the_ones_the_renderer_raised(self):
+        result = fallback.render(
+            self.DRAFT, unverified_index(), citation_style=INLINE, banners=BRIEF_BANNERS, banner_title=BRIEF_TITLE
+        )
+        self.assertEqual([], result["banners"])
+
+    def test_a_russian_brief_without_final_status_has_no_status_section(self):
+        markdown = self.brief(state={"language": "ru"})
+        self.assertTrue(markdown.startswith(f"> **{BRIEF_TITLE}**\n"), markdown)
+        self.assertNotIn(fallback.status_heading("ru"), markdown)
+        self.assertNotIn(fallback.sources_heading("ru"), markdown)
+        self.assertNotIn(fallback.appendix_heading("ru"), markdown)
+
+
 if __name__ == "__main__":
     unittest.main()

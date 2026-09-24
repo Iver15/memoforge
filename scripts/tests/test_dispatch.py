@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _pipeline import Driver, temp_root  # noqa: E402
 from memoforge import (  # noqa: E402
+    brief_lint,
     cli,
     dispatch,
     gates,
@@ -147,7 +148,55 @@ def _specs(work_dir: Path, state: dict) -> list[dict]:
             retry_errors="none",
         )
     )
+    if state["mode"] == "full":
+        # D-223: the two agents of `/memoforge:brief`, with the extras the brief driver passes. Only
+        # in Full, so the golden loop adds exactly two files and every Brief golden stays as it is.
+        specs.extend(_brief_specs())
     return specs
+
+
+BRIEF_BLOCKS = (
+    "s-header = the title and header lines; s-main = «Bottom line»; s-b1 = «Record retention»; "
+    "s-actions = «What to do»"
+)
+"""`brief_lint.section_list` of a one-block brief — the `block_list` and `section_ids` of the fixture."""
+
+
+def _brief_specs() -> list[dict]:
+    """The writer and the fidelity reviewer of a decision brief, as the brief driver issues them (D-223)."""
+    return [
+        dispatch.spec(
+            "writer",
+            "brief-writer",
+            "brief v1",
+            [("brief/v1.md", None)],
+            brief_task="write",
+            memo_path="drafts/v1.md",
+            memo_sha="0" * 64,
+            open_issues_path="brief/open-issues.json",
+            user_question="How long may the client keep customer records?",
+            brief_template_path=dispatch.lib_path("templates", "decision-brief.md"),
+            brief_labels=brief_lint.writer_labels("en"),
+            seed_path="none",
+            instructions_path="none",
+            retry_errors="none",
+        ),
+        dispatch.spec(
+            "fidelity",
+            "brief-fidelity-reviewer",
+            "brief fidelity r0",
+            [("brief/reviews/r0-fidelity.json", "brief-review")],
+            memo_path="drafts/v1.md",
+            memo_sha="0" * 64,
+            brief_path="brief/v1.md",
+            brief_sha="1" * 64,
+            open_issues_path="brief/open-issues.json",
+            user_question="How long may the client keep customer records?",
+            block_list=BRIEF_BLOCKS,
+            checklist="brief-fidelity",
+            retry_errors="none",
+        ),
+    ]
 
 
 TOKENS = (
@@ -280,6 +329,16 @@ class PromptGoldenTest(unittest.TestCase):
     def test_every_pipeline_agent_has_a_prompt(self):
         for agent in dispatch.PIPELINE_AGENTS:
             self.assertTrue(dispatch.prompt_path(agent).is_file(), agent)
+
+    def test_the_brief_agents_are_rendered_in_full_only(self):
+        """D-223: exactly two new goldens, `brief-writer.writer.full.md` and the fidelity reviewer's."""
+        names = {
+            mode: {f"{agent['agent']}.{agent['slot']}" for agent in self._render(mode)["agents"]}
+            for mode in ("brief", "full")
+        }
+        for mode, expected in (("full", {"brief-writer.writer", "brief-fidelity-reviewer.fidelity"}), ("brief", set())):
+            with self.subTest(mode=mode):
+                self.assertEqual(expected, {name for name in names[mode] if name.startswith("brief-")})
 
     def test_paths_in_prompts_are_absolute(self):
         rendered = self._render("full")
@@ -530,6 +589,106 @@ class PromptGoldenTest(unittest.TestCase):
                     continue
                 with self.subTest(agent=agent["agent"], schema=name):
                     self.assertIn(f"(schema `{name}` — `{path}`)", agent["prompt"])
+
+
+class BriefPromptTest(unittest.TestCase):
+    """D-223: the prompts of `/memoforge:brief` and the two brief variables of the form reviewer."""
+
+    BRIEF_EXTRAS = (
+        "brief_role",
+        "section_ids",
+        "memo_path",
+        "memo_sha",
+        "brief_path",
+        "brief_sha",
+        "open_issues_path",
+        "user_question",
+        "brief_template_path",
+        "brief_labels",
+        "block_list",
+    )
+
+    def _render(self, specs: list[dict]) -> list[dict]:
+        work_dir = temp_root(self) / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        return dispatch.render_agents(
+            work_dir, state, step_id="b-1a2b3c4d-001", attempt=1, specs=specs, position=0, total=0
+        )
+
+    def test_the_brief_extras_default_to_empty_and_the_task_to_write(self):
+        for key in self.BRIEF_EXTRAS:
+            with self.subTest(key=key):
+                self.assertEqual("", dispatch._DEFAULT_EXTRAS[key])  # noqa: SLF001
+        self.assertEqual("write", dispatch._DEFAULT_EXTRAS["brief_task"])  # noqa: SLF001
+
+    def test_the_two_brief_agents_are_registered(self):
+        for agent in ("brief-writer", "brief-fidelity-reviewer"):
+            with self.subTest(agent=agent):
+                self.assertEqual({"model": "opus", "effort": "high"}, dispatch.AGENT_MODELS[agent])
+        self.assertEqual(("brief-writer", "brief-fidelity-reviewer"), dispatch.PIPELINE_AGENTS[-2:])
+
+    def test_the_writer_prompt_carries_the_memo_the_open_issues_and_the_labels(self):
+        writer = self._render(_brief_specs()[:1])[0]
+        prompt = writer["prompt"]
+        self.assertEqual("opus", writer["model"])
+        self.assertIn("`drafts/v1.md`", prompt)
+        self.assertIn("`brief/open-issues.json`", prompt)
+        self.assertIn(dispatch.lib_path("templates", "decision-brief.md"), prompt)
+        self.assertIn(brief_lint.writer_labels("en"), prompt)
+        self.assertIn("steps/b-1a2b3c4d-001/a1/writer/v1.md", prompt)
+        self.assertNotIn("${", prompt)
+
+    def test_the_fidelity_prompt_carries_the_sha_to_copy_the_blocks_and_the_checklist(self):
+        prompt = self._render(_brief_specs()[1:])[0]["prompt"]
+        self.assertIn("1" * 64, prompt)
+        self.assertIn(BRIEF_BLOCKS, prompt)
+        self.assertIn(dispatch.lib_path("lib", "checklists", "brief-fidelity.json"), prompt)
+        self.assertIn(dispatch.lib_path("schemas", "brief-review.schema.json"), prompt)
+        self.assertNotIn("${", prompt)
+
+    def test_the_form_prompt_takes_the_brief_role_and_its_block_ids(self):
+        section_ids = (
+            " Section ids for this draft (use exactly these as section_id): " + BRIEF_BLOCKS
+            + "; use document only for the whole brief."
+        )
+        brief_role = (
+            " This draft is a decision brief for a non-lawyer: grade it only against the checklist given, and "
+            "every issue names the checklist_id of the item it fails."
+        )
+        prose_style = dispatch.lib_path("lib", "prose-style.md")
+        spec = dispatch.spec(
+            "form",
+            "form-reviewer",
+            "brief form r0",
+            [("brief/reviews/r0-form.json", "review")],
+            checklist="brief-form",
+            draft_path="brief/v1.md",
+            draft_sha="1" * 64,
+            draft_version=1,
+            iteration=1,
+            lint_attachment="",
+            prose_style_path=prose_style,
+            brief_role=brief_role,
+            section_ids=section_ids,
+            retry_errors="none",
+        )
+        lines = self._render([spec])[0]["prompt"].splitlines()
+        checklist = dispatch.lib_path("lib", "checklists", "brief-form.json")
+        self.assertIn(f"- checklist (grade every id, no additions, no omissions): `{checklist}`{section_ids}", lines)
+        self.assertIn(f"Every issue carries `lens`: `clarity` or `style`.{brief_role}", lines)
+        self.assertIn(f"- style profile (authoritative when set): `{prose_style}`", lines)
+
+    def test_the_memo_form_prompt_ends_both_lines_where_it_did(self):
+        """With both brief variables empty the memo prompt is byte-identical (the golden proves the rest)."""
+        work_dir = temp_root(self) / TASK_ID
+        work_dir.mkdir(parents=True, exist_ok=True)
+        state = _state("full", work_dir)
+        spec = machine.reviewer_specs(work_dir, state, ["form"], 1)[0]
+        lines = self._render([spec])[0]["prompt"].splitlines()
+        self.assertIn("Every issue carries `lens`: `clarity` or `style`.", lines)
+        checklist = next(line for line in lines if line.startswith("- checklist (grade every id"))
+        self.assertTrue(checklist.endswith("form.json`"), checklist)
 
 
 class DraftingWarningsBlockTest(unittest.TestCase):

@@ -161,7 +161,20 @@ class LockOrderTest(unittest.TestCase):
                 self.assertTrue((work_dir / name).is_file(), name)
 
     def test_declared_order(self):
-        self.assertEqual(state_io.LOCK_ORDER, ("state", "sources", "events"))
+        # D-224: `brief` (the decision-brief driver) comes first — it never takes a lock of the task
+        # itself while holding its own, but nesting downward from it stays legal.
+        self.assertEqual(state_io.LOCK_ORDER, ("brief", "state", "sources", "events"))
+
+    def test_brief_lock_nests_above_the_task_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = make_task(Path(tmp))
+            with state_io.FileLock(state_io.lock_path(work_dir, "brief")):
+                with state_io.FileLock(state_io.lock_path(work_dir, "state")):
+                    pass
+            with state_io.FileLock(state_io.lock_path(work_dir, "state")):
+                with self.assertRaises(state_io.LockOrderViolation):
+                    with state_io.FileLock(state_io.lock_path(work_dir, "brief")):
+                        pass
 
     def test_downward_nesting_is_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:

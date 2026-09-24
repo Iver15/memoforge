@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -12,13 +13,13 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 if str(PLUGIN_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from memoforge import cli  # noqa: E402
+from memoforge import cli, i18n  # noqa: E402
 
 SKILLS = PLUGIN_ROOT / "skills"
 ROUTER = SKILLS / "memo" / "references" / "router.md"
 
 # ТЗ §3.4 / §2.5: the line ceilings that keep the router readable after summarisation.
-MAX_LINES = {"memo": 150, "continue": 60, "status": 50}
+MAX_LINES = {"memo": 150, "continue": 60, "status": 50, "brief": 100}
 ROUTER_MAX_LINES = 80
 
 # ТЗ §3.4: allowed-tools of the memo router, verbatim.
@@ -453,6 +454,96 @@ class TerminalCopyTest(unittest.TestCase):
             with self.subTest(file=path.name):
                 self.assertIn("present_files", text)
                 self.assertIn("`Memo:`", text)
+
+
+class BriefSkillTest(unittest.TestCase):
+    """D-226 (plan 75A, DB-01): `/memoforge:brief` is a thin router over `mf brief next|report`."""
+
+    BRIEF = SKILLS / "brief" / "SKILL.md"
+    DESCRIPTION = (
+        "Build a short decision brief (about three pages) for a decision maker from a finished memoforge memo. "
+        "Use only when explicitly invoked via /memoforge:brief."
+    )
+
+    def text(self) -> str:
+        self.assertTrue(self.BRIEF.is_file(), f"missing {self.BRIEF}")
+        return read(self.BRIEF)
+
+    def test_frontmatter_matches_the_plan(self):
+        fields = frontmatter(self.text())
+        self.assertEqual("brief", fields.get("name"))
+        self.assertEqual(self.DESCRIPTION, fields.get("description"))
+        self.assertEqual("[<task_id>]", fields.get("argument-hint"))
+        self.assertEqual("true", fields.get("disable-model-invocation"))
+        tools = [item.strip() for item in fields.get("allowed-tools", "").split(",")]
+        self.assertEqual(["Read", "Bash", "Agent", "AskUserQuestion"], tools)
+
+    def test_it_acts_on_every_kind_the_driver_emits(self):
+        text = self.text()
+        for kind in ("dispatch", "gate-auq", "gate-text", "done"):
+            with self.subTest(kind=kind):
+                self.assertIn(f"`kind: {kind}`", text)
+
+    def test_it_speaks_only_the_brief_protocol(self):
+        """Only `task list`, `brief next` and `brief report`: the finished memo is never touched."""
+        calls = set()
+        for rest in MF_CALL.findall(self.text()):
+            tokens = [token.strip('.,;:`"\'') for token in rest.split()][:2]
+            calls.add(" ".join(tokens))
+        self.assertEqual({"task list", "brief next", "brief report"}, calls)
+        self.assertNotIn("finalize", self.text())
+
+    def test_no_task_prints_the_english_refusal(self):
+        """Before a task is resolved there is no interface language yet: the English pack line."""
+        self.assertIn(i18n.t("en", "ui.brief.refused.no_task"), self.text())
+
+    def test_the_report_carries_the_identity_and_one_answer(self):
+        text = self.text()
+        for fragment in ("--run", "--step", "--attempt", "--slot", "--status ok", "--status fail",
+                         "--answers", "--status no_answer", "--text", "mf.cmd"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, text)
+
+    def test_a_dispatch_goes_out_in_one_message_unchanged(self):
+        section = self.text().split("### `kind: dispatch`", 1)[1].split("\n### ", 1)[0]
+        for fragment in ("ONE message", "unchanged", "`subagent_type`", "`model`", "`description`",
+                         "`prompt`", "Add nothing"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, section)
+        # DB-02: `next` re-issues a slot that is still running, so it waits for every report.
+        self.assertIn("only after every slot", section)
+
+    def test_a_reply_to_the_open_gate_goes_to_report_text(self):
+        text = self.text()
+        self.assertIn("D-34", text)
+        self.assertIn("never a second `AskUserQuestion`", text)
+
+    def test_the_reply_and_the_answers_reach_the_cli_verbatim(self):
+        """Fix round 1: a reply with `"`, `$(…)` or `'` is one single-quoted argument, never double-quoted."""
+        text = self.text()
+        rule = text[text.index("**Shell quoting.**"):].split("\n\n", 1)[0]
+        for fragment in ("`--text`", "`--answers`", "single-quoted", "`'\\''`", "Never put them inside double quotes",
+                         "`$(…)`", """`--text 'it'\\''s "yes" $(date)'`"""):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, rule)
+        example = re.search(r"`(--text '[^`]*')`", rule).group(1)
+        self.assertEqual(["--text", 'it\'s "yes" $(date)'], shlex.split(example), "the example round-trips")
+        self.assertNotIn('--text "', text, "no double-quoted reply anywhere in the skill")
+        for line in text.splitlines():
+            if "--answers" in line and "brief report" in line:
+                self.assertIn("--answers '", line, "the answers JSON is single-quoted")
+
+    def test_done_prints_the_whole_text_and_presents_the_file(self):
+        section = self.text().split("### `kind: done`", 1)[1].split("\n### ", 1)[0]
+        for fragment in ("in full", "present_files", "`present`", "`path`", "END"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, section)
+
+    def test_failures_stale_report_and_one_retry(self):
+        text = self.text()
+        for fragment in ("stale_report", "unrecognised_answer", "once", "`kind: \"done\"`"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, text)
 
 
 class NoLegacyTest(unittest.TestCase):

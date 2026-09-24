@@ -34,18 +34,22 @@ class Driver:
         *,
         slug: str = "test",
         user_config: dict | None = None,
+        language: str = "en",
+        ui_language: str = "en",
     ) -> None:
         self.root = Path(root)
         self.mode = mode
         self.work_dir = self.root / f"memo-20260908T120000Z-{slug}"
         task.create_work_dir_tree(self.work_dir)
+        # D-224: the memo and interface languages of the task, so a test can drive a non-English run.
         state = task.build_initial_state(
             task_id=self.work_dir.name,
             user_query="How long may the client keep customer records?",
-            language="en",
+            language=language,
             work_dir=self.work_dir,
             output_folder=self.root,
             config=modes.resolve_config(None, user_config or {}),
+            ui_language=ui_language,
         )
         state_io.create_state(self.work_dir, state)
         self.next_calls = 0

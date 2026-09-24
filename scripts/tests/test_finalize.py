@@ -1400,6 +1400,119 @@ class DeliverableBindingTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("A later revision.", body)
 
 
+class DeliveredDraftShaTest(_WorkDirMixin, unittest.TestCase):
+    """D-220: `finalize` records the sha of the draft bytes the deliverable was rendered from."""
+
+    def memo_docx(self, work_dir: Path) -> Path:
+        return work_dir / "memo-gdpr-transcripts.docx"
+
+    def delivered(self, work_dir: Path):
+        state = state_io.read_state(work_dir)
+        self.assertTrue("delivered_draft_sha" in state, "finalize did not record delivered_draft_sha")
+        return state["delivered_draft_sha"]
+
+    def record_versions(self, work_dir: Path, *versions: tuple[int, str]) -> None:
+        """`draft_versions[]` rows that passed both checks, each bound to the sha it was checked at."""
+
+        def mutator(state: dict) -> None:
+            state["draft_versions"] = [
+                {
+                    "version": version,
+                    "path": relative,
+                    "sha256": state_io.sha256_file(work_dir / relative),
+                    "lint_clean": True,
+                    "citations_clean": True,
+                    "checked_at": "2026-09-08T12:00:00.000Z",
+                }
+                for version, relative in versions
+            ]
+
+        state_io.write_state(work_dir, mutator)
+
+    def test_a_reused_docx_export_records_the_selected_sha(self):
+        from memoforge.docx import select_draft
+
+        work_dir = self.make_task(final_status=SIGNED_OFF)
+        render_export(work_dir)
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(result["deliverable_kind"], "docx")
+        expected = select_draft(state_io.read_state(work_dir), work_dir)["sha256"]
+        self.assertEqual(expected, state_io.sha256_file(work_dir / "drafts" / "v1.md"))
+        self.assertEqual(expected, self.delivered(work_dir))
+        self.assertEqual(expected, result["delivered_draft_sha"])
+
+    def test_a_reused_markdown_export_records_the_selected_sha(self):
+        work_dir = self.make_task(final_status=SIGNED_OFF)
+        render_export(work_dir)
+        exported = (work_dir / "memo-gdpr-transcripts.md").read_text(encoding="utf-8")
+        self.memo_docx(work_dir).unlink()
+
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(result["deliverable_kind"], "md")
+        self.assertEqual(exported, (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8"))
+        self.assertEqual(state_io.sha256_file(work_dir / "drafts" / "v1.md"), self.delivered(work_dir))
+
+    def test_a_fresh_render_of_a_checked_version_records_its_sha(self):
+        work_dir = self.make_task()
+        self.record_versions(work_dir, (1, "drafts/v1.md"))
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(result["deliverable_kind"], "md")
+        self.assertEqual(state_io.sha256_file(work_dir / "drafts" / "v1.md"), self.delivered(work_dir))
+
+    def test_a_pinned_older_version_records_the_pinned_sha(self):
+        work_dir = self.make_task()
+        (work_dir / "drafts" / "v2.md").write_text(DRAFT + "\nThe second version.\n", encoding="utf-8")
+        self.record_versions(work_dir, (1, "drafts/v1.md"), (2, "drafts/v2.md"))
+        pinned = state_io.sha256_file(work_dir / "drafts" / "v1.md")
+        state_io.write_state(work_dir, lambda state: state.update(export_pin={"version": 1, "sha256": pinned}))
+
+        finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(pinned, self.delivered(work_dir))
+        self.assertNotEqual(state_io.sha256_file(work_dir / "drafts" / "v2.md"), self.delivered(work_dir))
+        self.assertNotIn("The second version.", (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8"))
+
+    def test_an_export_reused_without_a_draft_records_null(self):
+        work_dir = self.make_task(final_status=SIGNED_OFF)
+        render_export(work_dir)
+        (work_dir / "drafts" / "v1.md").unlink()
+
+        result = finalize.run_finalize(finalize_args(work_dir))
+        self.assertEqual(result["deliverable_kind"], "md")
+        self.assertNotEqual("fallback_summary_delivered", result["final_status"])
+        self.assertIsNone(self.delivered(work_dir))
+
+    def test_a_draft_changed_before_finalization_records_the_bytes_on_disk(self):
+        work_dir = self.make_task()
+        self.record_versions(work_dir, (1, "drafts/v1.md"))
+        recorded = state_io.read_state(work_dir)["draft_versions"][0]["sha256"]
+        (work_dir / "drafts" / "v1.md").write_text(DRAFT + "\nChanged before finalize.\n", encoding="utf-8")
+
+        finalize.run_finalize(finalize_args(work_dir))
+        self.assertIn("Changed before finalize.", (work_dir / finalize.DELIVERABLE_MD).read_text(encoding="utf-8"))
+        on_disk = state_io.sha256_file(work_dir / "drafts" / "v1.md")
+        self.assertNotEqual(recorded, on_disk)
+        self.assertEqual(on_disk, self.delivered(work_dir))
+
+    def test_the_fallback_summary_records_null(self):
+        work_dir = self.make_task(with_draft=False)
+        result = finalize.run_finalize(finalize_args(work_dir, reason="drafting_failed"))
+        self.assertEqual("fallback_summary_delivered", result["final_status"])
+        self.assertIsNone(self.delivered(work_dir))
+        self.assertIsNone(result["delivered_draft_sha"])
+
+    def test_salvage_over_a_readable_state_records_it_too(self):
+        work_dir = self.make_task()
+        finalize.run_finalize(finalize_args(work_dir, salvage=True))
+        self.assertEqual(state_io.sha256_file(work_dir / "drafts" / "v1.md"), self.delivered(work_dir))
+
+    def test_the_schema_accepts_a_sha_or_null_and_rejects_anything_else(self):
+        state = state_io.read_state(self.make_task())
+        self.assertEqual([], schema.validate(state, "state"), "absent is valid (a task finalized before 75A)")
+        self.assertEqual([], schema.validate(dict(state, delivered_draft_sha=None), "state"))
+        self.assertEqual([], schema.validate(dict(state, delivered_draft_sha="0123456789abcdef" * 4), "state"))
+        self.assertNotEqual([], schema.validate(dict(state, delivered_draft_sha="abc"), "state"))
+
+
 class AppendixTest(_WorkDirMixin, unittest.TestCase):
     """D-191: the client appendix carries unverified sources only; `summary.md` keeps every warning verbatim."""
 
