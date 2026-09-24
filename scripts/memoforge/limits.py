@@ -101,6 +101,35 @@ BRIEF_WORD_CAP = 1200
 BRIEF_SOURCE_WORD_WEIGHT = 12
 """L-10: each unique `[[src:]]` counts as this many words (§5.4)."""
 
+DECISION_BRIEF_SOFT_CAP = 1100
+"""B-01: counted words of a `/memoforge:brief` decision brief, about three pages in Word (D-222, DB-06, D-227;
+D-228: 1000 → 1100)."""
+
+DECISION_BRIEF_HARD_CAP = 1200
+"""B-01 is `minor` up to it and `major` above it; above it after the last revision round the brief gets one
+shortening pass (D-222, DB-07; D-227 measured 705 ru / 797 en words on two pages; D-228: 1150 → 1200)."""
+
+DECISION_BRIEF_SOURCE_WORD_WEIGHT = 12
+"""B-01: each unique `[[src:]]` of the decision brief counts as this many words (D-222)."""
+
+DECISION_BRIEF_MAX_BLOCKS = 7
+"""B-02: at most this many `###` conclusion blocks in a decision brief (D-222, DB-04; D-228: 5 → 7)."""
+
+DECISION_BRIEF_MAIN_WORDS = 80
+"""B-12: body words of the bottom line of a decision brief (D-229)."""
+
+DECISION_BRIEF_BLOCK_WORDS = 100
+"""B-12: body words of each conclusion block (D-229)."""
+
+DECISION_BRIEF_OTHER_WORDS = 60
+"""B-12: body words of the "Other matters" text before the first conclusion block (D-229)."""
+
+DECISION_BRIEF_ACTION_WORDS = 30
+"""B-12: words of each numbered action — who, what, by when (D-229)."""
+
+DECISION_BRIEF_ASSUMPTIONS_WORDS = 60
+"""B-12: words of «What the answer depends on», one paragraph and no list (D-229)."""
+
 EXEC_SUMMARY_BULLET_MAX_WORDS = 40
 """L-13: Exec Summary bullet cap (§5.4)."""
 

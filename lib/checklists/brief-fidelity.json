@@ -1,0 +1,74 @@
+[
+  {
+    "id": "BF-01",
+    "text": "Every statement of fact or law in the brief is made in the memorandum; the brief adds no fact, conclusion, source, pinpoint or action of its own. Evidence: quote the brief sentence and the memo passage it compresses, or the brief sentence the memo does not make.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "blocker",
+    "severity_max": "blocker"
+  },
+  {
+    "id": "BF-02",
+    "text": "No condition or qualification that a conclusion of the memorandum depends on is lost in the brief. Evidence: quote the memo's condition and the brief block that carries it or leaves it out.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "blocker",
+    "severity_max": "blocker"
+  },
+  {
+    "id": "BF-03",
+    "text": "The degree of certainty of every conclusion is the memorandum's, shifted in neither direction: no hedge added where the memo is firm, none removed where it hedges. The bottom line is checked clause by clause against the leaves it rests on: a hedge moved from one conclusion to another, a ceiling written as a range and a 'must' ('должен') written as a choice are shifts. Evidence: quote the memo's wording and the brief's for the same conclusion.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "blocker",
+    "severity_max": "blocker"
+  },
+  {
+    "id": "BF-04",
+    "text": "Every open point of the memorandum that the brief touches is shown as not confirmed, and no conclusion of the brief rests on one. Evidence: name the open point by its id in the open issues and quote how the brief presents it.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "blocker",
+    "severity_max": "blocker"
+  },
+  {
+    "id": "BF-05",
+    "text": "The partition of the memorandum's leaves holds: every leaf is kept in a block or omitted, never both; no omitted leaf meets a keep criterion (its verdict is high; its executive-summary bullet names an amount or a sanction; it answers an explicit sub-question of the user's question, the main question's parts included; its verdict is undetermined, or an open issue touches it and a kept conclusion depends on it), so every high-risk leaf is kept, while a date or a deadline alone keeps no leaf; and the other-matters sentence names every omitted leaf with its verdict as the memo states it. Evidence: name the omitted leaf and the keep criterion it meets, or confirm the partition.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "blocker"
+  },
+  {
+    "id": "BF-06",
+    "text": "The rule or court named for each conclusion is one that conclusion rests on in the memorandum. Evidence: quote the brief's citation token and the memo sentence that cites it for the same conclusion.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BF-07",
+    "text": "Every action matches a recommendation of the memorandum and none is invented; every kept leaf's recommendation, and any action of any leaf whose deadline falls within 14 days of the memo date, is present with its owner, its step and its deadline or trigger as the memo sets them, and a 'must' stays an action; two actions are merged only when their owner and deadline or trigger are identical; other actions of omitted leaves may be absent. Evidence: quote the brief action and the memo recommendation it compresses, or the recommendation that is missing.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BF-08",
+    "text": "Closure: every condition or assumption on which a kept conclusion depends is in the brief, beside that conclusion in its block or in the one short paragraph on what the answer depends on; assumptions no kept conclusion depends on may be absent. Evidence: quote the memo assumption a kept conclusion depends on that the brief leaves out, or name the brief part that carries it.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BF-09",
+    "text": "The question line restates the user's question faithfully: nothing asked is dropped and nothing unasked is added; every explicit sub-question of the user is answered in one sentence somewhere in the brief — the bottom line, a block or the other-matters sentence. Evidence: quote the brief's question line and the user's question, and name where each sub-question is answered.",
+    "tier": "substance",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  }
+]

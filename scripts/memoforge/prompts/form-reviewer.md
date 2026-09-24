@@ -13,7 +13,7 @@ First action (Bash, before any other tool call):
 - work_dir: `${work_dir}`
 - draft under review: `${draft_path}` (v`${draft_version}`)
 - `draft_sha` to put in your output: `${draft_sha}`
-- checklist (grade every id, no additions, no omissions): `${paths_checklist}`
+- checklist (grade every id, no additions, no omissions): `${paths_checklist}`${section_ids}
 - deterministic findings attached to this draft (empty: none attached): ${lint_attachment}
 - style profile (authoritative when set): `${prose_style_path}`
 - previous attempt errors to fix: ${retry_errors}
@@ -21,7 +21,7 @@ First action (Bash, before any other tool call):
 `approved` is a normal outcome and means zero blockers. Grade `unknown` only when the draft
 does not let you decide; on a `hard_fail` item that costs the approval.
 
-Every issue carries `lens`: `clarity` or `style`.
+Every issue carries `lens`: `clarity` or `style`.${brief_role}
 
 The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo

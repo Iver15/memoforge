@@ -304,12 +304,15 @@ def choose_deliverable(
 
     D-175b: `reuse_export=False` takes the `memo-<slug>.md` export out of that order — the caller
     is rendering in a different language than the export was written in.
+
+    D-220: `draft_sha` is the sha of the draft bytes the deliverable was rendered from — the
+    selected version's for a bound export or a fresh render, None when no draft is behind it.
     """
     slug = slug_of(state, work_dir)
     banners: list[dict] = []
     reasons: list[str] = []
 
-    docx_candidate = _existing_docx(work_dir, state, slug, _status_view(state, final_status, banners))
+    docx_candidate, docx_sha = _existing_docx(work_dir, state, slug, _status_view(state, final_status, banners))
     if docx_candidate is not None:
         target = work_dir / DELIVERABLE_DOCX
         if not _same_file(docx_candidate, target):
@@ -321,10 +324,11 @@ def choose_deliverable(
             "banners": banners,
             "final_status_reason": None,
             "reasons": reasons,
+            "draft_sha": docx_sha,
         }
 
     banners.append(fallbacks.banner("docx_render_failed"))
-    body, extra, status_reason, extra_reasons = _markdown_body(
+    body, extra, status_reason, extra_reasons, draft_sha = _markdown_body(
         work_dir, state, slug, reason, final_status=final_status, banners=banners,
         reuse_export=reuse_export,
     )
@@ -346,11 +350,15 @@ def choose_deliverable(
         "banners": banners,
         "final_status_reason": status_reason,
         "reasons": reasons,
+        "draft_sha": draft_sha,
     }
 
 
-def _existing_docx(work_dir: Path, state: dict, slug: str, view: dict) -> Path | None:
+def _existing_docx(work_dir: Path, state: dict, slug: str, view: dict) -> tuple[Path | None, str | None]:
     """`memo-<slug>.docx`, but only when it is the export of the selected version (D-50, §2.1 row 15).
+
+    Returns `(path, sha)` — the export and the sha of the draft it was rendered from, which is the
+    selected version's (D-220) — or `(None, None)` when the export is not the deliverable.
 
     The same binding `_markdown_body` applies to `memo-<slug>.md`: the `docx render` step records the
     draft sha it exported, and `published[]` proves the bytes on disk are still that export. A docx
@@ -372,18 +380,18 @@ def _existing_docx(work_dir: Path, state: dict, slug: str, view: dict) -> Path |
     """
     candidate = memo_docx_path(work_dir, slug)
     if not candidate.is_file() or candidate.stat().st_size == 0:
-        return None
+        return None, None
     relative = candidate.relative_to(work_dir).as_posix()
     source_sha = rendered_source_sha(state, relative)
     if source_sha is None or source_sha != select_draft(state, work_dir)["sha256"]:
-        return None
+        return None, None
     if stepctx.published_sha(state, relative) is None:
-        return None
+        return None, None
     if stepctx.verify_published(work_dir, state, relative):
-        return None
+        return None, None
     if rendered_status_inputs(state, relative) != status_signature(view):
-        return None
-    return candidate
+        return None, None
+    return candidate, source_sha
 
 
 def _markdown_body(
@@ -395,8 +403,12 @@ def _markdown_body(
     final_status: str | None = None,
     banners: list | None = None,
     reuse_export: bool = True,
-) -> tuple[str, list[dict], str | None, list[str]]:
+) -> tuple[str, list[dict], str | None, list[str], str | None]:
     """The markdown deliverable, bound to the version §2.1 row 15 selects (not to whatever is on disk).
+
+    The last element is the sha of the draft bytes the body was rendered from (D-220): the
+    selection's sha for a reused bound export or a fresh render, None when no draft is behind it
+    (an export reused with no draft left, or the universal fallback summary).
 
     D-175b: `reuse_export=False` says the export on disk is written in another language than this
     render — `finalize --salvage` switched the labels to English because the pack of the run's
@@ -424,7 +436,7 @@ def _markdown_body(
         source_sha = rendered_source_sha(state, rendered.relative_to(work_dir).as_posix())
         drifted = stepctx.verify_published(work_dir, state, rendered.relative_to(work_dir).as_posix())
         if source_sha is not None and source_sha == selection["sha256"] and not drifted:
-            return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons
+            return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons, selection["sha256"]
 
     if selection["path"] is not None:
         result = md_fallback.render_workdir(
@@ -435,7 +447,7 @@ def _markdown_body(
         )
         if reuse_export:
             state_io.write_bytes_atomic(rendered, result["markdown"].encode("utf-8"))
-        return result["markdown"], banners + list(result["banners"]), None, reasons
+        return result["markdown"], banners + list(result["banners"]), None, reasons, selection["sha256"]
 
     if rendered.is_file():
         # No draft left to re-render from: the existing export is still better than nothing (M9).
@@ -443,11 +455,11 @@ def _markdown_body(
         # deliver it as it stands instead of rewriting its tail (`EXPORT_REUSED_UNTOUCHED`).
         if not reuse_export:
             reasons = reasons + [EXPORT_REUSED_UNTOUCHED]
-        return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons
+        return rendered.read_text(encoding="utf-8-sig"), banners, None, reasons, None
 
     body = build_fallback_summary(state, work_dir, reason)
     state_io.write_bytes_atomic(work_dir / FALLBACK_SUMMARY_MD, body.encode("utf-8"))
-    return body, [fallbacks.banner("universal_fallback")], "fallback_summary_delivered", reasons
+    return body, [fallbacks.banner("universal_fallback")], "fallback_summary_delivered", reasons, None
 
 
 def _same_file(a: Path, b: Path) -> bool:
@@ -1283,6 +1295,7 @@ def run_finalize(args: argparse.Namespace) -> dict:
         "final_status_reasons": reasons,
         "deliverable": deliverable["deliverable"],
         "deliverable_kind": deliverable["kind"],
+        "delivered_draft_sha": deliverable["draft_sha"],
         "summary": SUMMARY_MD,
         "published_to": published["published_to"],
         "published_memo": published["published_memo"],
@@ -1399,6 +1412,8 @@ def _write_terminal(
         state["fallback_banners"] = banners
         if result["deliverable_kind"] == "docx":
             state["final_docx_path"] = result["deliverable"]
+        # D-220: the draft bytes this deliverable was rendered from; `mf brief` checks the memo against it.
+        state["delivered_draft_sha"] = result.get("delivered_draft_sha")
         # D-111: the field describes *this* finalize, so a failed (or absent) publish clears it.
         # Left at the previous run's path it would send the router off to copy a stale result, and
         # the terminal text would keep printing a `Published:` line for a folder nothing refreshed.

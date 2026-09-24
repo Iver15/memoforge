@@ -1,0 +1,66 @@
+[
+  {
+    "id": "BC-01",
+    "text": "The first sentence of the bottom line answers the question, and a decision can be taken from that part alone. Evidence: quote the first sentence of the bottom line.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BC-02",
+    "text": "A reader who is not a lawyer can follow every conclusion block: the conclusion, then what it rests on, then the risk, and the block shows why. Evidence: name the block whose reasoning is hard to follow, or one block that shows it.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BC-03",
+    "text": "The language is plain: an unavoidable legal term is explained in half a sentence where it first appears, and there is no officialese and no Latin. Evidence: quote the unexplained term or the phrase.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BC-04",
+    "text": "The brief stands on its own: nothing like 'see the memorandum' or 'as stated in the analysis' sends the reader to a document they do not have. Evidence: quote the phrase that points elsewhere.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BC-05",
+    "text": "Every action is concrete: who does what, and when or on what event. Evidence: quote the action that lacks one of the three.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "major",
+    "severity_max": "major"
+  },
+  {
+    "id": "BC-06",
+    "text": "The brief carries no quotation and no discussion of positions, and no block names more than two sources. Evidence: quote the quotation or the discussion, or name the block and its sources.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "minor",
+    "severity_max": "minor"
+  },
+  {
+    "id": "BC-07",
+    "text": "Nothing is repeated between the bottom line and the blocks, and there is no filler and no stock AI phrase. Evidence: quote the repeated or empty phrase. The fixed 'not confirmed' sentence that marks an open point is required wording, not repetition.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "minor",
+    "severity_max": "minor"
+  },
+  {
+    "id": "BC-08",
+    "text": "Every heading is informative: it says what the part or block holds. Evidence: quote the uninformative heading.",
+    "tier": "form",
+    "hard_fail": false,
+    "severity_floor": "minor",
+    "severity_max": "minor"
+  }
+]

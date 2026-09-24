@@ -264,6 +264,17 @@
         }
       }
     },
+    "delivered_draft_sha": {
+      "description": "D-220: sha256 of the draft bytes the deliverable was rendered from; null when it was not rendered from a draft. Absent on tasks finalized before plan 75A.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "fallback_banners": {
       "type": "array",
       "items": {

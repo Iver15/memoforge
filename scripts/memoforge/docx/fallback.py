@@ -1065,6 +1065,16 @@ def warning_text(warning: object) -> str:
     return str(warning)
 
 
+def banner_block(title: str, subtitle: str | None, banners: list, language: str = i18n.DEFAULT) -> str:
+    """The caller-titled banner that opens a markdown deliverable, as a blockquote (D-221)."""
+    lines = [f"> **{title}**"]
+    if subtitle:
+        lines.append(f"> {subtitle}")
+    lines.append(">")
+    lines.extend(f"> - {fallbacks.banner_text_for(row, language)}" for row in banners)
+    return "\n".join(lines) + "\n"
+
+
 def render(
     draft_text: str,
     index: SourceIndex,
@@ -1072,11 +1082,21 @@ def render(
     drafting_warnings: list | None = None,
     state: dict | None = None,
     citation_style: str | None = None,
+    sources: bool = True,
+    appendix: bool = True,
+    banners: list | None = None,
+    banner_title: str | None = None,
+    banner_subtitle: str | None = None,
 ) -> dict:
     """Render one draft into the fallback deliverable; pure function over its inputs.
 
     D-175: the memo language comes from the state of the task and reaches every label from here;
     an unreadable pack raises `i18n.PackUnavailable` rather than delivering an English memo.
+
+    D-221: `sources=False` / `appendix=False` leave out `## Sources` / the appendix; with a
+    `banner_title` the caller's `banners` open the text as a blockquote under that title. The
+    returned `banners` stay the ones this render raised; an empty title is no title. The defaults
+    render the memo as before.
     """
     style = oscola.normalise_style(citation_style) or oscola.DEFAULT_CITATION_STYLE
     language = memo_language(state)
@@ -1090,31 +1110,38 @@ def render(
     text = render_mentions(body_text, scanned, index, language)
     replaced = {"footnotes": rows, "unresolved": scanned["unresolved"]}
 
-    banners = []
+    raised = []
     if replaced["unresolved"]:
-        banners.append(fallbacks.banner("unresolved_reference_in_fallback"))
+        raised.append(fallbacks.banner("unresolved_reference_in_fallback"))
 
-    parts = [text.rstrip() + "\n", "", render_sources_section(rows, language)]
+    parts = [text.rstrip() + "\n"]
+    if sources:
+        parts.extend(["", render_sources_section(rows, language)])
     # D34-11: `## Status` sits between the memo and its appendix — the banners and the blockers the
     # run left open have to reach the client, not only `state.json`.
-    status = render_status(status_inputs(state, banners))
+    status = render_status(status_inputs(state, raised))
     if status:
         parts.extend(["", status])
-    appendix = render_appendix(
-        list(drafting_warnings or []),
-        index.unverified_rows(language, cited),
-        replaced["unresolved"],
-        currency_unavailable=index.currency_unavailable,
-        language=language,
-    )
+    unverified = ""
     if appendix:
-        parts.extend(["", appendix])
+        unverified = render_appendix(
+            list(drafting_warnings or []),
+            index.unverified_rows(language, cited),
+            replaced["unresolved"],
+            currency_unavailable=index.currency_unavailable,
+            language=language,
+        )
+    if unverified:
+        parts.extend(["", unverified])
 
+    markdown = "\n".join(part for part in parts if part is not None).rstrip() + "\n"
+    if banner_title and banners:
+        markdown = banner_block(banner_title, banner_subtitle, banners, language) + "\n" + markdown
     return {
-        "markdown": "\n".join(part for part in parts if part is not None).rstrip() + "\n",
+        "markdown": markdown,
         "footnotes": replaced["footnotes"],
         "unresolved": replaced["unresolved"],
-        "banners": banners,
+        "banners": raised,
         "citation_style": style,
     }
 

@@ -312,7 +312,73 @@
       "out_of_scope_prefix": "Außerhalb des {mode}-Modus: ",
       "out_of_scope_prefix_no_mode": "Außerhalb dieses Modus: "
     },
-    "probe_disclaimer": "Die Annahmen dieses Memos wurden ohne Bestätigung übernommen, daher gilt folgender Vorbehalt: Die Schlussfolgerung zur Aufbewahrung ist vom Mandanten nicht bestätigt."
+    "probe_disclaimer": "Die Annahmen dieses Memos wurden ohne Bestätigung übernommen, daher gilt folgender Vorbehalt: Die Schlussfolgerung zur Aufbewahrung ist vom Mandanten nicht bestätigt.",
+    "brief": {
+      "sections": {
+        "main": "Das Wichtigste",
+        "conclusions": "Ergebnisse",
+        "actions": "Was zu tun ist",
+        "assumptions": "Wovon die Antwort abhängt"
+      },
+      "question_label": "Frage",
+      "date_label": "Datum",
+      "jurisdictions_label": "Rechtsordnungen",
+      "unconfirmed": "nicht bestätigt; ein Jurist muss dies prüfen, bevor sich jemand darauf verlässt",
+      "other_label": "Weitere Punkte",
+      "banners": {
+        "title": "ENTSCHEIDUNGSVORLAGE — VOR VERWENDUNG PRÜFEN",
+        "subtitle": "Die folgenden Hinweise nennen, was nicht bestätigt wurde.",
+        "unclean_memo": "Das Memorandum, das diese Vorlage zusammenfasst, endete mit offenen Punkten; die darauf gestützten Ergebnisse sind als nicht bestätigt gekennzeichnet.",
+        "unverified": "Diese Vorlage hat nicht jede Prüfung auf Treue und Verständlichkeit bestanden: {checks}.",
+        "too_long": "Diese Vorlage ist länger als drei Seiten."
+      },
+      "checks": {
+        "BF-01": "eine Aussage, die das Memorandum nicht trifft",
+        "BF-02": "eine Bedingung, von der das Ergebnis abhängt, fehlt",
+        "BF-03": "der Grad der Gewissheit weicht vom Memorandum ab",
+        "BF-04": "ein offener Punkt wird als geklärt dargestellt",
+        "BF-05": "ein Ergebnis des Memorandums ist nicht erfasst",
+        "BF-06": "ein Ergebnis nennt eine Norm oder ein Gericht, auf denen es nicht beruht",
+        "BF-07": "die Maßnahmen weichen von den Empfehlungen des Memorandums ab",
+        "BF-08": "eine Annahme, die die Antwort ändert, fehlt",
+        "BF-09": "die Frage ist nicht getreu wiedergegeben",
+        "BC-01": "das Wichtigste beantwortet die Frage nicht",
+        "BC-02": "die Begründung eines Ergebnisses ist schwer nachzuvollziehen",
+        "BC-03": "die Sprache ist nicht einfach",
+        "BC-04": "die Vorlage ist nicht aus sich heraus verständlich",
+        "BC-05": "einer Maßnahme fehlt der Verantwortliche, der Schritt oder der Zeitpunkt",
+        "BC-06": "Zitate oder zu viele Quellen bei einem Ergebnis",
+        "BC-07": "Wiederholungen, Füllwörter oder Floskeln",
+        "BC-08": "eine Überschrift, die nicht sagt, was folgt",
+        "B-01": "länger als etwa drei Seiten",
+        "B-02": "Teile fehlen oder stehen in falscher Reihenfolge",
+        "B-03": "ein Ergebnis ohne Bezug zu einem Abschnitt des Memorandums",
+        "B-04": "ein Abschnitt ist weder erfasst noch als ausgelassen aufgeführt",
+        "B-05": "eine Risikostufe weicht vom Memorandum ab",
+        "B-06": "eine Fundstelle weicht vom Memorandum ab",
+        "B-07": "ein Zitat oder eine Quellenliste",
+        "B-08": "eine Risikozeile in falscher Form",
+        "B-09": "ein Verweis auf ein Dokument, das dem Leser nicht vorliegt",
+        "B-10": "ein Platzhalter oder eine Floskel im Text",
+        "B-11": "ein Betrag, der nicht im Memorandum steht",
+        "B-12": "ein Teil ist länger als sein Wortbudget",
+        "writer_failed": "die Vorlage konnte nicht weiter überarbeitet werden",
+        "fidelity_review_missing": "die Prüfung auf Treue konnte nicht durchgeführt werden",
+        "form_review_missing": "die Prüfung auf Verständlichkeit konnte nicht durchgeführt werden",
+        "render_failed": "das formatierte Dokument konnte nicht erstellt werden"
+      },
+      "self_reference": [
+        "memorandum",
+        "memorandums",
+        "memoranden",
+        "memoranda",
+        "memo",
+        "memos",
+        "siehe abschnitt",
+        "vollständige analyse",
+        "vollständigen analyse"
+      ]
+    }
   },
   "ui": {
     "phases": {
@@ -582,6 +648,48 @@
       "unknown_line": "nicht geprüft",
       "block_head": "Quellenzugang heute:",
       "more_line": "…und {count} weitere in `{path}`"
+    },
+    "brief": {
+      "gate_question": "Das Memorandum endete mit „{status}“ und {count} offenen Punkt(en). Die Entscheidungsvorlage trotzdem erstellen?",
+      "gate_header": "Kurzvorlage",
+      "option_yes": "Ja, mit gekennzeichneten offenen Punkten",
+      "option_no": "Nein",
+      "gate_text": "Das Memorandum endete mit „{status}“ und {count} offenen Punkt(en). Die Entscheidungsvorlage trotzdem erstellen? Antworten Sie mit ja oder nein.",
+      "yes_words": [
+        "ja",
+        "j",
+        "ok",
+        "los"
+      ],
+      "no_words": [
+        "nein",
+        "n",
+        "stopp",
+        "stop"
+      ],
+      "done": "Entscheidungsvorlage fertig: {path}",
+      "done_unverified": "Entscheidungsvorlage fertig, offene Prüfungen sind darin gekennzeichnet: {path}",
+      "refused": {
+        "no_memo": "Es gibt kein geliefertes Memorandum, aus dem eine Entscheidungsvorlage erstellt werden kann.",
+        "task_not_done": "Die Memo-Aufgabe ist noch nicht abgeschlossen; die Entscheidungsvorlage kann erstellt werden, sobald sie fertig ist.",
+        "draft_changed_after_export": "Der Entwurf des Memorandums wurde nach der Lieferung geändert; eine Entscheidungsvorlage würde nicht zum gelieferten Memorandum passen.",
+        "pack_changed_after_export": "Das Quellenpaket wurde nach der Lieferung des Memorandums geändert; eine Entscheidungsvorlage würde nicht zum gelieferten Memorandum passen.",
+        "previous_run_locked": "Die vorherige Entscheidungsvorlage konnte nicht verschoben werden ({error}); schließen Sie sie, falls sie geöffnet ist, und versuchen Sie es erneut.",
+        "no_task": "Es gibt keine abgeschlossene Memo-Aufgabe, aus der eine Entscheidungsvorlage erstellt werden kann.",
+        "writer_failed": "Die Entscheidungsvorlage konnte nicht geschrieben werden; das Memorandum bleibt unberührt.",
+        "brief_changed_on_disk": "Die Dateien der Entscheidungsvorlage wurden während des Laufs von Hand geändert; starten Sie neu mit /memoforge:brief."
+      },
+      "declined": "Keine Entscheidungsvorlage erstellt.",
+      "stale_report": "Diese Antwort gehört zu einem früheren Schritt; es geht weiter.",
+      "copy_failed": "Die Entscheidungsvorlage liegt in {path}; das Kopieren in den Ausgabeordner ist fehlgeschlagen: {error}",
+      "dispatch_line": "Entscheidungsvorlage: {step}, Versuch {attempt}.",
+      "steps": {
+        "write": "Entwurf",
+        "lint_fix": "Behebung der Prüfbefunde",
+        "revise": "Überarbeitung",
+        "shorten": "Kürzung",
+        "review": "Prüfung von Treue und Klarheit"
+      }
     }
   }
 }

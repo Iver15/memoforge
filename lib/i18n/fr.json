@@ -306,7 +306,74 @@
       "out_of_scope_prefix": "Hors du champ du mode {mode} : ",
       "out_of_scope_prefix_no_mode": "Hors du champ de ce mode : "
     },
-    "probe_disclaimer": "Les hypothèses de cette note ont été retenues sans confirmation, avec la réserve suivante : la conclusion sur la conservation n'est pas confirmée par le client."
+    "probe_disclaimer": "Les hypothèses de cette note ont été retenues sans confirmation, avec la réserve suivante : la conclusion sur la conservation n'est pas confirmée par le client.",
+    "brief": {
+      "sections": {
+        "main": "L'essentiel",
+        "conclusions": "Conclusions",
+        "actions": "Que faire",
+        "assumptions": "Ce dont dépend la réponse"
+      },
+      "question_label": "Question",
+      "date_label": "Date",
+      "jurisdictions_label": "Droits applicables",
+      "unconfirmed": "non confirmé ; un juriste doit le vérifier avant que quiconque s'y fie",
+      "other_label": "Autres points",
+      "banners": {
+        "title": "NOTE DE DÉCISION — À VÉRIFIER AVANT DE S'Y FIER",
+        "subtitle": "Les mentions ci-dessous indiquent ce qui n'a pas été confirmé.",
+        "unclean_memo": "Le mémorandum que résume cette note s'est achevé sur des points ouverts ; les conclusions qui en dépendent sont signalées comme non confirmées.",
+        "unverified": "Cette note n'a pas passé tous les contrôles de fidélité et de clarté : {checks}.",
+        "too_long": "Cette note dépasse trois pages."
+      },
+      "checks": {
+        "BF-01": "une affirmation que le mémorandum ne contient pas",
+        "BF-02": "une condition dont dépend la conclusion est omise",
+        "BF-03": "le degré de certitude diffère de celui du mémorandum",
+        "BF-04": "un point ouvert est présenté comme réglé",
+        "BF-05": "une conclusion du mémorandum n'est pas reprise",
+        "BF-06": "une conclusion cite une règle ou une juridiction sur laquelle elle ne repose pas",
+        "BF-07": "les actions s'écartent des recommandations du mémorandum",
+        "BF-08": "une hypothèse qui change la réponse est omise",
+        "BF-09": "la question n'est pas reformulée fidèlement",
+        "BC-01": "l'essentiel ne répond pas à la question",
+        "BC-02": "le raisonnement d'une conclusion est difficile à suivre",
+        "BC-03": "la langue n'est pas simple",
+        "BC-04": "la note ne se suffit pas à elle-même",
+        "BC-05": "une action n'indique pas qui, quoi ou quand",
+        "BC-06": "des citations ou trop de sources dans une conclusion",
+        "BC-07": "des répétitions, du remplissage ou des formules toutes faites",
+        "BC-08": "un titre qui n'annonce pas ce qui suit",
+        "B-01": "plus longue qu'environ trois pages",
+        "B-02": "des parties manquent ou ne sont pas dans l'ordre",
+        "B-03": "une conclusion rattachée à aucune section du mémorandum",
+        "B-04": "une section n'est ni reprise ni indiquée comme omise",
+        "B-05": "un niveau de risque diffère du mémorandum",
+        "B-06": "une référence diffère du mémorandum",
+        "B-07": "une citation ou une liste de sources",
+        "B-08": "une ligne de risque mal formée",
+        "B-09": "un renvoi à un document dont le lecteur ne dispose pas",
+        "B-10": "un espace réservé ou une formule toute faite dans le texte",
+        "B-11": "un montant qui ne figure pas dans le mémorandum",
+        "B-12": "une partie dépasse son budget de mots",
+        "writer_failed": "la note n'a pas pu être révisée davantage",
+        "fidelity_review_missing": "le contrôle de fidélité n'a pas pu être effectué",
+        "form_review_missing": "le contrôle de clarté n'a pas pu être effectué",
+        "render_failed": "le document mis en forme n'a pas pu être produit"
+      },
+      "self_reference": [
+        "mémorandum",
+        "mémorandums",
+        "memorandum",
+        "memorandums",
+        "mémo",
+        "mémos",
+        "memo",
+        "memos",
+        "voir la section",
+        "analyse complète"
+      ]
+    }
   },
   "ui": {
     "phases": {
@@ -576,6 +643,48 @@
       "unknown_line": "non vérifié",
       "block_head": "Accès aux sources aujourd'hui :",
       "more_line": "…et {count} autres dans `{path}`"
+    },
+    "brief": {
+      "gate_question": "Le mémorandum s'est terminé en « {status} » avec {count} point(s) ouvert(s). Établir la note quand même ?",
+      "gate_header": "Note",
+      "option_yes": "Oui, en signalant les points ouverts",
+      "option_no": "Non",
+      "gate_text": "Le mémorandum s'est terminé en « {status} » avec {count} point(s) ouvert(s). Établir la note quand même ? Répondez oui ou non.",
+      "yes_words": [
+        "oui",
+        "o",
+        "ok",
+        "vas-y"
+      ],
+      "no_words": [
+        "non",
+        "n",
+        "stop",
+        "annuler"
+      ],
+      "done": "Note prête : {path}",
+      "done_unverified": "Note prête, les contrôles non réussis y sont signalés : {path}",
+      "refused": {
+        "no_memo": "Aucun mémorandum livré à partir duquel établir une note.",
+        "task_not_done": "La tâche de mémorandum n'est pas encore terminée ; la note pourra être établie une fois qu'elle le sera.",
+        "draft_changed_after_export": "Le projet de mémorandum a changé après sa livraison ; la note ne correspondrait pas au mémorandum livré.",
+        "pack_changed_after_export": "Le dossier de sources a changé après la livraison du mémorandum ; la note ne correspondrait pas au mémorandum livré.",
+        "previous_run_locked": "La note précédente n'a pas pu être mise de côté ({error}) ; fermez-la si elle est ouverte et réessayez.",
+        "no_task": "Aucune tâche de mémorandum terminée à partir de laquelle établir une note.",
+        "writer_failed": "La note n'a pas pu être rédigée ; le mémorandum n'est pas affecté.",
+        "brief_changed_on_disk": "Les fichiers de la note ont été modifiés à la main pendant l'exécution ; recommencez avec /memoforge:brief."
+      },
+      "declined": "Aucune note établie.",
+      "stale_report": "Cette réponse appartient à une étape antérieure ; on continue.",
+      "copy_failed": "La note se trouve dans {path} ; la copie vers le dossier de sortie a échoué : {error}",
+      "dispatch_line": "Note : {step}, tentative {attempt}.",
+      "steps": {
+        "write": "rédaction",
+        "lint_fix": "correction des constats du contrôle",
+        "revise": "révision",
+        "shorten": "raccourcissement",
+        "review": "contrôle de fidélité et de clarté"
+      }
     }
   }
 }

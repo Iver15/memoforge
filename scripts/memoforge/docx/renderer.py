@@ -913,9 +913,17 @@ def _render_banner(
     banners: list[dict],
     reasons: list[str],
     language: str = i18n.DEFAULT,
+    title: str | None = None,
+    subtitle: str | None = None,
 ) -> None:
-    """The yellow status table at the top of the memo (§5.5 «Баннеры статусов — как в v1»)."""
+    """The yellow status table at the top of the memo (§5.5 «Баннеры статусов — как в v1»).
+
+    D-221: a caller-given `title` (the decision brief) replaces the status headline, its
+    `subtitle` the status line, and every banner text follows the subtitle, without a fallbacks
+    heading and without the D-216 filter. An empty `title` is no title: the status banner is drawn.
+    """
     code = i18n.normalize(language) or i18n.DEFAULT
+    own_title = bool(title)
     table = doc.add_table(rows=1, cols=1)
     table.alignment = WD_ALIGN_PARAGRAPH.CENTER
     cell = table.cell(0, 0)
@@ -925,28 +933,33 @@ def _render_banner(
     title_paragraph = cell.paragraphs[0]
     _apply_std_paragraph_format(title_paragraph, first_line_indent=Cm(0))
     title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    title = banner_title(final_status, banners, code)
+    if not own_title:
+        title = banner_title(final_status, banners, code)
     title_run = title_paragraph.add_run(title)
     _style_run(title_run, bold=True)
 
     left = WD_ALIGN_PARAGRAPH.LEFT
-    subtitle = i18n.t(code, "memo.banner_titles.subtitle")
-    if final_status:
-        # D-197: the reader of the banner gets the status as a sentence, not as a code.
-        subtitle += " " + i18n.t(
-            code,
-            "memo.banner_titles.final_status",
-            final_status=fallback.status_name(final_status, code),
-        )
-    _plain_paragraph(cell, subtitle, align=left)
+    if not own_title:
+        subtitle = i18n.t(code, "memo.banner_titles.subtitle")
+        if final_status:
+            # D-197: the reader of the banner gets the status as a sentence, not as a code.
+            subtitle += " " + i18n.t(
+                code,
+                "memo.banner_titles.final_status",
+                final_status=fallback.status_name(final_status, code),
+            )
+    if subtitle:
+        _plain_paragraph(cell, subtitle, align=left)
 
-    # D-216: a banner whose text opens with the title would say it twice in one table; the Status
-    # section still lists it.
-    listed = [text for text in (fallbacks.banner_text_for(row, code) for row in banners) if not text.startswith(title)]
+    # D-216: a banner whose text opens with the status title would say it twice in one table; the
+    # Status section still lists it. A caller's own title (D-221) is not a status title: all are listed.
+    texts = [fallbacks.banner_text_for(row, code) for row in banners]
+    listed = texts if own_title else [text for text in texts if not text.startswith(title)]
     if listed:
-        _plain_paragraph(
-            cell, i18n.t(code, "memo.banner_titles.fallbacks_heading"), bold=True, align=left
-        )
+        if not own_title:
+            _plain_paragraph(
+                cell, i18n.t(code, "memo.banner_titles.fallbacks_heading"), bold=True, align=left
+            )
         for text in listed:
             _plain_paragraph(cell, f"- {text}", align=left)
     if reasons:
@@ -999,8 +1012,17 @@ def render(
     remaining_blocking_issues: list | None = None,
     citation_style: str | None = None,
     language: str = i18n.DEFAULT,
+    sources: bool = True,
+    appendix: bool = True,
+    banner_title: str | None = None,
+    banner_subtitle: str | None = None,
 ) -> dict:
-    """Render one draft into `output_path`; returns the footnote map, unresolved ids and banners."""
+    """Render one draft into `output_path`; returns the footnote map, unresolved ids and banners.
+
+    D-221: `sources=False` leaves out the `Sources` annex (the inline citations keep their links),
+    `appendix=False` the «Unverified Sources» appendix; `banner_title`/`banner_subtitle` head the
+    banner table in place of the status headline. The defaults render the memo as before.
+    """
     try:
         style = oscola.normalise_style(citation_style) or oscola.DEFAULT_CITATION_STYLE
         language = i18n.normalize(language) or i18n.DEFAULT
@@ -1026,7 +1048,7 @@ def render(
         _ensure_footnote_styles(doc)
         reasons = [str(row) for row in (final_status_reasons or [])]
         if needs_banner(final_status, raised, reasons):
-            _render_banner(doc, final_status, raised, reasons, language)
+            _render_banner(doc, final_status, raised, reasons, language, banner_title, banner_subtitle)
 
         cited = list(scanned["cited"])
         scanned["text"] = fallback.drop_omitted(scanned["text"], scanned["mentions"])
@@ -1034,13 +1056,13 @@ def render(
             doc,
             scanned["mentions"],
             _Numbering(doc),
-            lambda: _render_sources(doc, rows, language),
+            (lambda: _render_sources(doc, rows, language)) if sources else (lambda: None),
             index=index,
             style=style,
             language=language,
         )
         body.blocks(_markdown(scanned["text"]))
-        if not body.sources_emitted:
+        if sources and not body.sources_emitted:
             _render_sources(doc, rows, language)
         # D34-11: `Status` before the appendix, built from the very banners this render carries.
         status = fallback.status_inputs(
@@ -1052,14 +1074,15 @@ def render(
             raised,
         )
         _render_status(doc, status)
-        _render_appendix(
-            doc,
-            list(drafting_warnings or []),
-            index.unverified_rows(language, fallback.cited_source_ids(scanned["mentions"])),
-            scanned["unresolved"],
-            currency_unavailable=index.currency_unavailable,
-            language=language,
-        )
+        if appendix:
+            _render_appendix(
+                doc,
+                list(drafting_warnings or []),
+                index.unverified_rows(language, fallback.cited_source_ids(scanned["mentions"])),
+                scanned["unresolved"],
+                currency_unavailable=index.currency_unavailable,
+                language=language,
+            )
         _attach_footnotes(doc, notes)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(output_path))

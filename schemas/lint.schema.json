@@ -25,9 +25,9 @@
       "additionalProperties": false,
       "properties": {
         "rule": {
-          "description": "L-01..L-15 for lint, C-01..C-09 for the citation audit.",
+          "description": "L-01..L-15 lint, C-01..C-09 citation audit, B-01..B-10 decision-brief lint.",
           "type": "string",
-          "pattern": "^[LC]-[0-9]{2}$"
+          "pattern": "^[LCB]-[0-9]{2}$"
         },
         "severity": {
           "description": "`info` is a finding that is recorded but neither blocks nor counts as a defect (C-07 in brief mode, D34-10).",

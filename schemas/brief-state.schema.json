@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/brief-state.schema.json",
+  "title": "memoforge brief/state.json",
+  "description": "D-224: the state of one `/memoforge:brief` run, written only by `mf brief next|report` under `brief.lock`. The task's own `state.json` is never written by the brief. `outcome` stays null while the run is active; a run whose `outcome` is set is finished and is archived to `brief/previous/` by the next run that passes its preflight.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "task_id", "started_at", "step", "step_n", "step_id", "attempt", "round",
+    "shorten_done", "lint_fix_done_round", "input", "confirmed_unclean", "gate", "dispatch", "versions",
+    "reviews", "instructions_path", "carried_form_findings", "too_long", "deliverable_path", "steps",
+    "verdict", "outcome", "outcome_reasons", "published"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "description": "uuid4 hex of the run.", "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "minLength": 1 },
+    "step": { "$ref": "#/$defs/step" },
+    "step_n": { "description": "Number of the current step id; 0 before the first step is entered.", "type": "integer", "minimum": 0 },
+    "step_id": { "$ref": "#/$defs/step_id" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "round": { "description": "Revision rounds done (0..2).", "type": "integer", "minimum": 0, "maximum": 2 },
+    "shorten_done": { "type": "boolean" },
+    "lint_fix_done_round": { "description": "The round whose lint fix was already dispatched.", "type": ["integer", "null"], "minimum": 0 },
+    "input": {
+      "description": "What the preflight fixed: the delivered memo draft and the task facts the brief is built on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draft_path", "draft_sha", "draft_version", "final_status", "language", "ui_language", "slug"],
+      "properties": {
+        "draft_path": { "description": "Work-dir relative path of the delivered draft.", "type": "string", "minLength": 1 },
+        "draft_sha": { "$ref": "#/$defs/sha256" },
+        "draft_version": { "type": ["integer", "null"], "minimum": 1 },
+        "final_status": { "type": ["string", "null"] },
+        "language": { "description": "The memo language, which is the language of the brief.", "type": "string", "minLength": 2 },
+        "ui_language": { "type": "string", "minLength": 2 },
+        "slug": { "type": "string", "minLength": 1 }
+      }
+    },
+    "confirmed_unclean": { "description": "true once the user said yes at the status gate; null for a clean memo.", "type": ["boolean", "null"] },
+    "gate": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["generation", "channel"],
+          "properties": {
+            "generation": { "type": "integer", "minimum": 0 },
+            "channel": { "enum": ["auq", "text"] }
+          }
+        }
+      ]
+    },
+    "dispatch": {
+      "description": "The open dispatch of the current step, one entry per slot; null outside dispatch steps.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["slots"],
+          "properties": {
+            "slots": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "$ref": "#/$defs/slot" }
+            }
+          }
+        }
+      ]
+    },
+    "versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "path", "sha256", "lint_findings"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "lint_findings": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "round", "path", "sha256", "draft_sha", "valid", "errors"],
+        "properties": {
+          "slot": { "enum": ["fidelity", "form"] },
+          "round": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": {
+            "description": "null when the reviewer never produced a parseable document.",
+            "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+          },
+          "draft_sha": { "$ref": "#/$defs/sha256" },
+          "valid": { "type": "boolean" },
+          "errors": { "$ref": "#/$defs/strings" }
+        }
+      }
+    },
+    "instructions_path": { "description": "The lint report or the merged instructions the next writer step reads.", "type": ["string", "null"] },
+    "carried_form_findings": { "type": "array", "items": { "type": "object" } },
+    "too_long": { "type": "boolean" },
+    "deliverable_path": { "description": "The artifact render produced: brief/brief.docx, brief/brief.md or the last brief/v<N>.md.", "type": ["string", "null"] },
+    "steps": {
+      "description": "Start and end of every step attempt: the only time record of the brief.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_id", "step", "attempt", "started_at", "ended_at"],
+        "properties": {
+          "step_id": { "$ref": "#/$defs/step_id" },
+          "step": { "$ref": "#/$defs/step" },
+          "attempt": { "type": "integer", "minimum": 1 },
+          "started_at": { "type": "string", "minLength": 1 },
+          "ended_at": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "verdict": { "enum": [null, "clean", "unverified"] },
+    "outcome": { "enum": [null, "clean", "unverified", "declined", "refused"] },
+    "outcome_reasons": {
+      "description": "Keys of memo.brief.checks or ui.brief.refused codes.",
+      "$ref": "#/$defs/strings"
+    },
+    "published": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "step_id": { "description": "b-<first 8 of run_id>-<NNN>.", "type": "string", "pattern": "^b-[0-9a-f]{8}-[0-9]{3,}$" },
+    "step": {
+      "enum": [
+        "status_gate", "write", "lint", "lint_fix", "review", "review_merge", "revise", "shorten", "render",
+        "publish", "finished"
+      ]
+    },
+    "strings": { "type": "array", "items": { "type": "string" } },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "expected", "canonical", "errors"],
+      "properties": {
+        "status": { "enum": [null, "ok", "fail"] },
+        "expected": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "canonical": { "type": "string", "minLength": 1 },
+        "errors": { "description": "Why the slot failed; the retry_errors of its next attempt.", "$ref": "#/$defs/strings" }
+      }
+    }
+  }
+}

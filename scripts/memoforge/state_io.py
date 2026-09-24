@@ -15,8 +15,12 @@ from . import limits, schema
 
 STATE_FILENAME = "state.json"
 
-LOCK_ORDER: tuple[str, ...] = ("state", "sources", "events")
-"""Strict nesting order of §2.2; taking a lock «upwards» raises LockOrderViolation."""
+LOCK_ORDER: tuple[str, ...] = ("brief", "state", "sources", "events")
+"""Strict nesting order of §2.2; taking a lock «upwards» raises LockOrderViolation.
+
+D-224: `brief` guards `brief/state.json` of `/memoforge:brief`; its lock file sits beside the others,
+outside the `brief/` folder the driver archives. The driver never appends an event while holding it.
+"""
 
 LOCK_FILENAMES: tuple[str, ...] = tuple(f"{name}.lock" for name in LOCK_ORDER)
 """Lock files are created by `task new`, never deleted and never replaced (§2.2)."""
@@ -27,7 +31,7 @@ _local = threading.local()
 
 
 class LockOrderViolation(RuntimeError):
-    """Raised when a lock is taken out of the `state -> sources -> events` order (§2.2)."""
+    """Raised when a lock is taken out of the `brief -> state -> sources -> events` order (§2.2)."""
 
     code = "lock_order_violation"
 
@@ -169,14 +173,14 @@ def state_path(work_dir: str | os.PathLike) -> Path:
 
 
 def lock_path(work_dir: str | os.PathLike, name: str) -> Path:
-    """`<work_dir>/<name>.lock` for one of state/sources/events."""
+    """`<work_dir>/<name>.lock` for one of brief/state/sources/events."""
     if name not in LOCK_ORDER:
         raise ValueError(f"unknown_lock: {name!r}")
     return Path(work_dir) / f"{name}.lock"
 
 
 def ensure_lock_files(work_dir: str | os.PathLike) -> list[Path]:
-    """Create the three permanent lock files if missing (§2.2: created by `task new`)."""
+    """Create the permanent lock files if missing (§2.2: created by `task new`)."""
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     created = []

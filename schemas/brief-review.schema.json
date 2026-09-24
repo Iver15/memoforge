@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gregmos/memoforge/schemas/brief-review.schema.json",
+  "title": "memoforge brief/reviews/r<N>-fidelity.json",
+  "description": "D-223: the fidelity review of a decision brief (`/memoforge:brief`), written by `brief-fidelity-reviewer`: whether the brief says what the memorandum says. `reasoning` is emitted as the first key. The checklist ids are those of `lib/checklists/brief-fidelity.json`; full and unique coverage, the issue each failed blocker or major item needs, and `block` against the blocks this brief actually has are checked by the brief driver, not here.",
+  "type": "object",
+  "required": ["reasoning", "reviewer", "draft_sha", "verdict", "checklist", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "reasoning": { "type": "string", "minLength": 1 },
+    "reviewer": { "const": "brief_fidelity" },
+    "draft_sha": {
+      "description": "sha256 of the brief version under review, copied from the dispatch prompt.",
+      "$ref": "#/$defs/sha256"
+    },
+    "verdict": {
+      "description": "`approved` means no blocker and no major issue.",
+      "enum": ["approved", "needs_revision"]
+    },
+    "checklist": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/checklist_item" }
+    },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "checklist_id": { "type": "string", "pattern": "^BF-[0-9]{2}$" },
+    "checklist_item": {
+      "type": "object",
+      "required": ["id", "pass", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/checklist_id" },
+        "pass": { "enum": [true, false, "unknown"] },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["id", "checklist_id", "severity", "block", "issue", "brief_quote", "memo_quote", "suggestion"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^bf-[1-9][0-9]*$" },
+        "checklist_id": { "$ref": "#/$defs/checklist_id" },
+        "severity": { "enum": ["blocker", "major", "minor"] },
+        "block": {
+          "description": "The brief block the issue sits in (`brief_lint.BLOCK_IDS`), or `document` for the brief as a whole.",
+          "enum": ["s-header", "s-main", "s-b1", "s-b2", "s-b3", "s-b4", "s-b5", "s-b6", "s-b7", "s-actions", "s-assumptions", "document"]
+        },
+        "issue": { "type": "string", "minLength": 1 },
+        "brief_quote": {
+          "description": "The brief's words, verbatim; empty only when the brief has none to quote (a memo conclusion it leaves out).",
+          "type": "string"
+        },
+        "memo_quote": {
+          "description": "The memo's words, verbatim; empty only when the memo has none to quote (a statement it never makes).",
+          "type": "string"
+        },
+        "suggestion": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

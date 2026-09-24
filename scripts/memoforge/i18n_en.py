@@ -438,6 +438,75 @@ EN: dict = {
             "Assumptions in this memo were applied without confirmation and a disclaimer therefore "
             "applies: the retention conclusion is not confirmed by the client."
         ),
+        # D-222: the decision brief of `/memoforge:brief` (plan 75A), written in the memo language.
+        # `sections` are the four part headings the brief lint recognises; the three header labels,
+        # the risk literal and `unconfirmed` reach the writer through `brief_lint.writer_labels`.
+        # `checks` names every code an unverified brief can list in its banner — the BF/BC
+        # checklist items, the B-rules and the four operational reasons of the driver.
+        # `self_reference` is the lower-case B-09 list of words that point at the full memo.
+        "brief": {
+            "sections": {
+                "main": "Bottom line",
+                "conclusions": "Conclusions",
+                "actions": "What to do",
+                "assumptions": "What the answer depends on",
+            },
+            "question_label": "Question",
+            "date_label": "Date",
+            "jurisdictions_label": "Jurisdictions",
+            "unconfirmed": "not confirmed; a lawyer has to check this before anyone relies on it",
+            # D-229: the label of the one sentence naming the memo leaves the brief leaves out.
+            "other_label": "Other matters",
+            "banners": {
+                "title": "DECISION BRIEF — CHECK BEFORE RELYING ON IT",
+                "subtitle": "The notes below say what was not confirmed.",
+                "unclean_memo": (
+                    "The memorandum this brief summarises ended with open points; the conclusions "
+                    "that rest on them are marked as not confirmed."
+                ),
+                "unverified": "This brief did not pass every fidelity and clarity check: {checks}.",
+                "too_long": "This brief is longer than three pages.",
+            },
+            "checks": {
+                "BF-01": "a statement the memorandum does not make",
+                "BF-02": "a condition the conclusion depends on is missing",
+                "BF-03": "the degree of certainty differs from the memorandum",
+                "BF-04": "an open point is presented as settled",
+                "BF-05": "a conclusion of the memorandum is not covered",
+                "BF-06": "a conclusion names a rule or a court it does not rest on",
+                "BF-07": "the actions differ from the memorandum's recommendations",
+                "BF-08": "an assumption that changes the answer is missing",
+                "BF-09": "the question is not restated faithfully",
+                "BC-01": "the bottom line does not answer the question",
+                "BC-02": "the reasoning of a conclusion is hard to follow",
+                "BC-03": "the language is not plain",
+                "BC-04": "the brief does not stand on its own",
+                "BC-05": "an action lacks an owner, a step or a time",
+                "BC-06": "quotations or too many sources in a conclusion",
+                "BC-07": "repetition, filler or stock phrases",
+                "BC-08": "a heading that does not say what follows",
+                "B-01": "longer than about three pages",
+                "B-02": "parts missing or out of order",
+                "B-03": "a conclusion not tied to a section of the memorandum",
+                "B-04": "a section is neither covered nor listed as omitted",
+                "B-05": "a risk level differs from the memorandum",
+                "B-06": "a citation differs from the memorandum",
+                "B-07": "a quotation or a list of sources",
+                "B-08": "a risk line in the wrong form",
+                "B-09": "a reference to a document the reader does not have",
+                "B-10": "a placeholder or a stock phrase left in the text",
+                "B-11": "an amount that is not in the memorandum",
+                "B-12": "a part is longer than its word budget",
+                "writer_failed": "the brief could not be revised further",
+                "fidelity_review_missing": "the fidelity check could not be run",
+                "form_review_missing": "the clarity check could not be run",
+                "render_failed": "the formatted document could not be produced",
+            },
+            # Whole words (B-09), so every form a reader would write is listed.
+            "self_reference": [
+                "memorandum", "memorandums", "memoranda", "memo", "memos", "see section", "full analysis",
+            ],
+        },
     },
     # D-176 / D-176a / D-172: the interface — every literal `phases.py`, `gates.py` and the two
     # user-facing functions of `machine.py` used to carry, moved verbatim. Indentation and
@@ -794,6 +863,59 @@ EN: dict = {
             "unknown_line": "not checked",
             "block_head": "Source access today:",
             "more_line": "…and {count} more in `{path}`",
+        },
+        # D-222: the chat lines of `/memoforge:brief` (plan 75A) — the status gate for a memo that
+        # ended with open points, its text fallback with the yes/no words it recognises, the
+        # outcome lines and one refusal per preflight code (`refused.<code>`).
+        "brief": {
+            "gate_question": (
+                "The memorandum ended as «{status}» with {count} open point(s). Make the brief anyway?"
+            ),
+            "gate_header": "Brief",
+            "option_yes": "Yes, with the open points marked",
+            "option_no": "No",
+            "gate_text": (
+                "The memorandum ended as «{status}» with {count} open point(s). Make the brief anyway? "
+                "Reply yes or no."
+            ),
+            "yes_words": ["yes", "y", "ok", "go"],
+            "no_words": ["no", "n", "nope", "stop"],
+            "done": "Brief ready: {path}",
+            "done_unverified": "Brief ready, with open checks marked in it: {path}",
+            "refused": {
+                "no_memo": "There is no delivered memorandum to build a brief from.",
+                "task_not_done": "The memo task has not finished yet; a brief can be made once it is done.",
+                "draft_changed_after_export": (
+                    "The memorandum draft changed after it was delivered, so a brief would not match "
+                    "the delivered memo."
+                ),
+                "pack_changed_after_export": (
+                    "The source pack changed after the memorandum was delivered, so a brief would not "
+                    "match the delivered memo."
+                ),
+                "previous_run_locked": (
+                    "The previous brief could not be moved aside ({error}); close it if it is open and "
+                    "try again."
+                ),
+                "no_task": "There is no finished memo task to build a brief from.",
+                "writer_failed": "The brief could not be written; the memorandum is unaffected.",
+                # D-224: a promoted brief file no longer hashes to the sha recorded at promotion.
+                "brief_changed_on_disk": (
+                    "The brief files were changed by hand during the run; start again with /memoforge:brief."
+                ),
+            },
+            "declined": "No brief made.",
+            "stale_report": "That answer belongs to an older step; carrying on.",
+            "copy_failed": "The brief is in {path}; copying it to the outputs folder failed: {error}",
+            # D-224: the chat line of each brief dispatch — one phrase per agent step of the driver.
+            "dispatch_line": "Brief: {step}, attempt {attempt}.",
+            "steps": {
+                "write": "writing",
+                "lint_fix": "fixing the lint findings",
+                "revise": "revising",
+                "shorten": "shortening",
+                "review": "checking fidelity and clarity",
+            },
         },
     },
 }

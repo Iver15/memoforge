@@ -56,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     # One line per module; a slice adds its module to the tuple and nothing else (CONVENTIONS).
     from . import (
         analyze,
+        brief,      # D-224
         citations,
         config_cmd,
         deps,
@@ -106,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
         dispatch,  # S2
         gates,     # S2
         probe,     # S2
+        brief,     # D-224: `mf brief next|report`, the driver of `/memoforge:brief`
     ):
         module.register(subparsers)
     return parser

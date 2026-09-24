@@ -306,7 +306,73 @@
       "out_of_scope_prefix": "Fuera del alcance del modo {mode}: ",
       "out_of_scope_prefix_no_mode": "Fuera del alcance de este modo: "
     },
-    "probe_disclaimer": "Los supuestos de este memorando se han adoptado sin confirmación, con la siguiente reserva: la conclusión sobre la conservación no está confirmada por el cliente."
+    "probe_disclaimer": "Los supuestos de este memorando se han adoptado sin confirmación, con la siguiente reserva: la conclusión sobre la conservación no está confirmada por el cliente.",
+    "brief": {
+      "sections": {
+        "main": "Lo esencial",
+        "conclusions": "Conclusiones",
+        "actions": "Qué hacer",
+        "assumptions": "De qué depende la respuesta"
+      },
+      "question_label": "Pregunta",
+      "date_label": "Fecha",
+      "jurisdictions_label": "Jurisdicciones",
+      "unconfirmed": "no confirmado; un abogado debe comprobarlo antes de que nadie se base en ello",
+      "other_label": "Otras cuestiones",
+      "banners": {
+        "title": "NOTA PARA LA DECISIÓN — COMPRUÉBELA ANTES DE BASARSE EN ELLA",
+        "subtitle": "Las indicaciones siguientes señalan lo que no se ha confirmado.",
+        "unclean_memo": "El memorando que resume esta nota terminó con puntos abiertos; las conclusiones que dependen de ellos se marcan como no confirmadas.",
+        "unverified": "Esta nota no superó todas las comprobaciones de fidelidad y claridad: {checks}.",
+        "too_long": "Esta nota ocupa más de tres páginas."
+      },
+      "checks": {
+        "BF-01": "una afirmación que el memorando no hace",
+        "BF-02": "falta una condición de la que depende la conclusión",
+        "BF-03": "el grado de certeza difiere del memorando",
+        "BF-04": "un punto abierto se presenta como resuelto",
+        "BF-05": "una conclusión del memorando no está recogida",
+        "BF-06": "una conclusión cita una norma o un tribunal en los que no se apoya",
+        "BF-07": "las actuaciones no coinciden con las recomendaciones del memorando",
+        "BF-08": "falta un supuesto que cambia la respuesta",
+        "BF-09": "la pregunta no se reformula fielmente",
+        "BC-01": "lo esencial no responde a la pregunta",
+        "BC-02": "el razonamiento de una conclusión es difícil de seguir",
+        "BC-03": "el lenguaje no es sencillo",
+        "BC-04": "la nota no se entiende por sí sola",
+        "BC-05": "a una actuación le falta quién, qué o cuándo",
+        "BC-06": "citas o demasiadas fuentes en una conclusión",
+        "BC-07": "repeticiones, relleno o frases hechas",
+        "BC-08": "un título que no dice lo que sigue",
+        "B-01": "más larga de unas tres páginas",
+        "B-02": "faltan partes o no están en orden",
+        "B-03": "una conclusión no vinculada a ninguna sección del memorando",
+        "B-04": "una sección no está recogida ni indicada como omitida",
+        "B-05": "un nivel de riesgo difiere del memorando",
+        "B-06": "una referencia difiere del memorando",
+        "B-07": "una cita o una lista de fuentes",
+        "B-08": "una línea de riesgo con formato incorrecto",
+        "B-09": "una remisión a un documento que el lector no tiene",
+        "B-10": "un marcador de posición o una frase hecha en el texto",
+        "B-11": "un importe que no figura en el memorando",
+        "B-12": "una parte supera su límite de palabras",
+        "writer_failed": "la nota no pudo revisarse más",
+        "fidelity_review_missing": "no se pudo realizar la comprobación de fidelidad",
+        "form_review_missing": "no se pudo realizar la comprobación de claridad",
+        "render_failed": "no se pudo generar el documento con formato"
+      },
+      "self_reference": [
+        "memorando",
+        "memorandos",
+        "memorándum",
+        "memorándums",
+        "memorándumes",
+        "memo",
+        "memos",
+        "véase la sección",
+        "análisis completo"
+      ]
+    }
   },
   "ui": {
     "phases": {
@@ -576,6 +642,48 @@
       "unknown_line": "sin comprobar",
       "block_head": "Acceso a las fuentes hoy:",
       "more_line": "…y {count} más en `{path}`"
+    },
+    "brief": {
+      "gate_question": "El memorando terminó como «{status}» con {count} punto(s) abierto(s). ¿Hacer la nota de todos modos?",
+      "gate_header": "Nota",
+      "option_yes": "Sí, con los puntos abiertos marcados",
+      "option_no": "No",
+      "gate_text": "El memorando terminó como «{status}» con {count} punto(s) abierto(s). ¿Hacer la nota de todos modos? Responda sí o no.",
+      "yes_words": [
+        "sí",
+        "si",
+        "s",
+        "ok",
+        "vale"
+      ],
+      "no_words": [
+        "no",
+        "n",
+        "parar"
+      ],
+      "done": "Nota lista: {path}",
+      "done_unverified": "Nota lista, con las comprobaciones pendientes marcadas: {path}",
+      "refused": {
+        "no_memo": "No hay ningún memorando entregado a partir del cual hacer una nota.",
+        "task_not_done": "La tarea del memorando aún no ha terminado; la nota podrá hacerse cuando termine.",
+        "draft_changed_after_export": "El borrador del memorando cambió después de entregarse; la nota no coincidiría con el memorando entregado.",
+        "pack_changed_after_export": "El paquete de fuentes cambió después de entregarse el memorando; la nota no coincidiría con el memorando entregado.",
+        "previous_run_locked": "No se pudo apartar la nota anterior ({error}); ciérrela si está abierta y vuelva a intentarlo.",
+        "no_task": "No hay ninguna tarea de memorando terminada a partir de la cual hacer una nota.",
+        "writer_failed": "No se pudo redactar la nota; el memorando no se ve afectado.",
+        "brief_changed_on_disk": "Los archivos de la nota se modificaron a mano durante el proceso; vuelva a empezar con /memoforge:brief."
+      },
+      "declined": "No se ha hecho ninguna nota.",
+      "stale_report": "Esa respuesta corresponde a un paso anterior; se continúa.",
+      "copy_failed": "La nota está en {path}; falló la copia a la carpeta de salida: {error}",
+      "dispatch_line": "Nota: {step}, intento {attempt}.",
+      "steps": {
+        "write": "redacción",
+        "lint_fix": "corrección de las observaciones del control",
+        "revise": "revisión",
+        "shorten": "acortamiento",
+        "review": "control de fidelidad y claridad"
+      }
     }
   }
 }

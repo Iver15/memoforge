@@ -26,6 +26,9 @@ AGENT_MODELS: dict[str, dict] = {
     "revision-mediator": {"model": "sonnet", "effort": "medium"},
     "client-readiness-reviewer": {"model": "sonnet", "effort": "medium"},
     "style-extractor": {"model": "opus", "effort": "high"},
+    # D-223: the two agents of `/memoforge:brief`, dispatched by the brief driver, not by `machine.py`.
+    "brief-writer": {"model": "opus", "effort": "high"},
+    "brief-fidelity-reviewer": {"model": "opus", "effort": "high"},
 }
 
 RESEARCH_LAYER_MODELS: dict[str, str] = {"case_law": "opus"}
@@ -55,8 +58,13 @@ PIPELINE_AGENTS: tuple[str, ...] = (
     "counterargument-reviewer",
     "revision-mediator",
     "client-readiness-reviewer",
+    "brief-writer",
+    "brief-fidelity-reviewer",
 )
-"""Agents that have a dispatch prompt in `prompts/` (style-extractor runs outside the pipeline)."""
+"""Agents that have a dispatch prompt in `prompts/` (style-extractor runs outside the pipeline).
+
+D-223: the last two belong to `/memoforge:brief`; its driver renders them through `render_agents`.
+"""
 
 
 # --- paths ----------------------------------------------------------------
@@ -265,6 +273,24 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "known_blockers": "none",  # D-119: filled in only when the review loop already aggregated some
     "open_findings": "none",  # D-211: filled in only when the review loop left open substantive majors
     "recheck_scope": "none",  # D-211: filled in only for the citations re-check of the final polish
+    # D-223: the decision brief. `brief_role` and `section_ids` end two lines of the form reviewer's
+    # prompt, so empty values leave the memo prompt byte-identical; the rest belong to the two brief
+    # agents, whose driver passes every one of them.
+    "brief_role": "",
+    "section_ids": "",
+    "brief_task": "write",
+    "memo_path": "",
+    "memo_sha": "",
+    "brief_path": "",
+    "brief_sha": "",
+    "open_issues_path": "",
+    "user_question": "",
+    "brief_template_path": "",
+    "brief_labels": "",
+    "block_list": "",
+    # D-228: the scoped re-review of the brief's fidelity reviewer; the defaults are a full review.
+    "previous_review_path": "none",
+    "changed_blocks": "all",
 }
 
 
