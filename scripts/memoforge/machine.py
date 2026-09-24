@@ -828,8 +828,8 @@ def _dashboard_plan(state: dict, ui: str = "en") -> dict | None:
 
     The same fields `gates.render_plan_digest` reads, in the same order and with the same issue cap
     (`gates.PLAN_DIGEST_MAX_ISSUES`); the digest text itself is not re-rendered here. `layers`
-    follows the mode the run actually took once the gate approved one, `recommended_mode` stays the
-    recommendation of the plan. Nothing in the result carries a machine-generated path.
+    are the layers of the one run mode (D-242). Nothing in the result carries a machine-generated
+    path.
 
     D-90: only a `plan.json` that satisfies `schemas/plan.schema.json` is projected. A file that is
     unreadable, not JSON or structurally wrong (a half-written plan, a wrong type on any field) is
@@ -847,10 +847,6 @@ def _dashboard_plan(state: dict, ui: str = "en") -> dict | None:
             return None
     except (OSError, ValueError, schema.DependencyMissing):
         return None
-    recommended = gates.recommended_mode(plan)
-    mode = str(state.get("mode") or recommended)
-    if mode not in modes.MODES:
-        mode = recommended
     issues = [row for row in (plan.get("issues") or []) if isinstance(row, dict)]
     approval = state.get("plan_approval")
     approval = approval if isinstance(approval, dict) else {}
@@ -864,10 +860,9 @@ def _dashboard_plan(state: dict, ui: str = "en") -> dict | None:
         "classification": str(plan.get("classification") or ""),
         "jurisdictions": _dashboard_codes(plan.get("jurisdictions")),
         "complexity": str(plan.get("estimated_complexity") or ""),
-        "recommended_mode": recommended,
         "layers": [
             layer
-            for layer in modes.MODES[mode]["researcher_layers"]
+            for layer in modes.MODES["full"]["researcher_layers"]
             if layer != "doctrine" or plan.get("doctrine_required")
         ],
         "issues": [
@@ -996,7 +991,7 @@ def _plan_decision(state: dict) -> dict | None:
     answers = {str(key): str(value) for key, value in given.items()}
     decision = {
         "action": str(last.get("action") or ""),
-        "mode": str(answers.get("Mode") or state.get("mode") or "").lower(),
+        "mode": str(state.get("mode") or "").lower(),
         "at": str(last.get("at") or ""),
     }
     edit = _long_text(answers.get("edit_text"))
@@ -1369,7 +1364,6 @@ def plan_gate_text(work_dir: Path, state: dict) -> str:
             ui,
             f"ui.machine.{shape}",
             count=len(issues),
-            mode=gates.recommended_mode(plan),
             complexity=complexity,
         )
     )
@@ -2469,7 +2463,7 @@ RESEARCH_SUBSET_STATUS = "research_subset"
 
 
 def in_scope_layers(state: dict) -> list[str]:
-    """`config.researcher_layers` — the layers this mode researches (§2.3, D-112)."""
+    """`config.researcher_layers` — the layers this run researches (§2.3, D-112)."""
     config = state.get("config") or {}
     layers = [layer for layer in (config.get("researcher_layers") or []) if layer in routing.LAYERS]
     return layers or list(routing.LAYERS)
@@ -2484,9 +2478,9 @@ def missing_layers(state: dict) -> list[str]:
     budget spent the router answered `layers: []` while `subset_r` still named the gap: the gate
     answer then bought a research pass nobody had paid for.
 
-    D-112: a gap in a layer the mode does not research is never dispatched — `mf sufficiency route`
-    turned it into a `drafting_warnings[]` entry, and Brief stays one layer. A state written before
-    `approved_layers` existed still derives the set from `subset_r`.
+    D-112: a gap in a layer the run does not research is never dispatched — `mf sufficiency route`
+    turned it into a `drafting_warnings[]` entry. A state written before `approved_layers` existed
+    still derives the set from `subset_r`.
     """
     followup = state.get("sufficiency_followup") or {}
     scope = set(in_scope_layers(state))
@@ -3109,7 +3103,7 @@ def _issue_gate(work_dir: Path, state: dict, gate: str) -> dict:
                 "questions": auq["questions"],
                 "text": plan_gate_text(work_dir, state),
                 "text_fallback": gates.render(work_dir, state, "plan"),
-                "chat_line": _chat(state, "plan, mode and coverage need your decision"),
+                "chat_line": _chat(state, "plan and coverage need your decision"),
             },
             generation=0,
         )
@@ -3136,7 +3130,7 @@ def plan_intake_questions_pending(work_dir: Path, state: dict) -> dict:
 
 
 def _style_overrides(state: dict, answers: dict) -> dict:
-    """Style answer of gate 4: profile paths and the `mode_binding` override (§4.6)."""
+    """Style answer of gate 4: the profile paths (§4.6)."""
     from . import style_profile
 
     name = str(answers.get("Style") or answers.get("style") or "").strip()
@@ -3144,7 +3138,6 @@ def _style_overrides(state: dict, answers: dict) -> dict:
         return {}
     try:
         directory = style_profile.profiles_dir() / name
-        meta = style_profile.read_meta(name) or {}
     except (OSError, ValueError):
         return {}
     if not directory.is_dir():
@@ -3156,49 +3149,24 @@ def _style_overrides(state: dict, answers: dict) -> dict:
         overrides["prose_style_path"] = str(prose)
     if template.is_file():
         overrides["template_path"] = str(template)
-    binding = meta.get("mode_binding")
-    if binding in modes.MODES:
-        overrides["mode_binding"] = binding
     return overrides
 
 
-def plan_gate_mode(state: dict, answers: dict) -> str:
-    """The mode a plan approval continues with (D-70, D-66).
-
-    The answer being applied wins; otherwise the last `Mode` the gate recognised anywhere in
-    `plan_approval.iterations[]` — a later `edit: …` reply carries no `Mode` of its own and must not
-    reset the run to `full` behind the user's back; otherwise the mode the run already has in state.
-    `full` is the answer only for a run that never chose one.
-    """
-    history = [dict(row.get("answers") or {}) for row in plan_gate_iterations(state)]
-    for candidate in [answers, *reversed(history), {"Mode": state.get("mode")}]:
-        raw = str(candidate.get("Mode") or candidate.get("mode") or "").strip().lower()
-        if not raw:
-            continue
-        try:
-            mode = modes.normalize_mode(raw)
-        except ValueError:
-            continue  # an unrecognised token is not a choice; keep looking for one that is
-        if mode:
-            return mode
-    return "full"
-
-
 def apply_plan_answers(state: dict, answers: dict) -> dict:
-    """Style > Mode > Sources > Plan (§2.4): the config the run continues with."""
+    """Style > Sources > Plan (§2.4): the config the run continues with.
+
+    D-242: every run is Full — a `Mode` answer an older gate may still send is ignored, and the
+    Full config is re-resolved from `state.config` plus the style overrides.
+    """
     overrides = _style_overrides(state, answers)
-    mode = plan_gate_mode(state, answers)
-    if overrides.get("mode_binding"):
-        mode = overrides["mode_binding"]
     user_config = dict(state.get("config") or {})
-    overrides.pop("mode_binding", None)
     user_config.update(overrides)
-    config = modes.resolve_config(mode, user_config)
+    config = modes.resolve_config("full", user_config)
     config.pop(modes.WRITER_MODEL_FALLBACK_KEY, None)
     for key in ("python_cmd", "plugin_data_dir", "prose_style_path", "template_path", "style_profile"):
         if user_config.get(key) is not None:
             config[key] = user_config[key]
-    return {"mode": mode, "config": config, "sources": str(answers.get("Sources") or "").lower()}
+    return {"mode": "full", "config": config, "sources": str(answers.get("Sources") or "").lower()}
 
 
 def plan_plan_approval_pending(work_dir: Path, state: dict) -> dict:

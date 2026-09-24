@@ -378,7 +378,7 @@ def build_initial_state(
         "ui_language": ui_language,
         "work_dir": str(work_dir),
         "output_folder": str(output_folder),
-        "mode": None,
+        "mode": "full",
         "config": config,
         "intake": {
             "status": "pending",
@@ -568,7 +568,9 @@ def run_new(args: argparse.Namespace) -> dict:
     if not i18n.available(language):
         return {"errors": [f"language_pack_unavailable: {language}"]}
     user_config = user_config_from_options(options)
-    config = modes.resolve_config(None, user_config)
+    # D-242: one run mode — the Full config is resolved at creation, so every reader of `config`
+    # before the plan gate already sees what the run will use.
+    config = modes.resolve_config("full", user_config)
     # D-15: an unknown `writer_model` never fails `task new`; it degrades and is logged below.
     writer_model_fallback = config.pop(modes.WRITER_MODEL_FALLBACK_KEY, None)
     config["plugin_data_dir"] = str(pylauncher.plugin_data_dir())

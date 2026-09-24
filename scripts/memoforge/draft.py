@@ -125,9 +125,7 @@ def run_finish(args: argparse.Namespace) -> dict:
 
     # --- citations -------------------------------------------------------
     stepctx.stage_input(work_dir, args.step, args.attempt, work_dir / sources.PACK_PATH)
-    # D-131: the C-07 severity is the run's — `info` in Brief, `major` in Full — and the mode is
-    # read from the state this command already loaded, exactly as `draft audit-citations` does.
-    citation_findings = citations.audit(anchored, work_dir=work_dir, mode=str(state.get("mode") or ""))
+    citation_findings = citations.audit(anchored, work_dir=work_dir)
     citation_report = lint.build_report(draft_sha, citation_findings)
     citation_file = stepctx.stage_result(
         work_dir, args.step, args.attempt, "citations.json", state_io.dumps(citation_report).encode("utf-8")
@@ -193,6 +191,6 @@ def register(subparsers) -> None:
     parser.add_argument("--step", required=True)
     parser.add_argument("--attempt", type=int, required=True)
     parser.add_argument("--draft", required=True)
-    parser.add_argument("--template", default=None, choices=[lint.TEMPLATE_CLASSICAL, lint.TEMPLATE_BRIEF])
+    parser.add_argument("--template", default=None, choices=[lint.TEMPLATE_CLASSICAL])
     parser.add_argument("--phase", default=None)
     parser.set_defaults(func=run_finish)

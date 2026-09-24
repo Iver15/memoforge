@@ -5,18 +5,18 @@
 Source of truth: `scripts/memoforge/modes.py` (ТЗ §2.3). The `source_review_gate` priority
 chain is `userConfig on|off` > mode > `auto`.
 
-| field | brief | full |
-|---|---|---|
-| `researcher_layers` | `statutes` | `statutes`, `case_law`, `doctrine` |
-| `reviewer_list` | `logic`, `citations`, `counterarguments` | `logic`, `form`, `citations`, `counterarguments` |
-| `max_iterations` | `2` | `2` |
-| `client_polish_enabled` | false | true |
-| `max_client_polish` | `0` | `1` |
-| `template_id` | `executive-brief` | `classical-memo` |
-| `source_review_gate` | `off` | `auto` |
-| `lint_fix_rounds` | `1` | `2` |
-| `intake_max_questions` | `10` | `10` |
-| `mcp_budget` | casus: 8, courtlistener: 10, fas: 5, fedregs: 10, justicelibre: 10, ldh: 8, legalviz: 10, lex: 10, opencaselaw: 10, uklegal: 10 | casus: 20, courtlistener: 40, fas: 12, fedregs: 40, justicelibre: 40, ldh: 10, legalviz: 40, lex: 40, opencaselaw: 40, uklegal: 40 |
+| field | full |
+|---|---|
+| `researcher_layers` | `statutes`, `case_law`, `doctrine` |
+| `reviewer_list` | `logic`, `form`, `citations`, `counterarguments` |
+| `max_iterations` | `2` |
+| `client_polish_enabled` | true |
+| `max_client_polish` | `1` |
+| `template_id` | `classical-memo` |
+| `source_review_gate` | `auto` |
+| `lint_fix_rounds` | `2` |
+| `intake_max_questions` | `10` |
+| `mcp_budget` | casus: 20, courtlistener: 40, fas: 12, fedregs: 40, justicelibre: 40, ldh: 10, legalviz: 40, lex: 40, opencaselaw: 40, uklegal: 40 |
 
 Default writer model: `opus`; allowed: `opus`, `fable`, `sonnet` (§4.1).
 

@@ -1,7 +1,7 @@
 ---
 name: continue
 description: Resume a memoforge legal-memo task and answer its open gate. Use only when explicitly invoked via /memoforge:continue, optionally with a task_id and a gate reply (proceed, continue, approve, edit: …, cancel, or answers like 1A 2C).
-argument-hint: "[<task_id>] [1A 2C 3: <text> | proceed | continue | approve [brief|full] [style:<name>] | edit: <text> | cancel]"
+argument-hint: "[<task_id>] [1A 2C 3: <text> | proceed | continue | approve [style:<name>] | edit: <text> | cancel]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Bash, Agent, AskUserQuestion, WebFetch, WebSearch, mcp__*
 ---
@@ -45,6 +45,8 @@ mf gate parse --workdir W --step s-002 --attempt 1 --generation 0 --text "<reply
 This is the **only** route for a text reply, `kind: gate-text` and `kind: gate-auq` alike (ТЗ D-34): for an AUQ gate at `generation 0` the command performs the channel switch itself, writes `gate_channel_switched` and then parses the reply. Never convert the reply into AUQ answers by hand and never switch the channel yourself.
 
 `--generation` is mandatory — pass the value `next` just returned; an answer at another generation is rejected as `stale_generation`.
+
+If the answer carries `notice` (D-242: the reply named the removed Brief mode), print `notice` verbatim first, then carry on as the rest of the answer says.
 
 A `{"errors": […], "reprompt": "<text>"}` answer is a **business outcome**, not a CLI failure (D-72): the reply was not understood or only partly understood and nothing is recorded. Print `reprompt` verbatim and END the turn — never repeat the command and never finalize; the user's next reply re-enters here.
 

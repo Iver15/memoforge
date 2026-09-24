@@ -31,7 +31,6 @@ a corrupt `state.json`.
 | `reviewer_json_invalid` | `revision_loop` | Retry once (`reviewer_json_retry`), then substitute a stub review and continue. | `reviewer_output_malformed` |
 | `mediator_failed` | `revision_loop` | Exit the loop at the last validated draft version. | `mediator_unavailable` |
 | `max_iterations_with_blockers` | `revision_loop` | Forced exit: `final_status = forced_exit_on_v<N>_with_remaining_issues`, blockers listed in the Status section. | `unresolved_blockers` |
-| `length_overflow_recommendation` | `revision_loop` | Keep the Brief run going, add `manual_review_required_on_v<N>` to `final_status_reasons[]` (§2.1). | `length_overflow` |
 | `client_readiness_manual_review` | `client_readiness` | Proceed to export; the blocker list is printed in the Status section of the memo. | `manual_review_required` |
 | `client_polish_budget_consumed` | `client_readiness` | Proceed to export with the last lint-clean version. | `polish_concerns_remain` |
 | `client_readiness_reviewer_failed` | `client_readiness` | After the retry budget treat the verdict as `manual_review_required` and export. | `readiness_unavailable` |
@@ -68,7 +67,6 @@ a corrupt `state.json`.
 - **`reviewer_output_malformed`** — Revision loop forced exit at iteration {iteration} — {count} reviewer output(s) malformed; latest draft delivered.
 - **`mediator_unavailable`** — Mediation unavailable; exited at the last validated draft v{version}.
 - **`unresolved_blockers`** — REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the Status section).
-- **`length_overflow`** — The executive brief exceeds its word cap; a rerun in Full mode is recommended.
 - **`manual_review_required`** — Client-readiness: manual_review_required. Blocking issues listed in the Status section.
 - **`polish_concerns_remain`** — Client-readiness: post-polish concerns remain; verify before client delivery.
 - **`readiness_unavailable`** — Client-readiness review unavailable; treated as manual review required.

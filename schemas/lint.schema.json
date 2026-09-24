@@ -30,7 +30,7 @@
           "pattern": "^[LCB]-[0-9]{2}$"
         },
         "severity": {
-          "description": "`info` is a finding that is recorded but neither blocks nor counts as a defect (C-07 in brief mode, D34-10).",
+          "description": "`info` is a finding that is recorded but neither blocks nor counts as a defect (D34-10); no rule grades `info` since D-243.",
           "enum": ["blocker", "major", "minor", "info"]
         },
         "line": {

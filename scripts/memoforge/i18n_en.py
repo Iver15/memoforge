@@ -209,7 +209,6 @@ EN: dict = {
             "incomplete_review": "a review round did not complete",
             "all_reviewers_failed": "no reviewer returned a usable verdict",
             "regression_forced_exit": "a revision made the draft worse, so the review loop stopped",
-            "length_overflow": "the memorandum exceeds its word cap",
             "step_loop": "a pipeline step repeated without making progress",
             "writer_failed": "the writer could not produce a revised draft",
             "no_checked_draft": "no draft version passed the automated checks",
@@ -311,7 +310,6 @@ EN: dict = {
                 "REVIEWER NOTES NOT FULLY RESOLVED — {count} blocking issue(s) remain (listed in the Status "
                 "section)."
             ),
-            "length_overflow": "The executive brief exceeds its word cap; a rerun in Full mode is recommended.",
             "manual_review_required": (
                 "Client-readiness: manual_review_required. Blocking issues listed in the Status section."
             ),
@@ -403,7 +401,6 @@ EN: dict = {
             "L-07": "Risk line format",
             "L-08": "Blockquote markup",
             "L-09": "Duplicate quotation",
-            "L-10": "Brief word cap",
             "L-11": "Leftover placeholder",
             "L-12": "Template sections",
             "L-13": "Summary bullet format",
@@ -538,21 +535,6 @@ EN: dict = {
             "cancelled_by_user": "Cancelled",
         },
         "gates": {
-            # The two `Mode` options of gate 4; the plan digest names the recommended one with
-            # the same words.
-            "mode_summary_brief": "One research layer, two review iterations, ~1200 words.",
-            "mode_summary_full": "Up to three layers, two review iterations, full memo.",
-            # D34-01 / D-176: what Brief would cost this plan. English keeps the two forms the
-            # code chose inline, so its bytes do not move; other packs fill both with one
-            # number-neutral sentence.
-            "brief_mismatch_hint_one": (
-                "This plan has {count} issue at {complexity} complexity; Brief researches one layer "
-                "(statutes) and fits three sections — case law and doctrine gaps become caveats."
-            ),
-            "brief_mismatch_hint_many": (
-                "This plan has {count} issues at {complexity} complexity; Brief researches one layer "
-                "(statutes) and fits three sections — case law and doctrine gaps become caveats."
-            ),
             # The numbered question block gates 2 and 7 share (§2.4 `1A 2C 3: free text`).
             "question_line": "{index}. {question}",
             "option_line": "{letter}) {label} — {description}",
@@ -598,35 +580,34 @@ EN: dict = {
             "plan_digest_no_layers": "none",
             "plan_digest_doctrine_required": "required",
             "plan_digest_doctrine_not_required": "not required",
-            "plan_digest_recommended_mode": "Recommended mode: {mode} — {summary}",
             "plan_digest_notes": "Planner notes: {notes}",
             # Gate 4 — the text channel of §2.4. The three reply lines are tokens only and read
             # the same in every pack.
             "plan_text_question": "{header}: {question}",
             "plan_text_options": "options: {labels}",
             "plan_text_reply_heading": "Reply with one of:",
-            "plan_text_reply_approve": "`approve [brief|full] [style:<name>|standard] [sources:reduced]`",
+            "plan_text_reply_approve": "`approve [style:<name>|standard] [sources:reduced]`",
             "plan_text_reply_edit": "`edit: <what to change>`",
             "plan_text_reply_cancel": "`cancel`",
+            # D-242: what `mf gate parse` adds as `notice` when a plan-gate reply names `brief`.
+            "brief_mode_removed": (
+                "Brief mode no longer exists: every run is Full. After the memo is finished, "
+                "/memoforge:brief makes a decision brief from it."
+            ),
             # D-176a: the AUQ headers and option labels. `gates.canonical_map` builds the reverse
             # map from exactly these keys, so a localized answer comes back canonical.
             "header_plan": "Plan",
-            "header_mode": "Mode",
             "header_style": "Style",
             "header_sources": "Sources",
             "option_approve": "Approve",
             "option_edit": "Edit",
             "option_cancel": "Cancel",
-            "option_brief": "Brief",
-            "option_full": "Full",
             "option_continue": "Continue",
             "option_approve_description": "Start research on the plan as written.",
             "option_edit_description": "Tell me what to change; the plan is rebuilt.",
             "option_cancel_description": "Stop the task now.",
             "option_continue_description": "Run with reduced coverage.",
             "plan_question": "Approve this research plan?",
-            "mode_question": "Which depth should the memo have?",
-            "mode_recommended": "(Recommended) {description}",
             "style_question": "Which writing style should the memo follow?",
             "style_option_profile_description": "Use the saved profile `{name}`.",
             "style_option_standard_description": "Use the built-in house style.",
@@ -647,13 +628,9 @@ EN: dict = {
         "machine": {
             "plan_gate_dashboard": "The research plan is on your dashboard: {url}",
             "plan_gate_file": "File: {path} in the working folder {work_dir}",
-            # The inline plural of D-176, kept as two English forms like `brief_mismatch_hint`.
-            "plan_gate_shape_one": (
-                "{count} legal issue · recommended mode: {mode} · estimated complexity: {complexity}"
-            ),
-            "plan_gate_shape_many": (
-                "{count} legal issues · recommended mode: {mode} · estimated complexity: {complexity}"
-            ),
+            # The inline plural of D-176, kept as two English forms like `gate_pointer_one`/`_many`.
+            "plan_gate_shape_one": "{count} legal issue · estimated complexity: {complexity}",
+            "plan_gate_shape_many": "{count} legal issues · estimated complexity: {complexity}",
             "gate_pointer": "{label} is on the dashboard: {url}",
             "gate_pointer_one": "{label} ({count} question) are on the dashboard: {url}",
             "gate_pointer_many": "{label} ({count} questions) are on the dashboard: {url}",
@@ -668,7 +645,7 @@ EN: dict = {
             "answer_hint_source_review": "Reply in chat: continue · cancel",
             "answer_hint_plan": (
                 "Answer the question shown in chat "
-                "(or reply in text: approve [brief|full] · edit: … · cancel)"
+                "(or reply in text: approve · edit: … · cancel)"
             ),
             "agent_fact_assumption_analyst": "Facts & assumptions analyst",
             "agent_legal_researcher": "Researcher",
@@ -776,7 +753,6 @@ EN: dict = {
             "skip_note": "If you skip it: {default}",
             "plan_unclassified": "unclassified",
             "plan_complexity": "complexity {value}",
-            "plan_recommended_mode": "recommended mode {value}",
             "plan_layers": "layers: {value}",
             "plan_approved": "approved",
             "plan_awaiting": "awaiting your approval",

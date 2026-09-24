@@ -22,13 +22,8 @@ MAX_PLAN_EDIT = 5
 MAX_SUFFICIENCY_USER_FOLLOWUP = 2
 """`attempts.sufficiency_user_followup`: questions to the user are cheap, so two in any mode (D-116)."""
 
-MAX_SUFFICIENCY_RESEARCH_FOLLOWUP: dict[str, int] = {"brief": 1, "full": 2}
-"""`attempts.sufficiency_research_followup` per mode: a re-dispatch costs a research pass (D-116)."""
-
-
-def research_followup_limit(mode: object) -> int:
-    """The research follow-up budget of one mode; an unknown mode gets the Full allowance (D-116)."""
-    return MAX_SUFFICIENCY_RESEARCH_FOLLOWUP.get(str(mode or ""), MAX_SUFFICIENCY_RESEARCH_FOLLOWUP["full"])
+MAX_SUFFICIENCY_RESEARCH_FOLLOWUP = 2
+"""`attempts.sufficiency_research_followup`: a re-dispatch costs a research pass (D-116)."""
 
 MAX_RESEARCH_DISPATCH_RETRY = 1
 """`attempts.research_dispatch_retry`: re-dispatch of unclosed research slots (§2.2)."""
@@ -94,12 +89,6 @@ MAX_PARAGRAPH_SENTENCES = 3
 
 MAX_PARAGRAPH_WORDS = 100
 """L-02: paragraph word cap (§5.4)."""
-
-BRIEF_WORD_CAP = 1200
-"""L-10: `executive-brief` word cap (§5.4, §2.3)."""
-
-BRIEF_SOURCE_WORD_WEIGHT = 12
-"""L-10: each unique `[[src:]]` counts as this many words (§5.4)."""
 
 DECISION_BRIEF_SOFT_CAP = 1100
 """B-01: counted words of a `/memoforge:brief` decision brief, about three pages in Word (D-222, DB-06, D-227;

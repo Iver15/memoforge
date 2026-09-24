@@ -37,23 +37,10 @@ QUESTIONS_PATH = "intake/questions.json"
 PLAN_PATH = "plan.json"
 MCP_PROBE_PATH = "intake/mcp-probe.json"
 
-MODE_SUMMARY: dict[str, str] = {
-    "brief": i18n.t("en", "ui.gates.mode_summary_brief"),
-    "full": i18n.t("en", "ui.gates.mode_summary_full"),
-}
-"""The two `Mode` options of gate 4 in English; the plan digest names the recommended one with the
-same words. A gate rendered in another interface language reads `ui.gates.mode_summary_<mode>` of
-that pack instead (D-176)."""
-
 # D-86: how much of the plan the gate-4 digest prints before it points at `plan.json` instead.
 PLAN_DIGEST_DETAIL_ISSUES = 8
 PLAN_DIGEST_MAX_ISSUES = 25
 PLAN_DIGEST_NOTES_CHARS = 300
-
-# D34-01: a plan this size is not refused — nothing caps `plan.issues` — but the gate says in one
-# sentence what Brief would do with it, in the digest and in the Brief option itself
-# (`ui.gates.brief_mismatch_hint_one` / `_many`).
-BRIEF_HINT_MAX_ISSUES = 3
 
 STANDARD_STYLE = "standard"
 """The built-in house style. A text-channel token of §2.4: never translated (D-176a)."""
@@ -63,14 +50,11 @@ AUQ_CANONICAL = "canonical"
 
 CANONICAL_UI: tuple[tuple[str, str], ...] = (
     ("header_plan", "Plan"),
-    ("header_mode", "Mode"),
     ("header_style", "Style"),
     ("header_sources", "Sources"),
     ("option_approve", "Approve"),
     ("option_edit", "Edit"),
     ("option_cancel", "Cancel"),
-    ("option_brief", "Brief"),
-    ("option_full", "Full"),
     ("option_continue", "Continue"),
 )
 """D-176a: every AUQ header and option label the machine reads, with its canonical English value.
@@ -95,6 +79,10 @@ _FREE_TEXT_ANSWER = re.compile(r"(?:^|\s)(0*\d{1,2})\s*[:.]\s*(\S.*)$")
 _LETTER_ANSWER = re.compile(r"^(0*\d{1,2})([A-Da-d])$")
 _STYLE_TOKEN = re.compile(r"^style:(.+)$", re.IGNORECASE)
 _SOURCES_TOKEN = re.compile(r"^sources:(.+)$", re.IGNORECASE)
+
+BRIEF_MODE_REMOVED = "brief_mode_removed"
+"""D-242: the notice a plan-gate reply naming `brief` earns; `run_parse` prints
+`ui.gates.brief_mode_removed` for it."""
 
 
 def gate_for_phase(phase: object) -> str | None:
@@ -121,10 +109,13 @@ def _numbered_key(key: str, question_count: int | None) -> str | None:
 
 
 def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict:
-    """The single parser of §2.4: `{action, answers, defaults_applied, errors}` for any gate text.
+    """The single parser of §2.4: `{action, answers, defaults_applied, errors, notices}` for any gate text.
 
     `question_count` is the number of questions the gate printed; with it, a key outside `1..N`
     is an `unrecognized_token` instead of an answer (D-61). `None` leaves the reply unbounded.
+
+    D-242: there is one run mode. `full` is still accepted and changes nothing; `brief` at the plan
+    gate earns the `brief_mode_removed` notice instead of a mode, and `answers` never carries `Mode`.
     """
     if gate not in GATES:
         raise ValueError(f"unknown_gate: {gate!r}")
@@ -133,7 +124,7 @@ def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict
     errors: list[str] = []
     action: str | None = None
     edit_text = ""
-    mode_answer = ""
+    notices: list[str] = []
     style_answer = ""
     sources_answer = ""
 
@@ -174,7 +165,9 @@ def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict
                 action = action if action in ("cancel", "approve") else "continue"
                 continue
             if low in ("brief", "full"):
-                mode_answer = low
+                # D-242: still recognised, no longer a choice — see the docstring.
+                if low == "brief" and gate == "plan" and BRIEF_MODE_REMOVED not in notices:
+                    notices.append(BRIEF_MODE_REMOVED)
                 continue
             if low == "standard":
                 style_answer = "standard"
@@ -209,10 +202,8 @@ def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict
         action = "approve"
 
     if action in ("approve", "edit"):
-        # D-66: `edit:` keeps the Mode/Style/Sources recognised in the same reply, so the forced
-        # approval of the corrected plan reads them back instead of falling to `full` silently.
-        if mode_answer:
-            answers["Mode"] = mode_answer.capitalize()
+        # D-66: `edit:` keeps the Style/Sources recognised in the same reply, so the forced
+        # approval of the corrected plan reads them back.
         if style_answer:
             answers["Style"] = style_answer
         if sources_answer:
@@ -235,6 +226,7 @@ def parse_reply(gate: str, text: str, question_count: int | None = None) -> dict
         "defaults_applied": [],
         "errors": errors,
         "recognized": action is not None,
+        "notices": notices,
     }
 
 
@@ -248,7 +240,7 @@ def canonical_map(ui: str = "en") -> dict:
 
 
 def parse_auq(answers: dict, ui: str = "en") -> dict:
-    """AUQ answers of gate 4, applied in the §2.4 order: Cancel > Style > Mode > Sources > Plan.
+    """AUQ answers of gate 4, applied in the §2.4 order: Cancel > Style > Sources > Plan.
 
     D-176a: the headers and labels `build_auq` issued in `ui` are mapped back to their canonical
     English first, so the checks below and everything downstream read one vocabulary. A value the
@@ -269,6 +261,7 @@ def parse_auq(answers: dict, ui: str = "en") -> dict:
             "defaults_applied": [],
             "errors": [],
             "recognized": True,
+            "notices": [],
         }
     values = {
         known.get(str(key), str(key)): known.get(str(value), str(value))
@@ -286,6 +279,7 @@ def parse_auq(answers: dict, ui: str = "en") -> dict:
             "defaults_applied": [],
             "errors": ["plan_answer_missing"],
             "recognized": False,
+            "notices": [],
         }
     if plan.startswith("edit"):
         action = "edit"
@@ -299,6 +293,7 @@ def parse_auq(answers: dict, ui: str = "en") -> dict:
             "defaults_applied": [],
             "errors": [f"unrecognized_plan_answer: {lowered.get('plan')}"],
             "recognized": False,
+            "notices": [],
         }
     return {
         "gate": "plan",
@@ -307,6 +302,7 @@ def parse_auq(answers: dict, ui: str = "en") -> dict:
         "defaults_applied": [],
         "errors": [],
         "recognized": True,
+        "notices": [],
     }
 
 
@@ -322,6 +318,7 @@ def apply_defaults(gate: str, questions: list[dict]) -> dict:
         "errors": [],
         "recognized": True,
         "budget_exhausted": True,
+        "notices": [],
     }
 
 
@@ -534,12 +531,7 @@ def render_plan_digest(work_dir: Path, state: dict) -> str:
             unreadable.append(degraded_language_line)
         return "\n".join(unreadable) + "\n"
     issues = [row for row in (plan.get("issues") or []) if isinstance(row, dict)]
-    mode = recommended_mode(plan)
-    layers = [
-        layer
-        for layer in modes.MODES[mode]["researcher_layers"]
-        if layer != "doctrine" or plan.get("doctrine_required")
-    ]
+    layers = _plan_layers(plan)
     lines = [
         i18n.t(
             ui,
@@ -600,17 +592,6 @@ def render_plan_digest(work_dir: Path, state: dict) -> str:
             doctrine=doctrine,
         )
     )
-    lines.append(
-        i18n.t(
-            ui,
-            "ui.gates.plan_digest_recommended_mode",
-            mode=mode,
-            summary=i18n.t(ui, f"ui.gates.mode_summary_{mode}"),
-        )
-    )
-    hint = brief_mismatch_hint(plan, ui)
-    if hint:
-        lines.append(hint)
     notes = " ".join(str(plan.get("notes") or "").split())
     if notes:
         lines.append(i18n.t(ui, "ui.gates.plan_digest_notes", notes=notes[:PLAN_DIGEST_NOTES_CHARS]))
@@ -636,7 +617,7 @@ def render_plan_text(work_dir: Path, state: dict) -> str:
     ui = i18n.ui_language(state)
     plan = _plan_view(work_dir)
     auq = build_auq(work_dir, state)
-    lines = [_slash_line(state, "approve full" if plan is not None else "cancel"), ""]
+    lines = [_slash_line(state, "approve" if plan is not None else "cancel"), ""]
     lines.append(render_plan_digest(work_dir, state).rstrip())
     lines.append("")
     for question in auq["questions"]:
@@ -676,27 +657,6 @@ def render(work_dir: str | os.PathLike, state: dict, gate: str) -> str:
 
 
 # --- the AUQ payload of gate 4 --------------------------------------------
-
-
-def recommended_mode(plan: dict | None) -> str:
-    """Recommended mode from `plan.estimated_complexity` (§2.4); `full` without a plan (D-99)."""
-    return "brief" if str((plan or {}).get("estimated_complexity")) == "low" else "full"
-
-
-def brief_mismatch_hint(plan: dict | None, ui: str = "en") -> str:
-    """D34-01: what Brief would cost this plan, in one sentence; empty where they agree.
-
-    Fires only where the recommendation is not Brief and the plan is big enough for the mismatch
-    to matter — more than `BRIEF_HINT_MAX_ISSUES` issues, or `estimated_complexity: high`.
-    """
-    if plan is None or recommended_mode(plan) == "brief":
-        return ""
-    count = len([row for row in (plan.get("issues") or []) if isinstance(row, dict)])
-    complexity = str(plan.get("estimated_complexity") or "unknown")
-    if count <= BRIEF_HINT_MAX_ISSUES and complexity != "high":
-        return ""
-    key = "brief_mismatch_hint_one" if count == 1 else "brief_mismatch_hint_many"
-    return i18n.t(ui, f"ui.gates.{key}", count=count, complexity=complexity)
 
 
 def _style_options(state: dict) -> list[dict]:
@@ -740,12 +700,13 @@ def _plan_jurisdictions(plan: dict) -> list[str]:
     return codes
 
 
-def _mode_layers(plan: dict, mode: str) -> list[str]:
-    """The research layers `mode` would run for this plan (§2.3; doctrine only when asked for)."""
-    layers = list(modes.MODES[mode]["researcher_layers"])
-    if mode == "full" and not plan.get("doctrine_required"):
-        layers = [layer for layer in layers if layer != "doctrine"]
-    return layers
+def _plan_layers(plan: dict) -> list[str]:
+    """The research layers the run takes for this plan (§2.3; doctrine only when asked for)."""
+    return [
+        layer
+        for layer in modes.MODES["full"]["researcher_layers"]
+        if layer != "doctrine" or plan.get("doctrine_required")
+    ]
 
 
 def coverage_gaps(
@@ -800,7 +761,7 @@ def coverage_gaps(
     return gaps
 
 
-def sources_question_needed(work_dir: Path, state: dict, plan: dict | None, mode: str) -> dict:
+def sources_question_needed(work_dir: Path, state: dict, plan: dict | None) -> dict:
     """§2.4: ask about the source budget when a research row lost its databases, or the estimate
     exceeds the daily quotas of the quota servers.
 
@@ -816,17 +777,13 @@ def sources_question_needed(work_dir: Path, state: dict, plan: dict | None, mode
     # not answer the preflight covers nothing either.
     namespaces = preflight.usable_namespaces(probe)
     portals = preflight.portal_status(work_dir, state)
-    missing = coverage_gaps(namespaces, _mode_layers(plan, mode), _plan_jurisdictions(plan), portals)
-    issues = len(plan.get("issues") or [])
-    estimates = {}
-    for candidate in ("brief", "full"):
-        estimates[candidate] = routing.budget_verdict(
-            _mode_layers(plan, candidate), issues, modes.MODES[candidate]["mcp_budget"]
-        )
+    layers = _plan_layers(plan)
+    missing = coverage_gaps(namespaces, layers, _plan_jurisdictions(plan), portals)
+    estimate = routing.budget_verdict(layers, len(plan.get("issues") or []), modes.MODES["full"]["mcp_budget"])
     return {
-        "needed": bool(missing) or bool(estimates[mode]["exceeds"]),
+        "needed": bool(missing) or bool(estimate["exceeds"]),
         "missing": missing,
-        "estimates": estimates,
+        "estimate": estimate,
     }
 
 
@@ -866,8 +823,9 @@ def _plan_question(plan: dict | None, ui: str) -> dict:
 def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     """`questions[]` of the single `AskUserQuestion` of gate 4 plus its text fallback (§2.4).
 
-    D-99: `Mode`, `Style` and `Sources` are unchanged by a plan that cannot be read; only `Plan`
-    loses its `Approve` option, so the gate stays answerable instead of raising.
+    D-99: `Style` and `Sources` are unchanged by a plan that cannot be read; only `Plan` loses its
+    `Approve` option, so the gate stays answerable instead of raising. D-242: there is no `Mode`
+    question — every run is Full.
 
     D-176a: every header, label and description is written in the interface language of the task,
     and `canonical` carries the reverse map `parse_auq` needs to read the answer back as the
@@ -876,32 +834,7 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     work_dir = Path(work_dir)
     ui = i18n.ui_language(state)
     plan = _plan_view(work_dir)
-    mode = recommended_mode(plan)
     questions: list[dict] = [_plan_question(plan, ui)]
-    # D34-01: the Brief option carries the consequence of choosing it against the recommendation.
-    hint = brief_mismatch_hint(plan, ui)
-    brief = {
-        "label": i18n.t(ui, "ui.gates.option_brief"),
-        "description": (i18n.t(ui, "ui.gates.mode_summary_brief") + " " + hint).strip(),
-    }
-    full = {
-        "label": i18n.t(ui, "ui.gates.option_full"),
-        "description": i18n.t(ui, "ui.gates.mode_summary_full"),
-    }
-    ordered = [full, brief] if mode == "full" else [brief, full]
-    ordered[0] = dict(
-        ordered[0],
-        label=ordered[0]["label"],
-        description=i18n.t(ui, "ui.gates.mode_recommended", description=ordered[0]["description"]),
-    )
-    questions.append(
-        {
-            "question": i18n.t(ui, "ui.gates.mode_question"),
-            "header": i18n.t(ui, "ui.gates.header_mode"),
-            "multiSelect": False,
-            "options": ordered,
-        }
-    )
     style_options = _style_options(state)
     if style_options:
         questions.append(
@@ -912,9 +845,9 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
                 "options": style_options,
             }
         )
-    budget = sources_question_needed(work_dir, state, plan, mode)
+    budget = sources_question_needed(work_dir, state, plan)
     if budget["needed"]:
-        estimate = budget["estimates"][mode]
+        estimate = budget["estimate"]
         detail = [
             i18n.t(
                 ui,
@@ -970,7 +903,6 @@ def build_auq(work_dir: str | os.PathLike, state: dict) -> dict:
     return {
         "questions": questions,
         AUQ_CANONICAL: canonical,
-        "recommended_mode": mode,
         "sources_budget": budget,
         "style_options": [option["label"] for option in style_options],
     }
@@ -1120,9 +1052,6 @@ def _record_answer(
     published: list[dict] = []
     document = answers_document(gate, parsed, generation, raw)
     accepted = not parsed["defaults_applied"] and not parsed.get("budget_exhausted")
-    # D34-01: the recommendation this answer was given against, kept next to the answer itself —
-    # a run that chose Brief over a `full` recommendation is readable afterwards.
-    recommended = recommended_mode(_plan_view(work_dir)) if gate == "plan" else None
 
     if gate == "intake":
         questions, _ = intake_questions(work_dir, state)
@@ -1198,7 +1127,6 @@ def _record_answer(
                     "generation": int(generation),
                     "action": parsed["action"],
                     "answers": dict(parsed["answers"]),
-                    "recommended_mode": recommended,
                     "at": events.utc_now(),
                 }
             )
@@ -1385,6 +1313,10 @@ def run_parse(args: argparse.Namespace) -> dict:
     # `1..N` cannot pass as an answer and reach `commit`.
     questions = printed_questions(work_dir, state, gate)
     parsed = parse_reply(gate, args.text, None if questions is None else len(questions))
+    # D-242: read before an exhausted budget replaces `parsed` with the documented default below.
+    notice = {}
+    if parsed["notices"]:
+        notice["notice"] = i18n.t(i18n.ui_language(state), "ui.gates.brief_mode_removed")
     if not parsed["recognized"] or parsed["errors"]:
         # D-56: a partially recognised reply is re-prompted, never committed with its gaps
         # silently defaulted. D-72: this is the only place the budget is spent — it counts
@@ -1407,6 +1339,7 @@ def run_parse(args: argparse.Namespace) -> dict:
                 "errors": parsed["errors"],
                 "parse_errors": seen,
                 "reprompt": render(work_dir, state_io.read_state(work_dir), gate),
+                **notice,
             }
         parsed = apply_defaults(gate, questions or [])
 
@@ -1423,6 +1356,7 @@ def run_parse(args: argparse.Namespace) -> dict:
     )
     if channel_switched:
         result["channel_switched"] = True
+    result.update(notice)
     return result
 
 

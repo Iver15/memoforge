@@ -73,14 +73,9 @@
       "minLength": 1
     },
     "mode": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
       "enum": [
-        "brief",
-        "full",
-        null
+        "full"
       ]
     },
     "config": {
@@ -419,12 +414,6 @@
           ]
         },
         "style_profile_path": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "style_profile_mode_binding": {
           "type": [
             "string",
             "null"

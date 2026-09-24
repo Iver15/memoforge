@@ -26,10 +26,10 @@ PROFILES_DIRNAME = "profiles"
 META_SCHEMA = "style-meta"
 
 REQUIRED_META_KEYS: frozenset = frozenset(
-    {"name", "created_at", "input_type", "mode_binding", "has_template"}
+    {"name", "created_at", "input_type", "has_template"}
 )
+"""D-244: a profile binds no run mode; the key an old profile may still carry for it is ignored."""
 VALID_INPUT_TYPES: tuple[str, ...] = ("examples", "rules", "both")
-VALID_MODE_BINDINGS: tuple[str, ...] = ("brief", "full")
 
 
 # --- paths ----------------------------------------------------------------
@@ -96,11 +96,6 @@ def validate_meta(meta: object) -> list[str]:
     if meta.get("input_type") not in VALID_INPUT_TYPES:
         errors.append(
             f"meta.json input_type must be one of {list(VALID_INPUT_TYPES)}, got {meta.get('input_type')!r}"
-        )
-    if meta.get("mode_binding") not in VALID_MODE_BINDINGS:
-        errors.append(
-            f"meta.json mode_binding must be one of {list(VALID_MODE_BINDINGS)}, "
-            f"got {meta.get('mode_binding')!r}"
         )
     if errors:
         return errors
@@ -227,19 +222,16 @@ def delete_profile(name: str) -> None:
         clear_default()
 
 
-def init_profile(
-    name: str, input_type: str, mode_binding: str, rules_provided: bool = False
-) -> dict[str, Path]:
-    """Create an empty profile directory and a `meta.json` stub (called by `style-extractor`)."""
+def init_profile(name: str, input_type: str, *, rules_provided: bool = False) -> dict[str, Path]:
+    """Create an empty profile directory and a `meta.json` stub (called by `style-extractor`).
+
+    D-244: a profile binds no run mode, so the stub carries no mode key.
+    """
     error = validate_name(name)
     if error:
         raise ValueError(f"invalid profile name: {error}")
     if input_type not in VALID_INPUT_TYPES:
         raise ValueError(f"input_type must be one of {list(VALID_INPUT_TYPES)}, got {input_type!r}")
-    if mode_binding not in VALID_MODE_BINDINGS:
-        raise ValueError(
-            f"mode_binding must be one of {list(VALID_MODE_BINDINGS)}, got {mode_binding!r}"
-        )
 
     files = profile_files(name)
     files["dir"].mkdir(parents=True, exist_ok=True)
@@ -253,7 +245,6 @@ def init_profile(
         "input_type": input_type,
         "examples_count": 0,
         "rules_provided": rules_provided,
-        "mode_binding": mode_binding,
         "has_template": False,
         "jurisdictions": [],
         "language": None,
@@ -291,13 +282,11 @@ def resolve_paths(name: str) -> dict:
     files = profile_files(name)
     if not files["dir"].is_dir():
         raise FileNotFoundError(f"profile not found: {name}")
-    meta = read_meta(name) or {}
     return {
         "style_profile": name,
         "style_profile_path": as_posix(files["dir"]),
         "prose_style_path": as_posix(files["prose_style"]),
         "template_path": as_posix(files["template"]) if files["template"].is_file() else None,
-        "style_profile_mode_binding": meta.get("mode_binding"),
     }
 
 
@@ -406,15 +395,13 @@ def run_resolve_paths(args: argparse.Namespace) -> dict:
 
 
 def run_init_profile(args: argparse.Namespace) -> dict:
-    """`mf style init-profile <name> <input_type> <mode_binding>`."""
+    """`mf style init-profile <name> <input_type> [--rules-provided]`."""
     guard = _guard_name(args)
     if guard:
         return guard
 
     def create() -> dict:
-        files = init_profile(
-            args.name, args.input_type, args.mode_binding, rules_provided=args.rules_provided
-        )
+        files = init_profile(args.name, args.input_type, rules_provided=args.rules_provided)
         return {
             "name": args.name,
             "created": True,
@@ -468,7 +455,6 @@ def register(subparsers) -> None:
     init = group.add_parser("init-profile", help="create an empty profile and a meta.json stub")
     init.add_argument("name")
     init.add_argument("input_type", choices=list(VALID_INPUT_TYPES))
-    init.add_argument("mode_binding", choices=list(VALID_MODE_BINDINGS))
     init.add_argument("--rules-provided", dest="rules_provided", action="store_true")
     init.set_defaults(func=run_init_profile)
 

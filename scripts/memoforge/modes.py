@@ -4,30 +4,9 @@ from __future__ import annotations
 
 from . import limits
 
+# D-242: one run mode. The matrix keeps its shape, so `resolve_config`, `docs render` and every
+# `config` reader stay as they were.
 MODES: dict[str, dict] = {
-    "brief": {
-        "researcher_layers": ["statutes"],
-        "reviewer_list": ["logic", "citations", "counterarguments"],
-        "max_iterations": 2,
-        "client_polish_enabled": False,
-        "max_client_polish": 0,
-        "template_id": "executive-brief",
-        "source_review_gate": "off",
-        "lint_fix_rounds": 1,
-        "intake_max_questions": limits.INTAKE_MAX_QUESTIONS,
-        "mcp_budget": {
-            "ldh": 8,
-            "courtlistener": 10,
-            "legalviz": 10,
-            "uklegal": 10,
-            "justicelibre": 10,
-            "opencaselaw": 10,
-            "fedregs": 10,
-            "lex": 10,
-            "casus": 8,
-            "fas": 5,
-        },
-    },
     "full": {
         "researcher_layers": ["statutes", "case_law", "doctrine"],
         "reviewer_list": ["logic", "form", "citations", "counterarguments"],
@@ -73,7 +52,6 @@ _USER_CONFIG_PASSTHROUGH: tuple[tuple[str, object], ...] = (
     ("publish_folder", None),
     ("style_profile", None),
     ("style_profile_path", None),
-    ("style_profile_mode_binding", None),
     ("citation_style", None),
 )
 
@@ -84,7 +62,7 @@ which is `inline` in both templates too."""
 
 
 def normalize_mode(mode: object) -> str | None:
-    """Return the canonical mode key ('brief'/'full'), or None when no mode is chosen yet."""
+    """Return the canonical mode key (`full`, the one mode since D-242), or None for no mode."""
     if mode is None or mode == "":
         return None
     if not isinstance(mode, str):

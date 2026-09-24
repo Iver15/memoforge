@@ -87,7 +87,6 @@ End the draft with the marker line `<!-- sources: generated -->` and nothing aft
 - A quotation you cannot extract: state the provision in your own words with its `[[src:]]`. Do not retype the passage by hand.
 - Research that does not support a claim the instructions ask you to strengthen: soften the claim and move the limitation into the open questions rather than inventing support.
 - An instruction you cannot read as a section-level edit: apply your best reading of it, and name the ambiguity in your final response.
-- The brief genuinely does not fit its word cap: write the honest compressed version and say so in your final response. The lint word-cap finding routes it from there; do not add front matter of your own.
 
 ## Final response
 

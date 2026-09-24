@@ -312,11 +312,9 @@ def language_context(state: dict) -> dict:
     memo and interface languages; `section_titles` is one ``<kind>: `<title>` `` line per
     kind from the memo pack; `risk_line_example` is `<label>: <medium level>.` and
     `risk_levels` the four level words, comma-separated. `facts_labels` is the three bold labels
-    of the classical facts section (D-190), one ``<kind>: `<label>` `` line per kind — the shared
-    writer prompt renders it for both templates; the executive-brief template simply does not
-    use the labels. Findings stay English — only the
-    memo itself follows these values. For `en` this renders `English`, the six English
-    titles, `Risk: medium.` and `high, medium, low, undetermined`.
+    of the classical facts section (D-190), one ``<kind>: `<label>` `` line per kind. Findings stay
+    English — only the memo itself follows these values. For `en` this renders `English`, the six
+    English titles, `Risk: medium.` and `high, medium, low, undetermined`.
     """
     memo = i18n.normalize((state or {}).get("language")) or i18n.DEFAULT
     ui = i18n.normalize((state or {}).get("ui_language")) or i18n.DEFAULT

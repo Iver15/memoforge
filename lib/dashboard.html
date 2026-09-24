@@ -148,7 +148,7 @@
     <section class="card" id="plan-card">
       <div class="cardtop"><h2 data-lbl="card_plan"></h2><span class="tag" id="plan-state"></span></div>
       <p class="facts">
-        <span id="plan-what"></span><span id="plan-where"></span><span id="plan-complexity"></span><span id="plan-mode"></span><span id="plan-layers"></span><span id="plan-decision"></span><span id="plan-language"></span>
+        <span id="plan-what"></span><span id="plan-where"></span><span id="plan-complexity"></span><span id="plan-layers"></span><span id="plan-decision"></span><span id="plan-language"></span>
       </p>
       <ol class="issues" id="plan-issues"></ol>
     </section>
@@ -213,7 +213,6 @@
       "skip_note": "If you skip it: {default}",
       "plan_unclassified": "unclassified",
       "plan_complexity": "complexity {value}",
-      "plan_recommended_mode": "recommended mode {value}",
       "plan_layers": "layers: {value}",
       "plan_approved": "approved",
       "plan_awaiting": "awaiting your approval",
@@ -385,7 +384,6 @@
       put("plan-what", plan.classification || L("plan_unclassified"));
       put("plan-where", join(array(plan.jurisdictions), ", "));
       put("plan-complexity", plan.complexity ? fmt(L("plan_complexity"), { value: plan.complexity }) : "");
-      put("plan-mode", plan.recommended_mode ? fmt(L("plan_recommended_mode"), { value: plan.recommended_mode }) : "");
       var layers = array(plan.layers).join(", ");
       put("plan-layers", layers ? fmt(L("plan_layers"), { value: layers }) : "");
       put("plan-state", plan.approved ? L("plan_approved") : L("plan_awaiting"));

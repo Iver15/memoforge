@@ -208,12 +208,11 @@ def exported_pinpoints(work_dir: Path, draft: Path | None, *, state: dict | None
     if draft is None:
         return []
     language = fallback.memo_language(state) if state is not None else None
-    mode = str((state or {}).get("mode") or "") or None
     try:
         from .. import citations
 
         text = Path(draft).read_text(encoding="utf-8-sig")
-        return citations.pinpoint_findings(text, work_dir=work_dir, language=language, mode=mode)
+        return citations.pinpoint_findings(text, work_dir=work_dir, language=language)
     except Exception:  # noqa: BLE001 - an unforeseen failure here must not stop the export (M9)
         return []
 

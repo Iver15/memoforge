@@ -69,7 +69,7 @@ PROBES: dict[str, dict] = {
     },
     "P3": {
         "question": "Artifact from a plugin skill in Cowork; `write_db` from a background subagent; live UI update.",
-        "method": "set `dashboard: on`, run Brief, confirm the page updates live in Cowork and CLI",
+        "method": "set `dashboard: on`, run a memo, confirm the page updates live in Cowork and CLI",
         "affects": "§7.5 (optional dashboard)",
     },
     "P4": {
@@ -121,7 +121,7 @@ PROBES: dict[str, dict] = {
     "P11": {
         "question": "Does the terminal-step copy to the connected folder work through the device tools?",
         "method": (
-            "Finish a Brief run in Cowork with a folder connected to the session. `mf finalize` copies the "
+            "Finish a run in Cowork with a folder connected to the session. `mf finalize` copies the "
             "result into `/mnt/user-data/outputs/memoforge/<slug>/` and the terminal `text` prints it as "
             "`Published:`; then follow the terminal step of `router.md` — copy that folder into "
             "`<connected folder>/memoforge/<slug>/` with the session's own device file tools (the folder "
@@ -369,7 +369,7 @@ QUOTE_FRAGMENT = (
 def fixture_draft(
     work_dir: Path, state: dict, version: int, existing: str | None, language: str = "en"
 ) -> str:
-    """A classical-memo / executive-brief draft that satisfies the L-rules of §5.4.
+    """A classical-memo draft that satisfies the L-rules of §5.4.
 
     D-178a: headings, the risk lines and the disclaimer come from the memo language pack, so
     a dry run in another language lints clean; for `en` every byte is today's literal.
@@ -403,7 +403,6 @@ def fixture_draft(
         quotes.record_skip(work_dir, "s-4", primary, "not_found")
 
     template = str((state.get("config") or {}).get("template_id") or "classical-memo")
-    brief = template == "executive-brief"
     lines = [
         "# Retention of customer records: analytical framing",
         "",
@@ -411,19 +410,16 @@ def fixture_draft(
         "",
         "The client asked how long customer records may be kept. This memo answers that question.",
         "",
+        "## 1. " + titles["executive_summary"],
+        "",
+        "- Records may not be kept beyond the purpose that justified them. " + risk_line,
+        "",
+        "## 2. " + titles["facts"],
+        "",
+        "The client keeps customer records for seven years. We assume the records hold personal "
+        "data. The memo is limited to that assumption.",
+        "",
     ]
-    if not brief:
-        lines += [
-            "## 1. " + titles["executive_summary"],
-            "",
-            "- Records may not be kept beyond the purpose that justified them. " + risk_line,
-            "",
-            "## 2. " + titles["facts"],
-            "",
-            "The client keeps customer records for seven years. We assume the records hold personal "
-            "data. The memo is limited to that assumption.",
-            "",
-        ]
     lines += [
         "## 3. Retention of customer records",
         "",
@@ -439,7 +435,7 @@ def fixture_draft(
         "",
         risk_line + " " + RISK_JUSTIFICATION[language],
         "",
-        "## 4. " + (titles["recommendations"] if brief else titles["conclusion"]),
+        "## 4. " + titles["conclusion"],
         "",
         "- Confirm the tax basis for the seven-year period before the next audit; owner: counsel.",
         "",
@@ -553,27 +549,24 @@ these stay the canonical tokens. The plan gate (`gate-auq`) is answered from the
 AUQ instead — see `_plan_answers` — and has no entry here."""
 
 
-def _plan_answers(work_dir: Path, state: dict, mode: str) -> str:
+def _plan_answers(work_dir: Path, state: dict) -> str:
     """The dry-run answer to the plan gate, in the emitted AUQ's own words (D-178a).
 
-    The option whose canonical value is `Approve` (and `Brief`/`Full` per `mode`) is picked
-    from `build_auq(...)["canonical"]`, and the *localized* header/label is sent back — never
-    the literal `Approve`. `parse_auq` maps it to the canonical English the machine stores.
+    The header and option whose canonical values are `Plan` and `Approve` are picked from
+    `build_auq(...)["canonical"]`, and the *localized* header/label is sent back — never the
+    literal `Approve`. `parse_auq` maps it to the canonical English the machine stores.
     """
     auq = gates.build_auq(work_dir, state)
     canonical = auq[gates.AUQ_CANONICAL]
     by_value = {value: header for header, value in canonical.items()}
-    mode_label = next(
-        header for header, value in canonical.items() if value == mode.capitalize()
-    )
-    return json.dumps({by_value["Plan"]: by_value["Approve"], by_value["Mode"]: mode_label})
+    return json.dumps({by_value["Plan"]: by_value["Approve"]})
 
 
 # --- the dry run -----------------------------------------------------------
 
 
-def _new_task(root: Path, mode: str, language: str = "en", ui_language: str = "en") -> Path:
-    work_dir = root / f"memo-20260908T120000Z-dry-run-{mode}"
+def _new_task(root: Path, language: str = "en", ui_language: str = "en") -> Path:
+    work_dir = root / "memo-20260908T120000Z-dry-run"
     task.create_work_dir_tree(work_dir)
     state = task.build_initial_state(
         task_id=work_dir.name,
@@ -582,7 +575,7 @@ def _new_task(root: Path, mode: str, language: str = "en", ui_language: str = "e
         ui_language=ui_language,
         work_dir=work_dir,
         output_folder=root,
-        config=modes.resolve_config(None, {}),
+        config=modes.resolve_config("full", {}),
     )
     state_io.create_state(work_dir, state)
     return work_dir
@@ -606,7 +599,7 @@ def _check_published(work_dir: Path, state: dict) -> list[str]:
     return errors
 
 
-def dry_run(work_dir: Path, mode: str) -> dict:
+def dry_run(work_dir: Path) -> dict:
     """`task new` -> next/act/report with fixture agents -> `done`; counts the G2 metrics.
 
     Anything short of `done`, a broken invariant or an exceeded ceiling also fills `errors[]`, which
@@ -619,7 +612,7 @@ def dry_run(work_dir: Path, mode: str) -> dict:
     previous_offline = os.environ.get(preflight.OFFLINE_ENV)
     os.environ[preflight.OFFLINE_ENV] = "1"
     try:
-        return _dry_run(work_dir, mode)
+        return _dry_run(work_dir)
     finally:
         if previous_offline is None:
             os.environ.pop(preflight.OFFLINE_ENV, None)
@@ -627,7 +620,7 @@ def dry_run(work_dir: Path, mode: str) -> dict:
             os.environ[preflight.OFFLINE_ENV] = previous_offline
 
 
-def _dry_run(work_dir: Path, mode: str) -> dict:
+def _dry_run(work_dir: Path) -> dict:
     """The loop itself; `dry_run` owns the offline switch around it (D-147)."""
     counts = {"next": 0, "report": 0, "agent": 0, "script": 0, "gate": 0, "inline": 0}
     trace: list[dict] = []
@@ -681,7 +674,7 @@ def _dry_run(work_dir: Path, mode: str) -> dict:
                     attempt=action["attempt"],
                     agent=None,
                     status="ok",
-                    answers=_plan_answers(work_dir, state_io.read_state(work_dir), mode),
+                    answers=_plan_answers(work_dir, state_io.read_state(work_dir)),
                     generation=action.get("generation", 0),
                     stdout=None,
                 )
@@ -732,7 +725,7 @@ def _dry_run(work_dir: Path, mode: str) -> dict:
     final_phase = state.get("current_phase")
     errors = dry_run_errors(final_phase, over, invariants)
     result = {
-        "mode": mode,
+        "mode": state.get("mode"),
         "work_dir": str(work_dir),
         "final_phase": final_phase,
         "final_status": state.get("final_status"),
@@ -791,10 +784,7 @@ def dry_run_errors(final_phase, g2_exceeded: dict, invariants: list) -> list[str
 
 
 def run_dry_run(args: argparse.Namespace) -> dict:
-    """`mf probe dry-run --mode full|brief [--workdir W] [--language L] [--ui-language U]` (§9, D-178a)."""
-    mode = str(args.mode).lower()
-    if mode not in modes.MODES:
-        return {"errors": [f"unknown_mode: {args.mode!r}"]}
+    """`mf probe dry-run [--workdir W] [--language L] [--ui-language U]` (§9, D-178a)."""
     language = i18n.normalize(getattr(args, "language", None) or "en")
     if language is None:
         return {"errors": [f"unknown_language: {getattr(args, 'language', None)!r}"]}
@@ -806,9 +796,9 @@ def run_dry_run(args: argparse.Namespace) -> dict:
     if args.workdir:
         root = Path(args.workdir)
         root.mkdir(parents=True, exist_ok=True)
-        return dry_run(_new_task(root, mode, language, ui_language), mode)
+        return dry_run(_new_task(root, language, ui_language))
     with tempfile.TemporaryDirectory(prefix="mf-dry-run-") as tmp:
-        return dry_run(_new_task(Path(tmp), mode, language, ui_language), mode)
+        return dry_run(_new_task(Path(tmp), language, ui_language))
 
 
 def run_probe(args: argparse.Namespace) -> dict:
@@ -834,7 +824,6 @@ def register(subparsers) -> None:
     group = cli.group_subparsers(subparsers, "probe", "platform probes and metrics (§11, §0.2)")
 
     dry = group.add_parser("dry-run", help="run the whole pipeline with fixture agents")
-    dry.add_argument("--mode", required=True, choices=sorted(modes.MODES))
     dry.add_argument("--workdir", default=None, help="keep the run in this folder instead of a temp dir")
     dry.add_argument("--seed", type=int, default=0, help="accepted for reproducibility; fixtures are fixed")
     dry.add_argument(

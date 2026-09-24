@@ -1,4 +1,4 @@
-"""`mf draft anchor|lint` — section anchors and the 15 deterministic L-rules (ТЗ §5.4, M10)."""
+"""`mf draft anchor|lint` — section anchors and the 14 deterministic L-rules (ТЗ §5.4, M10)."""
 
 from __future__ import annotations
 
@@ -37,7 +37,6 @@ SEVERITY: dict[str, str] = {
     "L-07": "blocker",
     "L-08": "blocker",
     "L-09": "blocker",
-    "L-10": "major",
     "L-11": "blocker",
     "L-12": "blocker",
     "L-13": "major",
@@ -48,7 +47,6 @@ SEVERITY: dict[str, str] = {
 TITLE_SECTION_ID = "s-title"
 """D34-09: the H1 and the header block above the first H2; `s-0` now belongs to the front-matter H2."""
 
-TEMPLATE_BRIEF = "executive-brief"
 TEMPLATE_CLASSICAL = "classical-memo"
 
 
@@ -471,7 +469,7 @@ def ai_tells() -> list[str]:
 
 
 def body_words(document: dict) -> int:
-    """Words of the draft body: no headings, anchors, tokens, comments or code (L-10)."""
+    """Words of the draft body: no headings, anchors, tokens, comments or code."""
     total = 0
     for paragraph in document["paragraphs"]:
         text = SRC_TOKEN.sub("", paragraph["text"])
@@ -654,28 +652,13 @@ def conclusion_bullets(document: dict) -> list[dict]:
     ]
 
 
-def check_l06(document: dict, template: str) -> list[dict]:
+def check_l06(document: dict) -> list[dict]:
     """L-06: bijection Exec Summary <-> analytical subsections <-> Conclusion (§5.4)."""
     if switched_off(document, "L-06"):
         return []
     out = []
     analytical = analytical_sections(document)
     conclusions = conclusion_bullets(document)
-    if template == TEMPLATE_BRIEF:
-        # D-11: for the brief the bijection is «subsection <-> Recommendations item»; the template
-        # additionally allows recommendations that cut across subsections, so the check is `>=`.
-        if len(conclusions) < len(analytical):
-            out.append(
-                finding(
-                    "L-06",
-                    None,
-                    None,
-                    "",
-                    f"{len(conclusions)} recommendation bullets for {len(analytical)} subsections; "
-                    "every subsection needs one.",
-                )
-            )
-        return out
     bullets = exec_summary_bullets(document)
     if len(bullets) != len(analytical):
         out.append(
@@ -878,27 +861,6 @@ def check_l09(document: dict, quote_registry: dict) -> list[dict]:
     return out
 
 
-def check_l10(document: dict, template: str) -> list[dict]:
-    """L-10: `executive-brief` word cap = body words + unique `[[src:]]` x 12 (§5.4)."""
-    if template != TEMPLATE_BRIEF or switched_off(document, "L-10"):
-        return []
-    unique_sources = {token["id"] for token in document["src_tokens"]}
-    words = body_words(document)
-    total = words + len(unique_sources) * limits.BRIEF_SOURCE_WORD_WEIGHT
-    if total <= limits.BRIEF_WORD_CAP:
-        return []
-    return [
-        finding(
-            "L-10",
-            None,
-            None,
-            "",
-            f"Brief is {total} words ({words} body + {len(unique_sources)} sources x "
-            f"{limits.BRIEF_SOURCE_WORD_WEIGHT}); the cap is {limits.BRIEF_WORD_CAP}.",
-        )
-    ]
-
-
 def placeholder_pattern(placeholder: str) -> str:
     """Case-sensitive L-11 pattern: a word edge only where the placeholder starts or ends alphanumeric.
 
@@ -953,7 +915,7 @@ def check_l11(document: dict) -> list[dict]:
     return out
 
 
-def check_l12(document: dict, template: str) -> list[dict]:
+def check_l12(document: dict) -> list[dict]:
     """L-12: canonical section names, their order and the generated-sources marker (CONVENTIONS)."""
     if switched_off(document, "L-12"):
         return []
@@ -961,8 +923,8 @@ def check_l12(document: dict, template: str) -> list[dict]:
     grammar = document["grammar"]
     h2 = [section for section in document["sections"] if section["level"] == 2]
     kinds = [section["kind"] for section in h2]
-    required = ("executive_summary", "facts") if template != TEMPLATE_BRIEF else ()
-    closing = "conclusion" if template != TEMPLATE_BRIEF else "recommendations"
+    required = ("executive_summary", "facts")
+    closing = "conclusion"
 
     for kind in required:
         if kind not in kinds:
@@ -987,8 +949,7 @@ def check_l12(document: dict, template: str) -> list[dict]:
     if order != expected:
         out.append(finding("L-12", None, None, "", "Template sections are out of order (summary, background, facts)."))
 
-    if template != TEMPLATE_BRIEF and not analytical_sections(document):
-        # D-11: for the brief only the Recommendations section and the sources marker are required.
+    if not analytical_sections(document):
         out.append(finding("L-12", None, None, "", "The draft has no analytical subsection."))
 
     body = [line for line in document["lines"] if line.strip()]
@@ -999,10 +960,10 @@ def check_l12(document: dict, template: str) -> list[dict]:
     return out
 
 
-def check_l13(document: dict, template: str) -> list[dict]:
-    """L-13: Exec Summary bullets stay under the cap and end with the verdict (D-11: classical only)."""
+def check_l13(document: dict) -> list[dict]:
+    """L-13: Exec Summary bullets stay under the cap and end with the verdict."""
     out = []
-    if template == TEMPLATE_BRIEF or switched_off(document, "L-13"):
+    if switched_off(document, "L-13"):
         return out
     grammar = document["grammar"]
     for bullet in exec_summary_bullets(document):
@@ -1085,7 +1046,7 @@ def resolve_template(state: dict, explicit: str | None) -> str:
 
 
 def lint_text(text: str, *, work_dir: str | Path, state: dict, template: str) -> tuple[list[dict], list[str]]:
-    """Run all 15 L-rules over one draft; returns findings and an empty warning list (kept for call shape)."""
+    """Run all 14 L-rules over one draft; returns findings and an empty warning list (kept for call shape)."""
     document = parse_draft(text, grammar((state or {}).get("language") or "en"))
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)
@@ -1096,15 +1057,14 @@ def lint_text(text: str, *, work_dir: str | Path, state: dict, template: str) ->
     findings += check_l03(document)
     findings += check_l04(document)
     findings += check_l05(document)
-    findings += check_l06(document, template)
+    findings += check_l06(document)
     findings += check_l07(document)
     l08, warnings = check_l08(document, quote_registry, registry)
     findings += l08
     findings += check_l09(document, quote_registry)
-    findings += check_l10(document, template)
     findings += check_l11(document)
-    findings += check_l12(document, template)
-    findings += check_l13(document, template)
+    findings += check_l12(document)
+    findings += check_l13(document)
     findings += check_l14(document, state)
     findings += check_l15(document)
 
@@ -1302,11 +1262,11 @@ def register(subparsers) -> None:
     anchor.add_argument("--phase", default=None)
     anchor.set_defaults(func=run_anchor)
 
-    linter = group.add_parser("lint", help="run the 15 L-rules and write lint.json")
+    linter = group.add_parser("lint", help="run the 14 L-rules and write lint.json")
     linter.add_argument("--workdir", required=True)
     linter.add_argument("--step", required=True)
     linter.add_argument("--attempt", type=int, required=True)
     linter.add_argument("--draft", required=True)
-    linter.add_argument("--template", default=None, choices=[TEMPLATE_CLASSICAL, TEMPLATE_BRIEF])
+    linter.add_argument("--template", default=None, choices=[TEMPLATE_CLASSICAL])
     linter.add_argument("--phase", default=None)
     linter.set_defaults(func=run_lint)

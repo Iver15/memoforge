@@ -4,7 +4,7 @@
   "title": "memoforge profiles/<name>/meta.json",
   "description": "Style profile metadata under config.plugin_data_dir/profiles/. Extraction logic is unchanged from v1.1.1 (TZ v1.5 section 0.3, section 4.6); this schema pins the shape written by `mf style` and read by the plan gate.",
   "type": "object",
-  "required": ["name", "created_at", "input_type", "mode_binding", "has_template"],
+  "required": ["name", "created_at", "input_type", "has_template"],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -17,7 +17,7 @@
     "examples_count": { "type": "integer", "minimum": 0 },
     "rules_provided": { "type": "boolean" },
     "mode_binding": {
-      "description": "Applied on the plan gate before the mode is fixed, overriding the Mode answer (TZ section 2.4).",
+      "description": "Ignored since D-244: profiles no longer bind a run mode. Kept so profiles made before plan 75B stay valid.",
       "enum": ["brief", "full"]
     },
     "has_template": { "type": "boolean" },

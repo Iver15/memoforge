@@ -253,14 +253,6 @@ FALLBACKS: list[dict] = [
         "banner_params": ["count"],
     },
     {
-        "condition_key": "length_overflow_recommendation",
-        "phase": "revision_loop",
-        "action": "Keep the Brief run going, add `manual_review_required_on_v<N>` to `final_status_reasons[]` (§2.1).",
-        "banner_id": "length_overflow",
-        "banner_text": "The executive brief exceeds its word cap; a rerun in Full mode is recommended.",
-        "banner_params": [],
-    },
-    {
         "condition_key": "client_readiness_manual_review",
         "phase": "client_readiness",
         "action": "Proceed to export; the blocker list is printed in the Status section of the memo.",

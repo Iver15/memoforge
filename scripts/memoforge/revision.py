@@ -11,12 +11,7 @@ REASON_INCOMPLETE_REVIEW = "incomplete_review"
 REASON_ALL_REVIEWERS_FAILED = "all_reviewers_failed"
 REASON_REGRESSION = "regression_forced_exit"
 REASON_UNRESOLVED_BLOCKERS = "unresolved_blockers"
-REASON_LENGTH_OVERFLOW = "length_overflow"
 """Accumulated in `final_status_reasons[]`; never removed by a later verdict (§2.1 стр.15, §2.2, D-21)."""
-
-LENGTH_OVERFLOW_RULE = "L-10"
-LENGTH_OVERFLOW_BRANCHES: tuple[int, ...] = (2, 4, 5, 7, 8)
-"""D-44: every branch that leaves the loop for `client_readiness` carries the L-10 overlay of §2.1."""
 
 NEXT_RERUN = "rerun_reviewers"
 NEXT_CLIENT_READINESS = "client_readiness"
@@ -255,34 +250,6 @@ def decide(
     }
 
 
-def length_overflow(work_dir: Path, draft_sha: str | None) -> bool:
-    """True when the current `lint.json` still reports the L-10 word cap for this draft (§2.1)."""
-    path = work_dir / "lint.json"
-    if not path.is_file():
-        return False
-    try:
-        report = state_io.read_json(path)
-    except ValueError:
-        return False
-    if not isinstance(report, dict):
-        return False
-    if draft_sha and report.get("draft_sha") != draft_sha:
-        return False
-    return any(
-        isinstance(finding, dict) and finding.get("rule") == LENGTH_OVERFLOW_RULE
-        for finding in report.get("findings", [])
-    )
-
-
-def apply_length_overflow(decision: dict, iteration: int) -> dict:
-    """Overlay §2.1 on a loop-exit branch: `manual_review_required_on_v<N>` + `length_overflow`."""
-    overlaid = dict(decision)
-    overlaid["final_status"] = f"manual_review_required_on_v{iteration}"
-    overlaid["reasons"] = list(decision["reasons"]) + [REASON_LENGTH_OVERFLOW]
-    overlaid["length_overflow"] = True
-    return overlaid
-
-
 def _draft_version_row(version: int, sha: str) -> dict:
     return {
         "version": version,
@@ -338,11 +305,6 @@ def run_next(args: argparse.Namespace) -> dict:
     )
 
     banners = [decision["banner"]] if decision.get("banner") else []
-    if decision["branch"] in LENGTH_OVERFLOW_BRANCHES and length_overflow(
-        work_dir, state.get("current_draft_sha")
-    ):
-        decision = apply_length_overflow(decision, iteration)
-        banners.append(("length_overflow_recommendation", {}))
 
     published: dict | None = None
     mediator_published: dict | None = None
@@ -449,7 +411,6 @@ def run_next(args: argparse.Namespace) -> dict:
         "coverage": sorted(record.get("coverage") or []),
         "failed_reviewers": sorted(record.get("failed_reviewers") or []),
         "mediator_needed": decision.get("mediator_needed", False),
-        "length_overflow": bool(decision.get("length_overflow")),
     }
     if decision.get("targeted"):
         result["targeted"] = True

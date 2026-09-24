@@ -41,11 +41,11 @@ Run `command[]` **literally** through Bash (it already carries the absolute `mf`
 
 ### `kind: gate-auq` — print the plan, then one AskUserQuestion
 
-Print `text` verbatim first — it is what the user decides on: the plan digest (issues, layers, recommended mode, the `plan.json` path), or, when a dashboard page is live, the three lines that point at it (D-94). The options alone are not a decision. Then call `AskUserQuestion` with `questions` from the answer, unchanged. Then report the chosen labels keyed by question header:
+Print `text` verbatim first — it is what the user decides on: the plan digest (issues, layers, the `plan.json` path), or, when a dashboard page is live, the three lines that point at it (D-94). The options alone are not a decision. Then call `AskUserQuestion` with `questions` from the answer, unchanged. Then report the chosen labels keyed by question header:
 
 ```
 <mf> report --workdir W --step s-004 --attempt 1 --generation 0 \
-     --answers '{"Plan":"Approve","Mode":"Full","Style":"my-firm","Sources":"Continue"}'
+     --answers '{"Plan":"Approve","Style":"my-firm","Sources":"Continue"}'
 ```
 
 An `Edit` answer that asks for another memo language is not an edit for the planner: run `<mf> task language --workdir W --memo <code>`, then re-issue the gate with `<mf> next`. The error `language_locked` means the plan was already approved — tell the user the memo language is fixed.
@@ -54,7 +54,7 @@ If the AskUserQuestion tool itself errors in this same turn, switch channel: `<m
 
 ### `kind: gate-text` — ask and stop
 
-Print `text` verbatim (the complete CLI-generated prompt, slash-command line included; with a dashboard page live it is instead a short pointer — the questions are on the page, and `text_fallback` holds the full prompt, D-103) and END the turn. The user's reply comes back through `/memoforge:continue` or as a plain message, and is parsed with `<mf> gate parse --workdir W --step <id> --attempt <n> --generation <g> --text "<reply>"`, which closes the gate step itself. Then resume the loop.
+Print `text` verbatim (the complete CLI-generated prompt, slash-command line included; with a dashboard page live it is instead a short pointer — the questions are on the page, and `text_fallback` holds the full prompt, D-103) and END the turn. The user's reply comes back through `/memoforge:continue` or as a plain message, and is parsed with `<mf> gate parse --workdir W --step <id> --attempt <n> --generation <g> --text "<reply>"`, which closes the gate step itself. If that answer carries `notice` (D-242: the reply named the removed Brief mode), print `notice` verbatim first. Then resume the loop.
 
 ### `kind: inline-llm` — you write one JSON file
 

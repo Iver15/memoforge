@@ -1,7 +1,7 @@
 ---
 name: style
 description: Manage custom style and formatting profiles for legal memos. Sub-actions new / list / use / show / delete. Use only when explicitly invoked via /memoforge:style.
-argument-hint: "[new <name> [--examples <paths>] [--rules <text-or-path>] [--mode brief|full] | list | use <name> | show <name> | delete <name>]"
+argument-hint: "[new <name> [--examples <paths>] [--rules <text-or-path>] | list | use <name> | show <name> | delete <name>]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, AskUserQuestion
 ---
@@ -43,7 +43,7 @@ When `$ARGUMENTS` is empty, ask the user what they want to do. Use `AskUserQuest
 - **multiSelect:** false.
 - **Options:**
   - label: "Create a new profile", description: "From example memos, written rules, or both"
-  - label: "List existing profiles", description: "See your saved profiles, current default, mode bindings"
+  - label: "List existing profiles", description: "See your saved profiles and the current default"
   - label: "Set default profile", description: "Choose which profile /memo uses by default"
   - label: "Show profile contents", description: "Print prose-style.md and template.md of a profile"
   - label: "Delete a profile", description: "Remove a profile permanently"
@@ -58,7 +58,7 @@ Branch on the answer and continue inline to the matching section below (§`new`,
 
 If `<name>` is missing from `$ARGUMENTS`, ask via `AskUserQuestion`:
 
-- **Question:** "Profile name (lowercase, dashes, no spaces — for example, `my-firm-brief`)"
+- **Question:** "Profile name (lowercase, dashes, no spaces — for example, `my-firm`)"
 - **Header:** "Name"
 - **multiSelect:** false.
 - Single option with description `"Type the profile name as 'Other'"`. (AskUserQuestion always offers an Other / free-text input.)
@@ -91,7 +91,6 @@ Parse the remaining `$ARGUMENTS` flags:
 
 - `--examples <path-or-paths>` — one or more whitespace-separated paths. Can also be a directory; expand to its contents.
 - `--rules <text-or-path>` — either inline text (typically quoted) or a path to a `.md`/`.txt` file. Distinguish: if the value is a path that exists on disk, treat as path; else treat as inline text.
-- `--mode brief|full` — explicit mode pick (skip the mode checkpoint at Step 4).
 
 `input_type` is computed from what was provided:
 
@@ -129,22 +128,7 @@ If `--examples` was a directory, expand to all `.md`, `.txt`, `.pdf`, `.docx` fi
 
 If `--rules` was a path, validate similarly.
 
-### Step 4 — Mode pick (Brief vs Full)
-
-If `--mode` was set on the command line, use it. Otherwise ask:
-
-- **Question:** "Which mode is this profile for — Brief (1-3 pages) or Full (5-15 pages)?"
-- **Header:** "Mode"
-- **multiSelect:** false.
-- Options:
-  - label: "Brief (1-3 pages)", description: "For executive-brief memos — compressed, single-issue or 2-3 risks"
-  - label: "Full (5-15 pages)", description: "For classical-memo deep analysis with full IRAC and Executive Summary"
-
-Without `AskUserQuestion`: print the prompt as text and end the turn.
-
-Map the answer: "Brief…" → `brief`, "Full…" → `full`. Store as `mode_binding`.
-
-### Step 5 — Dispatch `style-extractor`
+### Step 4 — Dispatch `style-extractor`
 
 Print a one-line heads-up to chat: `Extracting style profile '<name>' — this takes ~1 minute…`
 
@@ -162,7 +146,6 @@ Agent(
   - examples: <space-separated list of absolute paths, or empty>
   - rules: <inline text OR path to file, or empty>
   - input_type: <examples|rules|both>
-  - mode_binding: <brief|full>
   - work_dir: <a writable temp directory; create $TMPDIR/style-extract-<name> if needed>
   - mf: <absolute launcher path — run the `mf style` commands of your spec through it>
 
@@ -177,7 +160,7 @@ Agent(
 
 Wait for the extractor to return. Print its summary to chat verbatim (it already arrives in the user's language and concise).
 
-### Step 6 — Validate the written profile
+### Step 5 — Validate the written profile
 
 After the extractor returns, validate the result:
 
@@ -187,7 +170,7 @@ After the extractor returns, validate the result:
 
 If exit code is non-zero, print: `Profile validation failed — the profile directory is malformed and was not registered. Please retry or report this issue.` Then run `delete <name>` to clean up. End turn.
 
-### Step 7 — Offer to set as default
+### Step 6 — Offer to set as default
 
 Ask:
 
@@ -215,10 +198,10 @@ Run:
 Parse the JSON and render a plain-text table in chat:
 
 ```
-Profile          | Created    | Input    | Mode   | Template | Default | Lang
------------------|------------|----------|--------|----------|---------|-----
-my-firm-brief    | 2026-05-25 | examples | brief  | yes      | ✓       | en
-acme-rules-full  | 2026-05-20 | rules    | full   | no       |         | en
+Profile          | Created    | Input    | Template | Default | Lang
+-----------------|------------|----------|----------|---------|-----
+my-firm          | 2026-05-25 | examples | yes      | ✓       | en
+acme-rules       | 2026-05-20 | rules    | no       |         | en
 ```
 
 If the list is empty, print: `No profiles yet. Create one with /memoforge:style new <name>.`

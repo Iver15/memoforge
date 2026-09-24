@@ -25,12 +25,6 @@ SEVERITY: dict[str, str] = {
 PINPOINT_NOT_IN_RAW = "C-09"
 """D-204: `pinpoint_not_in_raw` — a pinpoint names a number its source's saved text does not print."""
 
-BRIEF_MODE = "brief"
-
-SEVERITY_BY_MODE: dict[str, dict[str, str]] = {BRIEF_MODE: {"C-07": "info"}}
-"""D34-10: in `brief` the pack is wider than 1 200 words can carry, so an uncited rule source is
-informational; in `full` it stays the `major` of §5.4."""
-
 CYRILLIC_LABEL = r"(?:раздел|разд|прил|абз|пп|ст|гл|ч|п)"
 """D-186/D-195: the pinpoint labels a Russian source uses, longest alternative first.
 
@@ -157,33 +151,16 @@ def finding(
     section_id: str | None,
     excerpt: str | None,
     hint: str,
-    severity: str | None = None,
 ) -> dict:
     """One `citations.json` finding (schema `lint`); D34-10: an absent excerpt is `null`, never `""`."""
     return {
         "rule": rule,
-        "severity": severity or SEVERITY[rule],
+        "severity": SEVERITY[rule],
         "line": line,
         "section_id": section_id,
         "excerpt": excerpt[:200] if excerpt else None,
         "hint": hint,
     }
-
-
-def severity_for(rule: str, mode: str) -> str:
-    """Severity of one C-rule in one run mode (D34-10)."""
-    return (SEVERITY_BY_MODE.get(mode) or {}).get(rule) or SEVERITY[rule]
-
-
-def resolve_mode(work_dir: str | Path, explicit: str | None = None) -> str:
-    """Run mode behind the C-07 severity: the argument, else `state.mode` (D34-10)."""
-    if explicit:
-        return str(explicit).strip().lower()
-    try:
-        state = state_io.read_state(work_dir)
-    except (OSError, ValueError):
-        return ""
-    return str(state.get("mode") or "").strip().lower()
 
 
 def resolve_language(work_dir: str | Path) -> str:
@@ -254,9 +231,7 @@ def read_frozen_pack(work_dir: str | Path) -> dict | None:
     return pack if isinstance(pack, dict) else None
 
 
-def audit(
-    text: str, *, work_dir: str | Path, mode: str | None = None, language: str | None = None
-) -> list[dict]:
+def audit(text: str, *, work_dir: str | Path, language: str | None = None) -> list[dict]:
     """Apply C-01..C-09 to one draft against the registry, the quote store and the snapshot.
 
     `language` is the memo language the draft is read in; None reads it from `state.json`. D-204:
@@ -264,7 +239,6 @@ def audit(
     the pack of the run's language cannot be read — passes the language it actually renders in.
     """
     document = lint.parse_draft(text, lint.grammar(language or resolve_language(work_dir)))
-    run_mode = resolve_mode(work_dir, mode)
     registry = sources.read_registry(work_dir)
     quote_registry = quotes.read_quotes(work_dir)
     findings: list[dict] = []
@@ -386,7 +360,6 @@ def audit(
                 mention["section_id"] if mention else None,
                 mention["text"] if mention else None,
                 hint,
-                severity=severity_for("C-07", run_mode),
             )
         )
 
@@ -394,17 +367,15 @@ def audit(
     return findings
 
 
-def pinpoint_findings(
-    text: str, *, work_dir: str | Path, language: str | None = None, mode: str | None = None
-) -> list[dict]:
+def pinpoint_findings(text: str, *, work_dir: str | Path, language: str | None = None) -> list[dict]:
     """The C-09 findings of one draft, computed afresh from its text (D-204).
 
     What the appendix of an export discloses: the version chosen for export is not always the last
     one audited, and `citations.json` describes only that last one. The renderers never import this
     module (D-195); whoever chooses the exported version calls this and hands them the result, with
-    the language and mode it renders with (None: those of `state.json`).
+    the language it renders in (None: that of `state.json`).
     """
-    findings = audit(text, work_dir=work_dir, mode=mode, language=language)
+    findings = audit(text, work_dir=work_dir, language=language)
     return [row for row in findings if row["rule"] == PINPOINT_NOT_IN_RAW]
 
 
@@ -676,7 +647,7 @@ def run_audit(args: argparse.Namespace) -> dict:
         return {"errors": [drift], "draft": draft_rel}
 
     text = draft_path.read_text(encoding="utf-8-sig")
-    findings = audit(text, work_dir=work_dir, mode=str(state.get("mode") or ""))
+    findings = audit(text, work_dir=work_dir)
     report = lint.build_report(state_io.sha256_file(draft_path), findings)
 
     stepctx.stage_input(work_dir, args.step, args.attempt, draft_path)

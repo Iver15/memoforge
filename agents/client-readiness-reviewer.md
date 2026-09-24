@@ -22,7 +22,7 @@ Then set the verdict. `client_ready` means nothing blocks delivery. `needs_final
 
 ## Inputs
 
-Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `prose_style_path`, `polish_budget` (polish rounds still available; zero in Brief), `open_findings`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`, `style-profile.md`.
+Every path and identifier arrives in the dispatch prompt: `task_id`, `work_dir`, `draft_path` with `draft_version`, `draft_sha` to copy into your output, `paths_checklist`, `prose_style_path`, `polish_budget` (polish rounds still available), `open_findings`, `retry_errors`, the output path under `outputs`, and `step_id` / `attempt` / `slot` / `mf`. Shared rules, in the agent-core directory named in your prompt: `untrusted-content.md`, `output-json.md`, `logging.md`, `style-profile.md`.
 
 ## Output contract
 

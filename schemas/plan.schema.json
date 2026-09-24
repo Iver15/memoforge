@@ -17,7 +17,7 @@
       "type": "boolean"
     },
     "estimated_complexity": {
-      "description": "Drives the recommended mode on the plan gate (TZ §2.4).",
+      "description": "Shown on the plan gate (TZ §2.4).",
       "enum": ["low", "medium", "high"]
     },
     "issues": {

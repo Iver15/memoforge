@@ -41,8 +41,8 @@ def in_scope_layers(layers: list[str] | None = None) -> tuple[str, ...]:
 def partition(document: dict, layers: list[str] | None = None) -> dict:
     """Split `blocking_gaps` into subset_u / subset_r and by `missing`/`weak` status (§2.1 стр.6).
 
-    D-112: a gap aimed at a layer this mode does not research is out of scope — it leaves
-    subset_r for `out_of_scope`, so the follow-up never widens Brief into Full.
+    D-112: a gap aimed at a layer this run does not research is out of scope — it leaves
+    subset_r for `out_of_scope`, so the follow-up never widens `config.researcher_layers`.
     """
     scope = in_scope_layers(layers)
     subset_u: list[dict] = []
@@ -157,7 +157,6 @@ def route(
     user_followup_used: int = 0,
     research_followup_used: int = 0,
     layers: list[str] | None = None,
-    mode: object = None,
 ) -> dict:
     """Pure routing of §2.1 стр.6 — first matching outcome wins.
 
@@ -171,7 +170,7 @@ def route(
     verdict = document.get("overall_verdict")
     parts = partition(document, layers)
     user_left = user_followup_used < limits.MAX_SUFFICIENCY_USER_FOLLOWUP
-    research_left = research_followup_used < limits.research_followup_limit(mode)
+    research_left = research_followup_used < limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP
 
     if verdict == "sufficient":
         return _decision(NEXT_CURRENCY, [], user=False, research=False, warn=[], parts=parts)
@@ -272,7 +271,6 @@ def run_route(args: argparse.Namespace) -> dict:
         user_followup_used=user_used,
         research_followup_used=research_used,
         layers=config.get("researcher_layers"),
-        mode=state.get("mode"),
     )
     carry = decision["next"] == NEXT_CURRENCY or bool(decision["warn_gaps"])
     warnings = _warnings(document, decision["warn_gaps"]) if carry else []
