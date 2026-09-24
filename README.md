@@ -237,6 +237,12 @@ The published copy goes to `<publish folder>/memoforge/<slug>/`, and where that 
 
 Everything stays on your machine: no backend, no telemetry. MCP calls go to the providers you authenticated, with your credentials; the plugin never proxies or stores them.
 
+## Decision brief
+
+The memorandum is written for lawyers. For the person who has to decide, run `/memoforge:brief` once a task has finished (no argument = the newest finished task; `/memoforge:brief <task_id>` for another one). It condenses the delivered memo into a self-contained brief of about three pages, in the memo's language: the bottom line, one block per conclusion with its risk level and the rule or court it rests on (linked inline, no quotations, no Sources list), what to do, and what the answer depends on. A writer drafts it and two reviewers check it against the memo — fidelity (nothing added, no condition dropped, no risk level moved) and clarity for a non-lawyer — for up to two revision rounds.
+
+What it never does: no new research, and it never changes the memo — the task's `state.json`, the memorandum and `summary.md` keep their bytes. A memo that ended with open points asks you first, and the brief then marks those points as not confirmed; a brief that did not pass every check carries a banner naming the open ones. The result is `brief/brief.docx` in the work dir and, when the memo was published, `memo-<slug>.brief.docx` next to it. Running the command again makes a fresh brief and keeps the previous one in `brief/previous/`.
+
 ## Limits
 
 - **Not a substitute for a lawyer.** The memo is a research-grade draft for a qualified reviewer.

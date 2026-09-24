@@ -61,5 +61,6 @@ default (D-91).
 | `final_status` | Set by `mf finalize` together with the terminal phase; `null` while the run is live. |
 | `final_status_reasons[]` | Codes explaining the outcome (D-21, D-30), e.g. `unresolved_blockers`, `lint_not_converged`, `cli_error`, `step_loop`, `interrupted`. |
 | `final_docx_path` | The deliverable relative to `work_dir`; `finalize` guarantees a deliverable and `summary.md` on every path (M9). |
+| `delivered_draft_sha` | Optional (D-220): the sha256 of the draft bytes the deliverable was rendered from, written by `mf finalize`; `null` = the deliverable was not rendered from a draft (the universal fallback summary, or an existing export reused with no draft on disk); absent = the task was finalized before plan 75A. |
 
 Read it with `mf state get --workdir W [--path <dotted.path>]`; validate with `mf state validate --workdir W`.
