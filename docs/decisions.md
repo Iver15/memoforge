@@ -51,7 +51,7 @@ inside the ≈13.6% flip rate of an LLM judge, so the loop thrashed and a failur
 could force a false regression revert. v2 gives each reviewer a fixed list of binary checklist
 items (`LOG-`, `FRM-`, `CIT-`, `CTR-`, `CRD-`) validated by `mf review validate`, aggregates them
 in code, and runs lint and the citation audit *before* any reviewer sees the draft. Iterations drop
-to ≤2 (Full) / 1 (Brief), the second one only for grounded blockers. Consequence: less nuance in
+to ≤2, the second one only for grounded blockers. Consequence: less nuance in
 the signal, far less variance in the verdict.
 
 ## ADR-05 — python-docx plus raw OXML, not a JavaScript docx library

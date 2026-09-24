@@ -12,7 +12,7 @@
 
 ## Общие модули (владелец — слайс S1; остальные только импортируют)
 - `phases.py`: `PHASES: list[str]` (порядок §2.1), `TERMINAL`, `GATES`, `is_gate(phase)`, `is_terminal(phase)`.
-- `modes.py`: `MODES: dict[str, dict]` (матрица §2.3), `resolve_config(mode, user_config) -> dict`.
+- `modes.py`: `MODES: dict[str, dict]` (матрица §2.3; одна строка `full`, D-242), `resolve_config(mode, user_config) -> dict`.
 - `limits.py`: все числа ТЗ как константы `UPPER_SNAKE` с комментарием-ссылкой на §.
 - `events.py`: `EVENT_TYPES: set[str]`, `append_event(work_dir, event: str, actor: str, data: dict, *, event_key: str | None = None, phase=None, step_id=None)` — единственный writer журнала (протокол §7.2 C/C′ под `events.lock`), `read_events(work_dir) -> list[dict]` с дедупликацией по `event_key` и пропуском невалидных строк.
 - `fallbacks.py`: `FALLBACKS: list[dict]` — таблица деградаций (условие-ключ → действие → banner_id → текст баннера).
@@ -36,5 +36,5 @@
 - Не трогать файлы вне своего слайса. Вернуть оркестратору: список изменённых файлов + по каждому пункту своего § — как выполнен + вывод тестов дословно.
 
 ## Канонические имена секций драфта (для `lint.py` L-12/L-06 и шаблонов; источник — `templates/*.md`)
-- `## 1. Executive summary` · `## 2. Background and definitions` (опционально; при пропуске нумерация сдвигается) · `## 3. Facts, assumptions and limitations` · аналитические `## N. <noun phrase>` с подсекциями `### N.M. <noun phrase>` · `## N. Conclusion and recommendations` (executive-brief: `## N. Recommendations`) · последняя строка драфта — маркер `<!-- sources: generated -->`. Якоря секций: `<!-- §s-N-M -->` сразу после заголовка (ставит `mf draft anchor`). Сравнение имён — без учёта регистра и завершающей пунктуации.
+- `## 1. Executive summary` · `## 2. Background and definitions` (опционально; при пропуске нумерация сдвигается) · `## 3. Facts, assumptions and limitations` · аналитические `## N. <noun phrase>` с подсекциями `### N.M. <noun phrase>` · `## N. Conclusion and recommendations` · последняя строка драфта — маркер `<!-- sources: generated -->`. Якоря секций: `<!-- §s-N-M -->` сразу после заголовка (ставит `mf draft anchor`). Сравнение имён — без учёта регистра и завершающей пунктуации.
 - Идентификаторы чеклистов: `LOG-nn`, `FRM-nn`, `CIT-nn`, `CTR-nn`, `CRD-nn` (`lib/checklists/*.json`).

@@ -75,28 +75,29 @@ Multi-part questions are fine: each part becomes its own analysed issue with its
 
 ---
 
-## Modes
+## One mode
 
-Picked once, at the plan gate. Source of truth: `scripts/memoforge/modes.py`, rendered into [`docs/modes.md`](docs/modes.md).
+Every run is Full: there is no mode to pick. Source of truth: `scripts/memoforge/modes.py`, rendered into [`docs/modes.md`](docs/modes.md).
 
-| | **Brief** | **Full** |
-|---|---|---|
-| Research layers | statutes | statutes, case law, doctrine |
-| Reviewers | logic, citations, counterarguments | logic, form, citations, counterarguments |
-| Revision iterations | 2 | 2 |
-| Client-readiness polish | no | yes |
-| Template | executive brief (≤1200 words) | classical memo |
-| Source-review gate | off | on exceptions only |
-| MCP quotas tracked: LDH 10/day, CourtListener 125/day; free servers soft-capped at 100 calls per run (telemetry only) | LDH 10/day, CourtListener 125/day; soft cap 100 | LDH 10/day, CourtListener 125/day; soft cap 100 |
-| Best for | a quick check, low stakes | client-facing, contested or novel issues |
+| | **Full** |
+|---|---|
+| Research layers | statutes and case law; doctrine when the plan requires it |
+| Reviewers | logic, form, citations, counterarguments |
+| Revision iterations | 2 |
+| Client-readiness polish | one pass |
+| Template | classical memo |
+| Source-review gate | on exceptions only |
+| MCP quotas tracked | LDH 10/day, CourtListener 125/day; free servers soft-capped at 100 calls per run (telemetry only) |
+
+For a short document for the person who decides, run `/memoforge:brief` once the memo is finished — see [Decision brief](#decision-brief).
 
 ## Where it stops to ask you
 
 Everything between these pauses runs on its own.
 
 1. **Intake** — up to ten must-answer questions about facts the analyst could not infer. Answer `1A 2C 3: we only process EU users`, or `proceed` to accept the stated defaults, or `cancel`.
-2. **Plan + mode** — one card carrying the research plan (jurisdictions, issues, source types), the mode, your style profile if you have one, and a reduced-coverage question if the estimate will not fit the MCP quotas. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
-3. **Source review — conditional.** In Full mode it fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP quota. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
+2. **Plan** — one card carrying the research plan (jurisdictions, issues, source types), your style profile if you have one, and a reduced-coverage question if the estimate will not fit the MCP quotas. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
+3. **Source review — conditional.** It fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP quota. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
 
 Two more gates appear only when research came back thin: a targeted follow-up question, and a continue-or-cancel when coverage is too weak to draft from.
 
@@ -221,7 +222,7 @@ By default the writer follows a built-in house style (concise, no em-dashes, OSC
 /memoforge:style list
 ```
 
-Profiles live under the plugin data directory as plain markdown — open and edit them by hand. When profiles exist, the plan gate offers them as a choice, and a profile may bind itself to a mode. Form review then defers to your rules while the substantive checks (citations, IRAC, contrary authority) stay uniform. No profile means no extra prompts and default behaviour.
+Profiles live under the plugin data directory as plain markdown — open and edit them by hand. When profiles exist, the plan gate offers them as a choice; a profile sets the prose style and the template, never the run's scope. Form review then defers to your rules while the substantive checks (citations, IRAC, contrary authority) stay uniform. No profile means no extra prompts and default behaviour.
 
 ## Where the results land
 

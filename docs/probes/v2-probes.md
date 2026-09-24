@@ -69,7 +69,7 @@ extra detail a tester needs to actually run them.
   does not exist on disk) is the failure signature. `python hooks/build_hooks.py --check` reports
   the hand edit as drift while the block is in place — expected; delete the block when the row is
   filled in.
-- **P3** — set `dashboard: on` in the plugin settings, run a Brief task, and confirm the page
+- **P3** — set `dashboard: on` in the plugin settings, run a memo, and confirm the page
   updates live in Cowork and CLI. The first `mf next` answer carries `dashboard.publish`: publish
   `lib/dashboard.html` with `capabilities: {db: {}}`, hand the URL to
   `mf task dashboard --workdir W --url <URL>`, and watch the page while every later `next` answer
@@ -147,7 +147,7 @@ extra detail a tester needs to actually run them.
   edit that one frontmatter in place — drop the `disallowedTools:` line, add
   `tools: Read, Write, Bash, mcp__*` — run the agent again, then restore the shipped frontmatter.
   No second agent file ships for this.
-- **P11** — finish a Brief run in Cowork with a folder connected to the session. `mf finalize`
+- **P11** — finish a run in Cowork with a folder connected to the session. `mf finalize`
   copies the deliverable, `summary.md` and `sources/` into
   `/mnt/user-data/outputs/memoforge/<slug>/` (D-109) and the terminal `text` prints that path as
   `Published:`. Then do what the terminal step of `router.md` asks: copy the same folder into
@@ -160,11 +160,10 @@ extra detail a tester needs to actually run them.
 
 ## Dry run (not a platform probe)
 
-`mf probe dry-run --mode full|brief` runs the whole pipeline with fixture agents and reports the
-modelled G2 counts and the invariants. It is a lower bound for G1 and is labelled as such; the real
-numbers come from `mf probe metrics` on an actual run.
+`mf probe dry-run` runs the whole pipeline (Full, the one mode since D-242) with fixture agents
+and reports the modelled G2 counts and the invariants. It is a lower bound for G1 and is labelled as
+such; the real numbers come from `mf probe metrics` on an actual run.
 
 | Mode | Date | `next` | `report` | `Agent` | scripts | gates | Final phase | Notes |
 |---|---|---|---|---|---|---|---|---|
 | full | 2026-09-12 | 23 | 15 | 12 | 10 | 3 | done | `inline-llm` 2; `g2_exceeded: {}`; observed estimate 74 ≤ 150; `final_status: approved_on_v1` (D-117 merged `draft finish` and dropped the separate `docx validate`: scripts 13 → 10) |
-| brief | 2026-09-12 | 22 | 12 | 9 | 10 | 2 | done | `inline-llm` 2; `g2_exceeded: {}`; observed estimate 68 ≤ 150; `final_status: approved_on_v1` (D-117 merged `draft finish` and dropped the separate `docx validate`: scripts 13 → 10) |
