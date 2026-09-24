@@ -771,14 +771,9 @@ class CitationStyleCommandTest(CommandTest):
         self.assertEqual(oscola.STYLE_INLINE, self.style_of(work_dir, rendered))
         self.assertTrue(rendered["valid"], rendered["validation"])
 
-    def test_the_executive_brief_template_renders_inline_by_default(self):
-        work_dir = self.make_task(config={"template_id": "executive-brief"})
-        rendered = self.render(work_dir)
-        self.assertEqual(oscola.STYLE_INLINE, self.style_of(work_dir, rendered))
-
     def test_the_config_key_switches_the_run_to_footnotes(self):
         work_dir = self.make_task(
-            config={"template_id": "executive-brief", "citation_style": "footnotes"}
+            config={"template_id": "classical-memo", "citation_style": "footnotes"}
         )
         rendered = self.render(work_dir)
         self.assertEqual(oscola.STYLE_FOOTNOTES, self.style_of(work_dir, rendered))

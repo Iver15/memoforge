@@ -4,7 +4,6 @@
   "input_type": "both",
   "examples_count": 4,
   "rules_provided": true,
-  "mode_binding": "full",
   "has_template": true,
   "jurisdictions": [
     "EU",

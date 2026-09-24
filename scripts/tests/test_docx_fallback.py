@@ -1457,7 +1457,6 @@ class StatusReasonNameTest(unittest.TestCase):
         "incomplete_review",
         "all_reviewers_failed",
         "regression_forced_exit",
-        "length_overflow",
         "step_loop",
         "writer_failed",
         "no_checked_draft",

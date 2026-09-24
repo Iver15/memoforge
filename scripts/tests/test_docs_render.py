@@ -45,8 +45,9 @@ class GeneratorTest(unittest.TestCase):
 
     def test_modes_doc_carries_the_matrix_numbers(self):
         text = docs_render.render_modes()
-        self.assertIn("| `max_iterations` | `2` | `2` |", text)
-        self.assertIn("executive-brief", text)
+        self.assertIn("| field | full |", text)
+        self.assertIn("| `max_iterations` | `2` |", text)
+        self.assertNotIn("executive-brief", text, "D-242: one mode, the Full column only")
         self.assertIn("classical-memo", text)
         for name in limits.ALLOWED_WRITER_MODELS:
             self.assertIn(f"`{name}`", text)

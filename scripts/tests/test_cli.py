@@ -262,16 +262,23 @@ class DryRunExitCodeTest(unittest.TestCase):
     """D-52 / finding 16: CI reads the exit code, so an `ok: false` dry run must not exit 0."""
 
     def test_a_successful_dry_run_exits_0(self):
-        code, out = run_cli("probe", "dry-run", "--mode", "brief", "--workdir", str(temp_root(self)))
+        code, out = run_cli("probe", "dry-run", "--workdir", str(temp_root(self)))
         payload = json.loads(out.strip())
         self.assertTrue(payload["ok"], payload["invariants"])
+        self.assertEqual("full", payload["mode"])
         self.assertEqual(cli.EXIT_OK, code)
+
+    def test_the_mode_option_is_gone(self):
+        """D-242: one mode — `--mode` is an unknown argument, whatever its value."""
+        for value in ("brief", "full"):
+            with self.subTest(mode=value), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.build_parser().parse_args(["probe", "dry-run", "--mode", value])
+                self.assertEqual(2, raised.exception.code)
 
     def test_a_dry_run_that_fails_its_invariants_exits_1(self):
         with mock.patch.object(probe, "MAX_LOOP", 1):
-            code, out = run_cli(
-                "probe", "dry-run", "--mode", "brief", "--workdir", str(temp_root(self))
-            )
+            code, out = run_cli("probe", "dry-run", "--workdir", str(temp_root(self)))
         payload = json.loads(out.strip())
         self.assertFalse(payload["ok"])
         self.assertTrue(payload["errors"], payload)

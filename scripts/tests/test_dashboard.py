@@ -233,7 +233,7 @@ class DashboardPlanAndGateTest(unittest.TestCase):
     """D-89: the page shows the plan as structure and says when the run waits at a gate."""
 
     def setUp(self) -> None:
-        self.driver = Driver(temp_root(self), "full", slug="plan", user_config={"dashboard": True})
+        self.driver = Driver(temp_root(self), slug="plan", user_config={"dashboard": True})
 
     def test_there_is_no_plan_before_planning_wrote_one(self):
         patch = machine.dashboard_patch(self.driver.state())
@@ -253,7 +253,7 @@ class DashboardPlanAndGateTest(unittest.TestCase):
         self.assertEqual(plan["classification"], fixture["classification"])
         self.assertEqual(plan["jurisdictions"], fixture["jurisdictions"])
         self.assertEqual(plan["complexity"], fixture["estimated_complexity"])
-        self.assertEqual(plan["recommended_mode"], gates.recommended_mode(fixture))
+        self.assertNotIn("recommended_mode", plan, "D-242: one mode, nothing to recommend")
         self.assertIn("doctrine", plan["layers"])
         self.assertEqual(
             plan["issues"],
@@ -322,9 +322,7 @@ class MalformedPlanIsNotProjectedTest(unittest.TestCase):
     """D-90: a structurally wrong `plan.json` is reported as `plan: null` and never breaks `next`."""
 
     def setUp(self) -> None:
-        self.driver = Driver(
-            temp_root(self), "brief", slug="bad-plan", user_config={"dashboard": True}
-        )
+        self.driver = Driver(temp_root(self), slug="bad-plan", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(self.driver.work_dir), url=URL, unavailable=None))
 
     def test_next_still_answers_and_the_plan_is_none(self):
@@ -356,14 +354,14 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
     """§7.5: publish once, then one `write_db` per step — and nothing at all when the flag is off."""
 
     def test_no_dashboard_key_when_the_flag_is_off(self):
-        driver = Driver(temp_root(self), "brief", slug="dash-off", user_config={"dashboard": False})
+        driver = Driver(temp_root(self), slug="dash-off", user_config={"dashboard": False})
         for _ in range(3):
             action = driver.next()
             self.assertNotIn("dashboard", action)
             driver.act(action)
 
     def test_the_first_answer_asks_for_one_publish(self):
-        driver = Driver(temp_root(self), "brief", slug="dash-pub", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-pub", user_config={"dashboard": True})
         block = driver.next()["dashboard"]
         self.assertEqual(sorted(block), ["publish", "then"])
         publish = block["publish"]
@@ -378,7 +376,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
         self.assertIn("<URL>", block["then"])
 
     def test_once_the_url_is_known_every_answer_carries_one_write_db(self):
-        driver = Driver(temp_root(self), "brief", slug="dash-db", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-db", user_config={"dashboard": True})
         driver.act(driver.next())
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         for _ in range(3):
@@ -405,7 +403,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
             driver.act(action)
 
     def test_the_terminal_answer_carries_the_final_patch(self):
-        driver = Driver(temp_root(self), "brief", slug="dash-end", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-end", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         action = driver.run_to_end()
         self.assertEqual(action["kind"], "terminal")
@@ -414,7 +412,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
         self.assertEqual(patch["phase"], "done")
 
     def test_the_banner_silences_the_block_for_good(self):
-        driver = Driver(temp_root(self), "brief", slug="dash-off2", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-off2", user_config={"dashboard": True})
         self.assertIn("dashboard", driver.next())
         task.run_dashboard(
             namespace(workdir=str(driver.work_dir), url=None, unavailable="no Artifact tool")
@@ -426,7 +424,7 @@ class NextCarriesTheDashboardTest(unittest.TestCase):
 
     def test_a_decline_after_a_publish_stops_the_write_db_too(self):
         """D-88: the decline is final — it is read before the URL branch, not after it."""
-        driver = Driver(temp_root(self), "brief", slug="dash-late", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-late", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         self.assertEqual(sorted(driver.next()["dashboard"]), ["write_db"])
         task.run_dashboard(
@@ -443,9 +441,7 @@ class PlanGateTextFollowsTheDashboardTest(unittest.TestCase):
     """D-94: with a live page the plan gate names it; without one the chat keeps the full digest."""
 
     def setUp(self) -> None:
-        self.driver = Driver(
-            temp_root(self), "full", slug="gate-text", user_config={"dashboard": True}
-        )
+        self.driver = Driver(temp_root(self), slug="gate-text", user_config={"dashboard": True})
 
     def publish(self) -> None:
         task.run_dashboard(namespace(workdir=str(self.driver.work_dir), url=URL, unavailable=None))
@@ -466,7 +462,7 @@ class PlanGateTextFollowsTheDashboardTest(unittest.TestCase):
         self.assertEqual(
             lines[1], f"File: {gates.PLAN_PATH} in the working folder {self.driver.work_dir}"
         )
-        self.assertEqual(lines[2], "1 legal issue · recommended mode: full · estimated complexity: high")
+        self.assertEqual(lines[2], "1 legal issue · estimated complexity: high")
         self.assertNotIn("Retention of customer records", text)
 
     def test_the_text_channel_keeps_the_full_digest_either_way(self):
@@ -509,7 +505,7 @@ class TextGatesPointAtThePageTest(unittest.TestCase):
     INTAKE_PROMPT = "`proceed` accepts every assumption as written. `cancel` stops the task."
 
     def at(self, phase: str, slug: str, *, publish: bool) -> tuple:
-        driver = Driver(temp_root(self), "full", slug=slug, user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug=slug, user_config={"dashboard": True})
         if publish:
             task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         return driver, driver.run_until(phase)
@@ -583,7 +579,7 @@ class EveryAnswerKindCarriesTheWriteDbTest(unittest.TestCase):
     KINDS = {"dispatch", "script", "gate-auq", "gate-text", "inline-llm", "terminal"}
 
     def test_every_kind_carries_the_patch_and_the_approval_is_written_at_once(self):
-        driver = Driver(temp_root(self), "full", slug="dash-all", user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug="dash-all", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         seen: set = set()
         after_approval = None
@@ -618,7 +614,7 @@ class TimelineReadsLikeEnglishTest(unittest.TestCase):
     """D-95: every step of a real run becomes a sentence; `purpose()` tokens never reach the page."""
 
     def setUp(self) -> None:
-        self.driver = Driver(temp_root(self), "full", slug="timeline", user_config={"dashboard": True})
+        self.driver = Driver(temp_root(self), slug="timeline", user_config={"dashboard": True})
 
     def texts(self) -> list[str]:
         return [row["text"] for row in machine.dashboard_patch(self.driver.state())["timeline"]]
@@ -707,7 +703,7 @@ class GateQuestionsReachThePageTest(unittest.TestCase):
     """D-96: the open gate is repeated read-only on the page; the answer still comes from chat."""
 
     def setUp(self) -> None:
-        self.driver = Driver(temp_root(self), "full", slug="gate-q", user_config={"dashboard": True})
+        self.driver = Driver(temp_root(self), slug="gate-q", user_config={"dashboard": True})
 
     def gate(self) -> dict:
         return machine.dashboard_patch(self.driver.state())["gate"]
@@ -746,7 +742,7 @@ class GateQuestionsReachThePageTest(unittest.TestCase):
         self.assertEqual([option["label"] for option in first["options"]], ["Approve", "Edit", "Cancel"])
         self.assertEqual([option["key"] for option in first["options"]], ["", "", ""])
         self.assertTrue(first["options"][0]["detail"])
-        self.assertIn("approve [brief|full]", gate["answer_hint"])
+        self.assertIn("(or reply in text: approve · edit: … · cancel)", gate["answer_hint"])
 
     def test_a_gate_without_numbered_questions_still_says_how_to_answer(self):
         self.driver.run_until("source_review_pending")
@@ -785,7 +781,7 @@ class UnreadableGateSourceIsNotProjectedTest(unittest.TestCase):
     """
 
     def at(self, phase: str, slug: str) -> Driver:
-        driver = Driver(temp_root(self), "full", slug=slug, user_config={"dashboard": True})
+        driver = Driver(temp_root(self), slug=slug, user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(driver.work_dir), url=URL, unavailable=None))
         driver.run_until(phase)
         return driver
@@ -847,7 +843,9 @@ class UnreadableGateSourceIsNotProjectedTest(unittest.TestCase):
     def test_an_intact_plan_gate_still_carries_its_questions(self):
         driver = self.at("plan_approval_pending", "good-plan")
         gate = self.gate_of_next(driver)
-        self.assertEqual([row["header"] for row in gate["questions"]][:2], ["Plan", "Mode"])
+        headers = [row["header"] for row in gate["questions"]]
+        self.assertEqual(headers[:1], ["Plan"])
+        self.assertNotIn("Mode", headers)
 
     # -- gate 2: intake -----------------------------------------------------
     def test_the_intake_gate_asks_nothing_when_its_questions_file_is_gone(self):
@@ -904,9 +902,7 @@ class RunHistoryReachesThePageTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         holder = tempfile.TemporaryDirectory(prefix="mf-test-")
         cls.addClassCleanup(holder.cleanup)
-        cls.driver = Driver(
-            Path(holder.name), "full", slug="history", user_config={"dashboard": True}
-        )
+        cls.driver = Driver(Path(holder.name), slug="history", user_config={"dashboard": True})
         task.run_dashboard(namespace(workdir=str(cls.driver.work_dir), url=URL, unavailable=None))
         cls.patches = []
         for _ in range(200):
@@ -1069,7 +1065,7 @@ class HistorySectionsAreCappedAndDerivedTest(unittest.TestCase):
         state = fixture_state()
         state["plan_approval"] = {
             "iterations": [
-                {"action": "approve", "answers": {"Plan": "Approve", "Mode": "Brief"}, "at": "t1"},
+                {"action": "approve", "answers": {"Plan": "Approve"}, "at": "t1"},
                 {
                     "action": "edit",
                     "answers": {"Plan": "Edit", "edit_text": "add " + "detail " * 60},
@@ -1135,17 +1131,17 @@ class CorruptPlanApprovalCostsOnlyTheDecisionTest(unittest.TestCase):
         patch = self.patch_for(
             {
                 "status": "approved",
-                "iterations": [{"action": "approve", "answers": {"Mode": "Brief"}, "at": "t1"}],
+                "iterations": [{"action": "approve", "answers": {"Plan": "Approve"}, "at": "t1"}],
             }
         )
         self.assertEqual(
-            patch["plan"]["decision"], {"action": "approve", "mode": "brief", "at": "t1"}
+            patch["plan"]["decision"], {"action": "approve", "mode": "full", "at": "t1"}
         )
 
     def test_the_last_record_decides_and_a_corrupt_last_one_is_null(self):
         """D-102: a malformed last record is `decision: null`, never the record before it."""
-        valid = {"action": "approve", "answers": {"Mode": "Brief"}, "at": "t1"}
-        decided = {"action": "approve", "mode": "brief", "at": "t1"}
+        valid = {"action": "approve", "answers": {"Plan": "Approve"}, "at": "t1"}
+        decided = {"action": "approve", "mode": "full", "at": "t1"}
         histories: tuple[tuple[str, list, dict | None], ...] = (
             ("the corrupt record is the last one", [valid, 42], None),
             ("the corrupt record is the earlier one", [42, valid], decided),
@@ -1406,7 +1402,7 @@ class TaskDashboardCommandTest(unittest.TestCase):
     """`mf task dashboard` is the only writer of `progress.artifact_url` (§7.5)."""
 
     def setUp(self) -> None:
-        self.driver = Driver(temp_root(self), "brief", slug="cli", user_config={"dashboard": True})
+        self.driver = Driver(temp_root(self), slug="cli", user_config={"dashboard": True})
 
     def _events(self, name: str) -> list[dict]:
         return [row for row in events.read_events(self.driver.work_dir) if row["event"] == name]
@@ -1501,12 +1497,12 @@ class DashboardPageTest(unittest.TestCase):
             "data.gate",
             "plan-card",
             "plan-issues",
-            "recommended_mode",
             "gate-card",
             "gate-questions",
             "answer_hint",
         ):
             self.assertIn(token, self.text, token)
+        self.assertNotIn("recommended_mode", self.text, "D-242: the plan card names no mode")
         self.assertLess(len(self.text.splitlines()), 600, "the page stays small enough to read")
 
     def test_the_gate_card_opens_the_overview_and_the_plan_has_its_own_tab(self):
@@ -1816,7 +1812,7 @@ class DashboardUiLanguageTest(unittest.TestCase):
         self.assertEqual(gate["hint"], "ждём вашего решения в чате")
         self.assertEqual(
             gate["answer_hint"],
-            "Ответьте на вопрос из чата (или текстом: approve [brief|full] · edit: … · cancel)",
+            "Ответьте на вопрос из чата (или текстом: approve · edit: … · cancel)",
         )
         intake = self._state("ru", current_phase="intake_questions_pending")
         self.assertEqual(

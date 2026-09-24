@@ -282,7 +282,7 @@ class TaskNewTest(unittest.TestCase):
             self.assertEqual(schema.validate(state, "state"), [])
             self.assertEqual(state["schema_version"], 2)
             self.assertEqual(state["current_phase"], phases.INITIAL_PHASE)
-            self.assertIsNone(state["mode"])
+            self.assertEqual("full", state["mode"])
             self.assertFalse(state["cancel_requested"])
             self.assertFalse(state["sources_frozen"])
             self.assertEqual(state["config"]["intake_max_questions"], limits.INTAKE_MAX_QUESTIONS)
@@ -379,6 +379,71 @@ class TaskNewTest(unittest.TestCase):
             self.assertEqual(state["config"]["source_review_gate"], "on")
             # D-74: the hook options stay in the environment; `state.config` never carries them.
             self.assertNotIn("stop_guard", state["config"])
+
+
+class OneModeTaskNewTest(unittest.TestCase):
+    """D-242: every run is Full from `task new` on, with the complete Full configuration."""
+
+    FULL_KEYS = (
+        "researcher_layers",
+        "reviewer_list",
+        "max_iterations",
+        "client_polish_enabled",
+        "max_client_polish",
+        "template_id",
+        "lint_fix_rounds",
+        "mcp_budget",
+    )
+
+    def new_state(self, **kwargs) -> tuple[dict, Path]:
+        tmp = temp_root(self)
+        with clean_env(MEMOFORGE_OUTPUT_FOLDER=str(tmp / "out"), CLAUDE_PLUGIN_DATA=str(tmp / "data")):
+            result = task.run_new(new_args(**kwargs))
+        self.assertNotIn("errors", result)
+        work_dir = Path(result["work_dir"])
+        return state_io.read_state(work_dir), work_dir
+
+    def test_task_new_writes_full_and_the_full_config(self):
+        state, _ = self.new_state()
+        self.assertEqual("full", state["mode"])
+        self.assertEqual(["statutes", "case_law", "doctrine"], state["config"]["researcher_layers"])
+        self.assertEqual("classical-memo", state["config"]["template_id"])
+        for key in self.FULL_KEYS:
+            self.assertIn(key, state["config"], key)
+        self.assertEqual("auto", state["config"]["source_review_gate"])
+        self.assertEqual([], schema.validate(state, "state"))
+
+    def test_the_state_schema_accepts_no_other_mode(self):
+        state, _ = self.new_state()
+        for value in ("brief", None):
+            with self.subTest(mode=value):
+                self.assertTrue(schema.validate(dict(state, mode=value), "state"))
+
+    def test_the_analyst_prompt_of_a_new_task_is_the_full_golden(self):
+        """Pre-approval parity: the Full config written at creation changes no byte of the intake pass."""
+        from memoforge import dispatch, routing
+        from test_dispatch import GOLDEN, PROBED_NAMESPACES, normalize
+
+        with mock.patch.object(task, "utc_stamp", return_value="20260908T120000Z"):
+            state, work_dir = self.new_state(
+                query="How long may the client keep customer records?", slug="prompt-golden"
+            )
+        self.assertEqual("memo-20260908T120000Z-prompt-golden", state["task_id"])
+        analyst = dispatch.spec(
+            "analyst",
+            "fact-assumption-analyst",
+            "intake",
+            [("intake/questions.json", "intake-questions"), ("intake/preliminary-sources.json", "research-findings")],
+            max_questions=str(state["config"]["intake_max_questions"]),
+            mcp_namespaces="ldh, courtlistener, fedregs, lex",
+            routing_digest=routing.routing_digest(PROBED_NAMESPACES),
+            retry_errors="none",
+        )
+        agents = dispatch.render_agents(
+            work_dir, state, step_id="s-042", attempt=1, specs=[analyst], position=5, total=13
+        )
+        golden = (GOLDEN / "fact-assumption-analyst.analyst.full.md").read_text(encoding="utf-8-sig")
+        self.assertEqual(golden, normalize(agents[0]["prompt"], work_dir))
 
 
 class OptionChainTest(unittest.TestCase):

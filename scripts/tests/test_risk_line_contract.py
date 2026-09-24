@@ -9,9 +9,8 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 CLASSICAL = PLUGIN_ROOT / "templates" / "classical-memo.md"
-BRIEF = PLUGIN_ROOT / "templates" / "executive-brief.md"
 PROSE_STYLE = PLUGIN_ROOT / "lib" / "prose-style.md"
-CONTENT_FILES = (CLASSICAL, BRIEF, PROSE_STYLE)
+CONTENT_FILES = (CLASSICAL, PROSE_STYLE)
 
 VERDICTS = ("high", "medium", "low", "undetermined")
 
@@ -73,18 +72,11 @@ class NoLintDuplicationTest(unittest.TestCase):
                 self.assertIsNone(LINT_ID.search(path.read_text(encoding="utf-8")))
 
     def test_no_numeric_word_caps(self):
-        for path in (BRIEF, PROSE_STYLE):
-            with self.subTest(file=path.name):
-                self.assertIsNone(WORD_CAP.search(path.read_text(encoding="utf-8")))
+        self.assertIsNone(WORD_CAP.search(PROSE_STYLE.read_text(encoding="utf-8")))
 
 
 class AnchorExampleTest(unittest.TestCase):
     """D-23: `draft anchor` writes `§s-N` on an H2 and `§s-N-M` on an H3."""
-
-    def test_the_brief_shows_the_h2_form(self):
-        spans = code_spans(BRIEF)
-        self.assertIn("<!-- §s-1 -->", spans)
-        self.assertNotIn("<!-- §s-1-1 -->", spans, "the brief has no H3 sub-issues")
 
     def test_the_classical_template_shows_both_levels(self):
         spans = code_spans(CLASSICAL)
@@ -100,7 +92,7 @@ class LanguageNeutralityTest(unittest.TestCase):
         "in your task prompt; the english forms below are the example"
     )
 
-    def test_both_templates_and_prose_style_carry_the_neutral_sentence(self):
+    def test_the_template_and_prose_style_carry_the_neutral_sentence(self):
         for path in CONTENT_FILES:
             with self.subTest(file=path.name):
                 self.assertIn(self.NEUTRAL, path.read_text(encoding="utf-8").lower())

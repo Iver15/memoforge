@@ -1,8 +1,10 @@
-"""Tests for scripts/memoforge/lint.py — the 15 L-rules and `draft anchor` (ТЗ §5.4, M10, §9)."""
+"""Tests for scripts/memoforge/lint.py — the 14 L-rules and `draft anchor` (ТЗ §5.4, M10, §9)."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -16,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import i18n, limits, lint, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
+from memoforge import cli, i18n, limits, lint, quotes, schema, sources, state_io, stepctx, task  # noqa: E402
 
 TASK_ID = "memo-20260101T000000Z-lint"
 DRAFTS = Path(__file__).resolve().parent / "fixtures" / "drafts"
@@ -32,7 +34,7 @@ RAW_ART_6 = (
 )
 
 
-BRIEF_WITH_FRONT_MATTER = """# Agent scoring: what must change before launch
+FRONT_MATTER_DRAFT = """# Agent scoring: what must change before launch
 
 Question: what must the company fix before launching AI-drafted support replies.
 
@@ -40,31 +42,38 @@ Question: what must the company fix before launching AI-drafted support replies.
 
 - The support agents whose replies are scored are EEA-based staff.
 
-## 1. Reach of the GDPR
+## 1. Executive summary
+
+- Consent is available for the scoring flow. Risk: medium.
+- Withdrawal needs a one-click control before launch. Risk: high.
+
+## 2. Facts, assumptions and limitations
+
+The company scores the AI-drafted replies of its support agents. The flow has no withdrawal control today.
+
+## 3. Monitoring of the support agents
+
+### 3.1. Consent as the basis of the flow
 
 Consent is available for this flow [[src:gdpr-art-6 Art. 6(1)(a)]].
 
 Risk: medium. The basis holds while the opt-in stays unticked. Product must keep it unticked.
 
-## 2. Monitoring of the support agents
+### 3.2. Withdrawal of consent
 
 Withdrawal must be as easy as giving consent [[src:gdpr-art-7 Art. 7(3)]].
 
-Risk: high. The scores drive evaluation. Legal must document the basis before launch.
+Risk: high. The scores drive evaluation. Legal must ship a one-click withdrawal control before launch.
 
-## 3. Duties under the AI Act
+## 4. Conclusion and recommendations
 
-The deployer duties follow from the role of the company [[src:gdpr-art-7 Art. 7(3)]].
-
-Risk: low. The role is settled on the facts. Legal must re-check it at each release.
-
-## 4. Recommendations
-
+- Keep the opt-in unticked at launch, owned by Product, before the flow ships.
 - Ship a one-click withdrawal control, owned by Legal, before the flow ships.
 
 <!-- sources: generated -->
 """
-"""D34-09: the real Brief structure of run `memo-20260910T095310Z` — front matter, then `## 1. …`."""
+"""D34-09: the front matter of run `memo-20260910T095310Z` — an un-numbered H2 before `## 1. …` — on a
+classical draft (D-243: the executive brief it came from is gone; the anchor rules are generic)."""
 
 RU_SUBSECTION = (
     "## 2. Правовое основание\n\n"
@@ -306,29 +315,6 @@ class BijectionTest(LintTestCase):
         findings = self.only(self.lint(text), "L-06")
         self.assertTrue(any("Conclusion" in row["hint"] for row in findings))
 
-    def test_l06_for_a_brief_flags_a_subsection_without_a_recommendation(self):
-        # D-11: the brief bijection is «subsection <-> Recommendations item».
-        text = fixture("brief-clean").replace(
-            "## 2. Recommendations",
-            "## 2. Withdrawal of consent\n"
-            "\n"
-            "Withdrawal must be as easy as giving consent [[src:gdpr-art-7 Art. 7(3)]].\n"
-            "\n"
-            "Risk: high. The flow has no control today. Legal must ship one before launch.\n"
-            "\n"
-            "## 3. Recommendations",
-        )
-        findings = self.only(self.lint(text, template="executive-brief"), "L-06")
-        self.assertEqual(1, len(findings))
-
-    def test_l06_for_a_brief_allows_extra_cross_cutting_recommendations(self):
-        text = fixture("classical-clean").replace(
-            "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.",
-            "- Keep the opt-in unticked at launch, owned by Product, before the flow ships.\n"
-            "- Review the consent copy every year, owned by Legal, at each annual review.",
-        )
-        self.assertNotIn("L-06", self.rules(self.lint(text, template="executive-brief")))
-
     def test_l06_flags_a_conclusion_item_carrying_the_risk_verdict(self):
         # D-189: the verdict belongs to the risk line and the summary bullet, not to the conclusion.
         text = fixture("classical-clean").replace(
@@ -338,16 +324,6 @@ class BijectionTest(LintTestCase):
         findings = self.only(self.lint(text), "L-06")
         self.assertEqual(1, len(findings))
         self.assertIn("repeats the risk verdict", findings[0]["hint"])
-
-    def test_l06_ignores_a_verdict_carrying_conclusion_item_of_the_brief(self):
-        # D-189: the brief branch is the subsection count only; a verdict there changes nothing.
-        # D-189a: the string this used to replace was not in `brief-clean.md`, so the fixture came
-        # back untouched and the test asserted nothing. It now edits the brief's real item.
-        original = fixture("brief-clean")
-        item = "- Keep the opt-in unticked at launch, owned by Product, before the flow ships."
-        text = original.replace(item, f"{item} Risk: high.")
-        self.assertNotEqual(original, text)
-        self.assertNotIn("L-06", self.rules(self.lint(text, template="executive-brief")))
 
     def test_l06_flags_the_verdict_wherever_it_stands_in_the_conclusion_item(self):
         # D-189a: `exec_bullet_risk` is end-anchored, so a verdict that opens the item or sits
@@ -546,37 +522,37 @@ class DuplicateFragmentTest(LintTestCase):
         self.assertNotIn("L-09", self.rules(self.lint(text)))
 
 
-class BriefCapTest(LintTestCase):
-    template = "executive-brief"
+class ExecutiveBriefRemovedTest(LintTestCase):
+    """D-243: the executive-brief template is gone, with its word cap (L-10) and its lint branches."""
 
-    def test_the_clean_brief_has_no_findings(self):
-        findings = self.lint(fixture("brief-clean"), template="executive-brief")
+    def test_the_word_cap_rule_is_gone(self):
+        self.assertNotIn("L-10", lint.SEVERITY)
+        self.assertFalse(hasattr(lint, "TEMPLATE_BRIEF"))
+        self.assertFalse(hasattr(limits, "BRIEF_WORD_CAP"))
+        self.assertFalse(hasattr(limits, "BRIEF_SOURCE_WORD_WEIGHT"))
+
+    def test_the_template_file_is_gone_and_the_decision_brief_template_stays(self):
+        self.assertFalse((PLUGIN_ROOT / "templates" / "executive-brief.md").exists())
+        self.assertTrue((PLUGIN_ROOT / "templates" / "decision-brief.md").is_file())
+
+    def test_the_commands_reject_the_executive_brief_template(self):
+        base = ["--workdir", ".", "--step", "s-1", "--attempt", "1", "--draft", "drafts/v1.md"]
+        for command in ("lint", "finish"):
+            with self.subTest(command=command):
+                args = cli.build_parser().parse_args(["draft", command, *base, "--template", "classical-memo"])
+                self.assertEqual("classical-memo", args.template)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                    cli.build_parser().parse_args(["draft", command, *base, "--template", "executive-brief"])
+                self.assertEqual(2, raised.exception.code)
+
+    def test_a_classical_draft_of_any_length_draws_no_finding(self):
+        paragraph = "The flow stores contact data for the marketing team. " * 3
+        padding = "\n\n".join(paragraph.strip() for _ in range(80))
+        heading = "## 2. Facts, assumptions and limitations\n\n"
+        text = fixture("classical-clean").replace(heading, heading + padding + "\n\n")
+        self.assertGreater(lint.body_words(lint.parse_draft(text)), 2000)
+        findings = self.lint(text)
         self.assertEqual([], findings, [f"{row['rule']}: {row['hint']}" for row in findings])
-
-    def test_l10_formula_counts_body_words_plus_twelve_per_unique_source(self):
-        padding = " ".join(["word"] * 30) + "."
-        body = "\n\n".join(padding for _ in range(45))
-        text = fixture("brief-clean").replace(
-            "The provision sets the quality bar, and a pre-ticked box would not meet it.",
-            body + "\n\nThe provision sets the quality bar, and a pre-ticked box would not meet it.",
-        )
-        findings = self.only(self.lint(text, template="executive-brief"), "L-10")
-        self.assertEqual(1, len(findings))
-        self.assertEqual("major", findings[0]["severity"])
-        document = lint.parse_draft(text)
-        words = lint.body_words(document)
-        unique = len({token["id"] for token in document["src_tokens"]})
-        total = words + unique * limits.BRIEF_SOURCE_WORD_WEIGHT
-        self.assertGreater(total, limits.BRIEF_WORD_CAP)
-        self.assertIn(str(total), findings[0]["hint"])
-        self.assertIn(str(limits.BRIEF_WORD_CAP), findings[0]["hint"])
-
-    def test_l10_never_applies_to_the_classical_memo(self):
-        padding = "\n\n".join(" ".join(["word"] * 30) + "." for _ in range(60))
-        text = fixture("classical-clean").replace(
-            "The company collects contact data from users located in the EU.", padding
-        )
-        self.assertNotIn("L-10", self.rules(self.lint(text, template="classical-memo")))
 
 
 class PlaceholderTest(LintTestCase):
@@ -625,18 +601,6 @@ class TemplateSectionTest(LintTestCase):
         findings = self.only(self.lint(text), "L-12")
         self.assertTrue(any("out of order" in row["hint"] for row in findings))
 
-    def test_l12_accepts_the_brief_closing_with_recommendations(self):
-        self.assertNotIn("L-12", self.rules(self.lint(fixture("brief-clean"), template="executive-brief")))
-
-    def test_l12_for_a_brief_requires_only_recommendations_and_the_marker(self):
-        # D-11: no executive summary and no facts section are required for the brief.
-        text = fixture("brief-clean")
-        self.assertNotIn("L-12", self.rules(self.lint(text, template="executive-brief")))
-        without_marker = text.replace("<!-- sources: generated -->\n", "")
-        self.assertIn("L-12", self.rules(self.lint(without_marker, template="executive-brief")))
-        without_recommendations = text.replace("## 2. Recommendations", "## 2. Next steps")
-        self.assertIn("L-12", self.rules(self.lint(without_recommendations, template="executive-brief")))
-
     def test_l12_for_a_classical_memo_requires_the_summary_and_facts_sections(self):
         # D-11: the canonical CONVENTIONS list applies to classical-memo only.
         text = fixture("classical-clean").replace("## 1. Executive summary", "## 1. Overview")
@@ -678,19 +642,7 @@ class ExecutiveSummaryBulletTest(LintTestCase):
     def test_l13_is_quiet_on_the_clean_fixture(self):
         self.assertNotIn("L-13", self.rules(self.lint(fixture("classical-clean"))))
 
-    def test_l13_does_not_apply_to_the_brief(self):
-        # D-11: L-13 is a classical-memo rule; the brief has no executive summary.
-        text = fixture("brief-clean").replace(
-            "## 1. Consent as the basis of the flow",
-            "## 1. Executive summary\n\n- A bullet with no verdict at all.\n\n"
-            "## 2. Consent as the basis of the flow",
-        ).replace("## 2. Recommendations", "## 3. Recommendations")
-        self.assertNotIn("L-13", self.rules(self.lint(text, template="executive-brief")))
-
-
 class SectionIdTest(LintTestCase):
-    template = "executive-brief"
-
     def line_of(self, document: dict, needle: str) -> int:
         for number, line in enumerate(document["lines"], start=1):
             if needle in line:
@@ -703,33 +655,35 @@ class SectionIdTest(LintTestCase):
     def test_the_front_matter_h2_takes_s0_and_the_numbered_h2_keep_their_number(self):
         # D34-09: «## Key assumptions» used to increment the implicit counter to s-1, and the next
         # «## 1. …» reset it to s-1 again — the run shipped sections ["s-1","s-1","s-2","s-3","s-4"].
-        document = lint.parse_draft(BRIEF_WITH_FRONT_MATTER)
-        self.assertEqual(["s-0", "s-1", "s-2", "s-3", "s-4"], self.anchorable(document))
+        document = lint.parse_draft(FRONT_MATTER_DRAFT)
+        self.assertEqual(["s-0", "s-1", "s-2", "s-3", "s-3-1", "s-3-2", "s-4"], self.anchorable(document))
         self.assertEqual([], document["duplicate_sections"])
 
     def test_a_second_un_numbered_front_section_continues_the_s0_series(self):
-        text = BRIEF_WITH_FRONT_MATTER.replace(
-            "## Key assumptions", "## Executive summary\n\n- One bottom line.\n\n## Key assumptions", 1
+        text = FRONT_MATTER_DRAFT.replace(
+            "## Key assumptions", "## Background\n\n- One bottom line.\n\n## Key assumptions", 1
         )
         document = lint.parse_draft(text)
-        self.assertEqual(["s-0", "s-0-1", "s-1", "s-2", "s-3", "s-4"], self.anchorable(document))
+        self.assertEqual(
+            ["s-0", "s-0-1", "s-1", "s-2", "s-3", "s-3-1", "s-3-2", "s-4"], self.anchorable(document)
+        )
         self.assertEqual([], document["duplicate_sections"])
 
     def test_a_front_matter_subsection_does_not_collide_with_the_next_front_section(self):
-        text = BRIEF_WITH_FRONT_MATTER.replace(
-            "## 1. Reach of the GDPR",
+        text = FRONT_MATTER_DRAFT.replace(
+            "## 1. Executive summary",
             "### Scope of the assumptions\n\nThe scope is the EEA.\n\n"
-            "## Key facts\n\nThe staff are EEA-based.\n\n## 1. Reach of the GDPR",
+            "## Key facts\n\nThe staff are EEA-based.\n\n## 1. Executive summary",
             1,
         )
         document = lint.parse_draft(text)
         self.assertEqual(
-            ["s-0", "s-0-1", "s-0-2", "s-1", "s-2", "s-3", "s-4"], self.anchorable(document)
+            ["s-0", "s-0-1", "s-0-2", "s-1", "s-2", "s-3", "s-3-1", "s-3-2", "s-4"], self.anchorable(document)
         )
         self.assertEqual([], document["duplicate_sections"])
 
     def test_the_h1_no_longer_competes_with_the_front_matter_for_s0(self):
-        document = lint.parse_draft(BRIEF_WITH_FRONT_MATTER)
+        document = lint.parse_draft(FRONT_MATTER_DRAFT)
         header = self.line_of(document, "Question: what must the company fix")
         assumption = self.line_of(document, "EEA-based staff")
         self.assertEqual(lint.TITLE_SECTION_ID, lint.section_of(document, header))
@@ -741,10 +695,8 @@ class SectionIdTest(LintTestCase):
 
 
 class DuplicateAnchorTest(LintTestCase):
-    template = "executive-brief"
-
     def test_l15_flags_two_headings_that_resolve_to_the_same_anchor(self):
-        text = BRIEF_WITH_FRONT_MATTER.replace("## 2. Monitoring of the support agents", "## 1. Monitoring")
+        text = FRONT_MATTER_DRAFT.replace("## 2. Facts, assumptions and limitations", "## 1. Facts")
         findings = self.only(self.lint(text), "L-15")
         self.assertEqual(1, len(findings))
         self.assertEqual("blocker", findings[0]["severity"])
@@ -752,18 +704,16 @@ class DuplicateAnchorTest(LintTestCase):
         self.assertIn("already taken by the heading on line", findings[0]["hint"])
 
     def test_l15_flags_a_hand_written_anchor_that_repeats_a_derived_one(self):
-        text = BRIEF_WITH_FRONT_MATTER.replace(
-            "## 3. Duties under the AI Act", "## 3. Duties under the AI Act\n<!-- §s-1 -->", 1
+        text = FRONT_MATTER_DRAFT.replace(
+            "## 3. Monitoring of the support agents", "## 3. Monitoring of the support agents\n<!-- §s-1 -->", 1
         )
         findings = self.only(self.lint(text), "L-15")
         self.assertEqual(1, len(findings))
         self.assertEqual("s-1", findings[0]["section_id"])
 
     def test_l15_is_quiet_on_the_clean_fixtures(self):
-        for name, template in (("classical-clean", "classical-memo"), ("brief-clean", "executive-brief")):
-            with self.subTest(fixture=name):
-                self.assertNotIn("L-15", self.rules(self.lint(fixture(name), template=template)))
-        self.assertNotIn("L-15", self.rules(self.lint(BRIEF_WITH_FRONT_MATTER)))
+        self.assertNotIn("L-15", self.rules(self.lint(fixture("classical-clean"))))
+        self.assertNotIn("L-15", self.rules(self.lint(FRONT_MATTER_DRAFT)))
 
 
 class DisclaimerTest(LintTestCase):
@@ -955,19 +905,19 @@ class DraftCommandTest(LintTestCase):
         self.assertIn("<!-- §s-1 -->", text)
         self.assertEqual(["s-1", "s-2", "s-3", "s-3-1", "s-3-2", "s-4"], result["sections"])
 
-    def test_anchor_of_a_brief_with_front_matter_numbers_the_sections_from_s0(self):
+    def test_anchor_of_a_draft_with_front_matter_numbers_the_sections_from_s0(self):
         # D34-09: the run printed `{"anchors_inserted": 5, "sections": ["s-1","s-1",...]}` and exited ok.
-        (self.work_dir / "drafts" / "v1.md").write_text(BRIEF_WITH_FRONT_MATTER, encoding="utf-8")
+        (self.work_dir / "drafts" / "v1.md").write_text(FRONT_MATTER_DRAFT, encoding="utf-8")
         result = self.anchor()
-        self.assertEqual(5, result["anchors_inserted"])
-        self.assertEqual(["s-0", "s-1", "s-2", "s-3", "s-4"], result["sections"])
+        self.assertEqual(7, result["anchors_inserted"])
+        self.assertEqual(["s-0", "s-1", "s-2", "s-3", "s-3-1", "s-3-2", "s-4"], result["sections"])
         text = (self.work_dir / "drafts" / "v1.md").read_text(encoding="utf-8")
         self.assertIn("<!-- §s-0 -->", text)
 
     def test_anchor_refuses_to_write_colliding_anchors(self):
         draft = self.work_dir / "drafts" / "v1.md"
         draft.write_text(
-            BRIEF_WITH_FRONT_MATTER.replace("## 2. Monitoring of the support agents", "## 1. Monitoring"),
+            FRONT_MATTER_DRAFT.replace("## 2. Facts, assumptions and limitations", "## 1. Facts"),
             encoding="utf-8",
         )
         result = self.anchor()
@@ -979,8 +929,8 @@ class DraftCommandTest(LintTestCase):
 
     def test_checked_anchor_is_the_path_both_commands_take(self):
         """D-130 × D-117: `draft anchor` and `draft finish` share one refusal (N-08)."""
-        colliding = BRIEF_WITH_FRONT_MATTER.replace(
-            "## 2. Monitoring of the support agents", "## 1. Monitoring"
+        colliding = FRONT_MATTER_DRAFT.replace(
+            "## 2. Facts, assumptions and limitations", "## 1. Facts"
         )
         text, inserted, errors = lint.checked_anchor(colliding)
         self.assertEqual(colliding, text, "a refused draft comes back untouched")
@@ -988,9 +938,9 @@ class DraftCommandTest(LintTestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("duplicate_section_anchor: s-1", errors[0])
 
-        clean, count, none = lint.checked_anchor(BRIEF_WITH_FRONT_MATTER)
+        clean, count, none = lint.checked_anchor(FRONT_MATTER_DRAFT)
         self.assertEqual([], none)
-        self.assertEqual(lint.anchor_text(BRIEF_WITH_FRONT_MATTER), (clean, count))
+        self.assertEqual(lint.anchor_text(FRONT_MATTER_DRAFT), (clean, count))
 
     def test_anchor_is_idempotent(self):
         self.write_draft()

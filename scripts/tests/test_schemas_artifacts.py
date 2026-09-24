@@ -816,5 +816,26 @@ class McpProbeRuServersTest(unittest.TestCase):
         self.assertEqual([], errors_for("mcp-probe", document))
 
 
+class StyleMetaModeBindingTest(unittest.TestCase):
+    """D-244 / R1: `mode_binding` is optional and ignored; an old profile carrying it stays valid."""
+
+    def test_a_meta_without_mode_binding_validates(self):
+        meta = read_json(fixture_dir("style-meta") / "valid-1.json")
+        self.assertNotIn("mode_binding", meta)
+        self.assertEqual([], errors_for("style-meta", meta))
+
+    def test_an_old_meta_with_either_binding_validates(self):
+        meta = read_json(fixture_dir("style-meta") / "valid-2.json")
+        self.assertEqual("brief", meta["mode_binding"])
+        for binding in ("brief", "full"):
+            with self.subTest(binding=binding):
+                self.assertEqual([], errors_for("style-meta", dict(meta, mode_binding=binding)))
+
+    def test_the_invalid_fixture_fails_on_its_input_type(self):
+        meta = {k: v for k, v in read_json(fixture_dir("style-meta") / "invalid-1.json").items() if k != "_why"}
+        self.assertTrue(errors_for("style-meta", meta))
+        self.assertEqual([], errors_for("style-meta", dict(meta, input_type="examples")))
+
+
 if __name__ == "__main__":
     unittest.main()

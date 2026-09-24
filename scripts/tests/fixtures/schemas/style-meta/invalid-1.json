@@ -1,8 +1,7 @@
 {
-  "_why": "mode_binding 'Brief' is capitalised and outside brief|full; _why is also rejected by additionalProperties:false.",
+  "_why": "input_type 'pdf' is outside examples|rules|both; _why is also rejected by additionalProperties:false.",
   "name": "my-firm",
   "created_at": "2026-07-14T08:30:00Z",
-  "input_type": "examples",
-  "mode_binding": "Brief",
+  "input_type": "pdf",
   "has_template": false
 }

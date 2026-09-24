@@ -73,14 +73,8 @@ jobs:
         # alone fails the step; `ok` is re-read from the JSON as a guard against a silent regression.
         run: |
           set -o pipefail
-          python scripts/memoforge/__main__.py probe dry-run --mode full | tee dry-run-full.json
+          python scripts/memoforge/__main__.py probe dry-run | tee dry-run-full.json
           python -c "import json,sys; r=json.load(open('dry-run-full.json', encoding='utf-8')); print(r.get('errors') or 'ok'); sys.exit(0 if r.get('ok') else 1)"
-
-      - name: Dry run — brief
-        run: |
-          set -o pipefail
-          python scripts/memoforge/__main__.py probe dry-run --mode brief | tee dry-run-brief.json
-          python -c "import json,sys; r=json.load(open('dry-run-brief.json', encoding='utf-8')); print(r.get('errors') or 'ok'); sys.exit(0 if r.get('ok') else 1)"
 
       - name: Versions agree
         # D-73: plugin.json == marketplace.json == README badge == top of CHANGELOG.

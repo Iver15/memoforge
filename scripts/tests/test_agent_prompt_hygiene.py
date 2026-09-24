@@ -164,23 +164,19 @@ class AddresseeTest(unittest.TestCase):
 class QuestionCoverageTest(unittest.TestCase):
     """D34-05: the run of 20260910 answered a question the user had not asked."""
 
-    def test_both_templates_take_the_question_line_from_the_user_verbatim(self):
-        for name in ("executive-brief", "classical-memo"):
-            with self.subTest(template=name):
-                header = read(TEMPLATES / f"{name}.md").split("**Header block**", 1)[1]
-                header = header.split("\n", 1)[0]
-                self.assertIn("user_query", header)
-                self.assertIn("word for word", header)
-                self.assertNotIn("restatement of the question", header)
+    def test_the_template_takes_the_question_line_from_the_user_verbatim(self):
+        header = read(TEMPLATES / "classical-memo.md").split("**Header block**", 1)[1]
+        header = header.split("\n", 1)[0]
+        self.assertIn("user_query", header)
+        self.assertIn("word for word", header)
+        self.assertNotIn("restatement of the question", header)
 
-    def test_neither_template_asks_for_the_template_name(self):
+    def test_the_template_does_not_ask_for_the_template_name(self):
         # D-216: runs 71 and 74 printed `Template: classical-memo` in the client's header.
-        for name in ("executive-brief", "classical-memo"):
-            with self.subTest(template=name):
-                header = read(TEMPLATES / f"{name}.md").split("**Header block**", 1)[1]
-                header = header.split("\n", 1)[0]
-                self.assertIn("date (YYYY-MM-DD), jurisdictions, the question.", header)
-                self.assertNotIn("template name", header)
+        header = read(TEMPLATES / "classical-memo.md").split("**Header block**", 1)[1]
+        header = header.split("\n", 1)[0]
+        self.assertIn("date (YYYY-MM-DD), jurisdictions, the question.", header)
+        self.assertNotIn("template name", header)
 
     def test_the_writer_keeps_every_sub_question_addressable(self):
         rules = read(agent_files()["memo-writer"]).split("## Rules", 1)[1].split("\n## ", 1)[0]
@@ -207,13 +203,11 @@ class PinpointScriptTest(unittest.TestCase):
 class QuestionInstructionTest(unittest.TestCase):
     """D-198: the `Question:` line carries the question, not the instruction to the pipeline."""
 
-    def test_both_templates_drop_an_instruction_about_the_form_of_the_work(self):
-        for name in ("executive-brief", "classical-memo"):
-            with self.subTest(template=name):
-                header = read(TEMPLATES / f"{name}.md").split("**Header block**", 1)[1]
-                header = header.split("\n", 1)[0]
-                self.assertIn("instruction", header)
-                self.assertIn("the header already states", header)
+    def test_the_template_drops_an_instruction_about_the_form_of_the_work(self):
+        header = read(TEMPLATES / "classical-memo.md").split("**Header block**", 1)[1]
+        header = header.split("\n", 1)[0]
+        self.assertIn("instruction", header)
+        self.assertIn("the header already states", header)
 
     def test_the_writer_prompt_states_the_same_exception(self):
         text = read(PROMPTS / "memo-writer.md")

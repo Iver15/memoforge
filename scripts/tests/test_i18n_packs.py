@@ -500,23 +500,19 @@ class PackParityTest(unittest.TestCase):
 
     _AUQ_PAIRS: tuple[tuple[str, str], ...] = (
         ("ui.gates.header_plan", "Plan"),
-        ("ui.gates.header_mode", "Mode"),
         ("ui.gates.header_style", "Style"),
         ("ui.gates.header_sources", "Sources"),
         ("ui.gates.option_approve", "Approve"),
         ("ui.gates.option_edit", "Edit"),
         ("ui.gates.option_cancel", "Cancel"),
-        ("ui.gates.option_brief", "Brief"),
-        ("ui.gates.option_full", "Full"),
         ("ui.gates.option_continue", "Continue"),
     )
-    """The ten keys `gates.canonical_map` builds its reverse map from (D-176a)."""
+    """The seven keys `gates.canonical_map` builds its reverse map from (D-176a, D-242)."""
 
     def test_auq_headers_fit_their_control_and_option_labels_are_short(self):
         """Every AUQ `header` is ≤ 12 characters and every option label ≤ 20 (plan 56 contract)."""
         headers = (
             "ui.gates.header_plan",
-            "ui.gates.header_mode",
             "ui.gates.header_style",
             "ui.gates.header_sources",
         )
@@ -524,8 +520,6 @@ class PackParityTest(unittest.TestCase):
             "ui.gates.option_approve",
             "ui.gates.option_edit",
             "ui.gates.option_cancel",
-            "ui.gates.option_brief",
-            "ui.gates.option_full",
             "ui.gates.option_continue",
         )
         for code in ("en", *PACK_CODES):
@@ -659,10 +653,9 @@ class PackParityTest(unittest.TestCase):
                 )
 
     def test_inline_plural_pairs_share_one_number_neutral_sentence(self):
-        """The three `_one`/`_many` pairs exist only to keep English bytes; in every other
+        """The two `_one`/`_many` pairs exist only to keep English bytes; in every other
         pack both keys carry the same number-neutral sentence (plan 56 contract)."""
         pairs = (
-            ("ui.gates.brief_mismatch_hint_one", "ui.gates.brief_mismatch_hint_many"),
             ("ui.machine.plan_gate_shape_one", "ui.machine.plan_gate_shape_many"),
             ("ui.machine.gate_pointer_one", "ui.machine.gate_pointer_many"),
         )
@@ -670,6 +663,60 @@ class PackParityTest(unittest.TestCase):
             with self.subTest(code=code):
                 for one, many in pairs:
                     self.assertEqual(str(i18n.t(code, one)), str(i18n.t(code, many)), one)
+
+
+class OneModeKeysTest(unittest.TestCase):
+    """D-242: the keys of the Mode question are gone; the `brief` notice exists in every pack."""
+
+    REMOVED: tuple[str, ...] = (
+        "ui.gates.mode_summary_brief",
+        "ui.gates.mode_summary_full",
+        "ui.gates.brief_mismatch_hint_one",
+        "ui.gates.brief_mismatch_hint_many",
+        "ui.gates.plan_digest_recommended_mode",
+        "ui.gates.header_mode",
+        "ui.gates.option_brief",
+        "ui.gates.option_full",
+        "ui.gates.mode_question",
+        "ui.gates.mode_recommended",
+        "ui.dashboard.plan_recommended_mode",
+    )
+    NOTICE = "ui.gates.brief_mode_removed"
+
+    def _all_leaves(self) -> dict[str, dict[str, object]]:
+        packs = {"en": _leaves(i18n_en.EN)}
+        for code in PACK_CODES:
+            path = PLUGIN_ROOT / "lib" / "i18n" / f"{code}.json"
+            packs[code] = _leaves(json.loads(path.read_text(encoding="utf-8")))
+        return packs
+
+    def test_the_mode_keys_are_absent_from_all_five_packs(self):
+        for code, leaves in self._all_leaves().items():
+            with self.subTest(code=code):
+                self.assertEqual([], [key for key in self.REMOVED if key in leaves])
+                self.assertIn("ui.dashboard.label_mode", leaves)
+
+    def test_the_brief_mode_notice_is_in_all_five_packs(self):
+        packs = self._all_leaves()
+        self.assertEqual(
+            "Brief mode no longer exists: every run is Full. After the memo is finished, "
+            "/memoforge:brief makes a decision brief from it.",
+            packs["en"][self.NOTICE],
+        )
+        for code in PACK_CODES:
+            with self.subTest(code=code):
+                text = str(packs[code][self.NOTICE])
+                self.assertIn("/memoforge:brief", text)
+                self.assertNotIn("`", text)
+                self.assertNotEqual(packs["en"][self.NOTICE], text)
+
+    def test_no_reply_hint_offers_a_mode(self):
+        for code, leaves in self._all_leaves().items():
+            with self.subTest(code=code):
+                for key in ("ui.gates.plan_text_reply_approve", "ui.machine.answer_hint_plan"):
+                    self.assertNotIn("brief|full", str(leaves[key]), key)
+                for key in ("ui.machine.plan_gate_shape_one", "ui.machine.plan_gate_shape_many"):
+                    self.assertNotIn("{mode}", str(leaves[key]), key)
 
 
 if __name__ == "__main__":

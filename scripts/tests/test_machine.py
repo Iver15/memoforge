@@ -110,31 +110,25 @@ class PhaseTableTest(unittest.TestCase):
     }
 
     def test_every_phase_issues_the_kind_of_step_the_table_names(self):
-        for mode in ("full", "brief"):
-            driver = Driver(temp_root(self), mode=mode, slug=f"table-{mode}")
-            seen: dict[str, str] = {}
-            for _ in range(200):
-                action = driver.next()
-                self.assertNotIn("errors", action, action)
-                if action["kind"] == "terminal":
-                    break
-                # D-57 puts `mf render <view>` in front of the consumer named by the table; the
-                # table describes the working step of the phase, so the views are not counted.
-                if not (
-                    action["kind"] == "script"
-                    and machine.command_key(action["command"]).startswith("render.")
-                ):
-                    seen.setdefault(str(action["phase"]), str(action["kind"]))
-                driver.act(action)
-            for phase, kind in seen.items():
-                self.assertEqual(
-                    self.EXPECTED[phase], kind, f"{mode}/{phase} issued {kind}"
-                )
-            self.assertIn("export", seen)
-            if mode == "brief":
-                self.assertNotIn("source_review_pending", seen)
-            else:
-                self.assertIn("source_review_pending", seen)
+        driver = Driver(temp_root(self), slug="table-full")
+        seen: dict[str, str] = {}
+        for _ in range(200):
+            action = driver.next()
+            self.assertNotIn("errors", action, action)
+            if action["kind"] == "terminal":
+                break
+            # D-57 puts `mf render <view>` in front of the consumer named by the table; the
+            # table describes the working step of the phase, so the views are not counted.
+            if not (
+                action["kind"] == "script"
+                and machine.command_key(action["command"]).startswith("render.")
+            ):
+                seen.setdefault(str(action["phase"]), str(action["kind"]))
+            driver.act(action)
+        for phase, kind in seen.items():
+            self.assertEqual(self.EXPECTED[phase], kind, f"{phase} issued {kind}")
+        self.assertIn("export", seen)
+        self.assertIn("source_review_pending", seen)
 
     def test_sufficiency_outcomes_map_onto_phases(self):
         # §2.1 row 6: the four `sufficiency route` outcomes and where each one goes.
@@ -920,7 +914,7 @@ class GateRoutingTest(unittest.TestCase):
             self.assertTrue(text.strip(), "gate-auq must carry the plan as `text`")
             self.assertIn("plan.json", text)
             self.assertIn("Retention of customer records", text)
-            self.assertIn("Recommended mode: full", text)
+            self.assertNotIn("Recommended mode", text)
             self.assertNotIn("Reply with one of:", text)
         self.assertEqual(issued["text"], reissued["text"])
 
@@ -929,7 +923,7 @@ class GateRoutingTest(unittest.TestCase):
         auq = driver.run_until("plan_approval_pending")
         self.assertEqual("gate-auq", auq["kind"])
         self.assertEqual(0, auq["generation"])
-        self.assertIn("approve [brief|full]", auq["text_fallback"])
+        self.assertIn("`approve [style:<name>|standard] [sources:reduced]`", auq["text_fallback"])
 
         answer = driver.report(auq["step_id"], auq["attempt"], status="no_answer")
         self.assertTrue(answer["accepted"])
@@ -941,7 +935,7 @@ class GateRoutingTest(unittest.TestCase):
         self.assertEqual("gate-text", text_gate["kind"])
         self.assertEqual(auq["step_id"], text_gate["step_id"])
         self.assertEqual(1, text_gate["generation"])
-        self.assertIn("approve [brief|full]", text_gate["text"])
+        self.assertIn("`approve [style:<name>|standard] [sources:reduced]`", text_gate["text"])
 
         stale = driver.parse_gate({**text_gate, "generation": 0}, "approve full")
         self.assertEqual(["stale_generation"], stale["errors"])
@@ -957,7 +951,7 @@ class GateRoutingTest(unittest.TestCase):
         auq = driver.run_until("plan_approval_pending")
         before = driver.state()
         answer = driver.report(
-            auq["step_id"], auq["attempt"], answers=json.dumps({"Plan": "Approve", "Mode": "Full"})
+            auq["step_id"], auq["attempt"], answers=json.dumps({"Plan": "Approve"})
         )
         self.assertFalse(answer["accepted"])
         self.assertEqual(["generation_required"], answer["errors"])
@@ -1148,7 +1142,7 @@ class ProgressTest(unittest.TestCase):
     """§2.2 `progress`: the denominator is the reachable route of the current config."""
 
     def test_progress_denominator_matches_route(self):
-        full = Driver(temp_root(self), mode="full", slug="progress-full")
+        full = Driver(temp_root(self), slug="progress-full")
         full.run_until("research")
         progress = full.state()["progress"]
         self.assertEqual(progress["total"], len(progress["route"]))
@@ -1156,9 +1150,12 @@ class ProgressTest(unittest.TestCase):
         self.assertIn("source_review_pending", progress["route"])
         self.assertEqual(5, progress["position"])
 
-        brief = Driver(temp_root(self), mode="brief", slug="progress-brief")
-        brief.run_until("research")
-        progress = brief.state()["progress"]
+        # The route follows the config: without the source-review gate it is one phase shorter.
+        gateless = Driver(
+            temp_root(self), slug="progress-no-review", user_config={"source_review_gate": "off"}
+        )
+        gateless.run_until("research")
+        progress = gateless.state()["progress"]
         self.assertEqual(progress["total"], len(progress["route"]))
         self.assertEqual(12, progress["total"])
         self.assertNotIn("source_review_pending", progress["route"])
@@ -1572,12 +1569,11 @@ class DraftFinishContractTest(unittest.TestCase):
         self,
         slug: str,
         *,
-        mode: str = "full",
         edit: tuple[str, str] | None = None,
         rewrite=None,
     ) -> tuple[Driver, dict]:
         """Write v1 (optionally edited) and stop on the `draft finish` step without running it."""
-        driver = Driver(temp_root(self), mode=mode, slug=slug)
+        driver = Driver(temp_root(self), slug=slug)
         action = driver.run_until("drafting")
         while action["kind"] != "dispatch":  # D-57 renders the writer's md views first
             driver.act(action)
@@ -1690,18 +1686,9 @@ class DraftFinishContractTest(unittest.TestCase):
         kept = [row for row in text.splitlines() if "[[q:" not in row]
         return re.sub(r"\s*\[\[src:[^\]]+\]\]", "", "\n".join(kept))
 
-    def test_an_uncited_rule_source_is_info_in_brief_and_major_in_full(self):
-        """D-131: C-07 carries the run's severity, so the merged command audits with the run's mode."""
-        brief, finish = self._to_finish("d131-brief", mode="brief", rewrite=self._uncite)
-        result = machine.run_command(list(finish["command"]))
-        rows = state_io.read_json(brief.work_dir / "citations.json")["findings"]
-        c07 = [row for row in rows if row["rule"] == "C-07"]
-        self.assertTrue(c07, rows)
-        self.assertEqual({"info"}, {row["severity"] for row in c07})
-        self.assertEqual(0, result["citations"]["majors"], rows)
-        self.assertEqual(0, result["citations"]["blockers"], rows)
-
-        full, finish = self._to_finish("d131-full", mode="full", rewrite=self._uncite)
+    def test_an_uncited_rule_source_is_major(self):
+        """D-131: the merged command audits C-07 as the standalone audit does — `major` (D-243)."""
+        full, finish = self._to_finish("d131-full", rewrite=self._uncite)
         result = machine.run_command(list(finish["command"]))
         rows = state_io.read_json(full.work_dir / "citations.json")["findings"]
         c07 = [row for row in rows if row["rule"] == "C-07"]
@@ -1963,7 +1950,7 @@ class FollowupSubsetTest(unittest.TestCase):
 
 
 class ModeScopedFollowupTest(unittest.TestCase):
-    """D-112: a Brief run whose reviewer reports a `case_law` gap does not become a Full run."""
+    """D-112: the follow-up of a sufficiency verdict stays within `config.researcher_layers`."""
 
     SUFFICIENCY = {
         "reviewer": "research_sufficiency",
@@ -2001,7 +1988,7 @@ class ModeScopedFollowupTest(unittest.TestCase):
     }
 
     def _judge(self, driver: Driver) -> None:
-        """Run the sufficiency reviewer of a Brief run with the verdict above."""
+        """Run the sufficiency reviewer with the verdict above."""
         action = driver.run_until("research_sufficiency")
         agent = action["agents"][0]
         target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
@@ -2010,36 +1997,8 @@ class ModeScopedFollowupTest(unittest.TestCase):
         _agent_done(driver, action, agent["slot"])
         driver.report(action["step_id"], action["attempt"], agent=agent["slot"])
 
-    def test_the_gate_answer_dispatches_no_layer_outside_the_mode(self):
-        driver = Driver(temp_root(self), mode="brief", slug="brief-scope")
-        self._judge(driver)
-
-        gate = driver.next()
-        while gate["kind"] == "script":
-            driver.act(gate)
-            gate = driver.next()
-        self.assertEqual("research_sufficiency_followup_pending", gate["phase"])
-        state = driver.state()
-        self.assertEqual([], state["sufficiency_followup"]["subset_r"])
-        warnings = [row["message"] for row in state["drafting_warnings"]]
-        self.assertEqual(2, len(warnings), warnings)
-        for message in warnings:
-            self.assertTrue(message.startswith("Out of scope for brief mode: "), message)
-
-        driver.act(gate)
-        after = driver.next()
-        # §2.1 row 7 with an empty in-scope subset: the run continues as a `continue` would.
-        self.assertEqual("research_sufficiency", after["phase"])
-        self.assertEqual("dispatch", after["kind"])
-        self.assertEqual(
-            ["research-sufficiency-reviewer"],
-            [item["subagent_type"].split(":")[-1] for item in after["agents"]],
-        )
-        self.assertEqual(["statutes"], driver.state()["dispatched_researchers"])
-        self.assertEqual([], machine.missing_layers(driver.state()))
-
     def test_the_same_verdict_in_full_mode_re_dispatches_both_layers(self):
-        driver = Driver(temp_root(self), mode="full", slug="full-scope")
+        driver = Driver(temp_root(self), slug="full-scope")
         self._judge(driver)
 
         gate = driver.next()
@@ -2063,9 +2022,9 @@ class ModeScopedFollowupTest(unittest.TestCase):
             ],
         }
         work_dir = temp_root(self)
-        brief = {"config": {"researcher_layers": ["statutes"]}, "sufficiency_followup": followup}
-        self.assertEqual(["statutes"], machine.missing_layers(brief))
-        self.assertEqual(["statutes"], machine.target_layers(work_dir, brief))
+        narrow = {"config": {"researcher_layers": ["statutes"]}, "sufficiency_followup": followup}
+        self.assertEqual(["statutes"], machine.missing_layers(narrow))
+        self.assertEqual(["statutes"], machine.target_layers(work_dir, narrow))
         full = {
             "config": {"researcher_layers": ["statutes", "case_law", "doctrine"]},
             "sufficiency_followup": followup,
@@ -2078,11 +2037,11 @@ class SufficiencyBudgetCombinationsTest(unittest.TestCase):
     """D-116 / §2.1 rows 6–7: two budgets, four combinations — each buys exactly what it paid for."""
 
     SPENT_USER = limits.MAX_SUFFICIENCY_USER_FOLLOWUP
-    SPENT_RESEARCH = limits.research_followup_limit("full")
+    SPENT_RESEARCH = limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP
 
     def _route(self, slug: str, *, user: int, research: int) -> tuple[Driver, dict]:
         """Judge the research with the two counters already at `user`/`research`; return what follows."""
-        driver = Driver(temp_root(self), mode="full", slug=slug)
+        driver = Driver(temp_root(self), slug=slug)
         action = driver.run_until("research_sufficiency")
         agent = action["agents"][0]
         target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
@@ -2202,7 +2161,7 @@ class ResearchLayerModelTest(unittest.TestCase):
         return {item["slot"]: item["model"] for item in action["agents"]}
 
     def test_the_researcher_specs_override_only_the_case_law_slot(self):
-        driver = Driver(temp_root(self), mode="full", slug="layer-model-specs")
+        driver = Driver(temp_root(self), slug="layer-model-specs")
         driver.run_until("plan_approval_pending")
         specs = machine.researcher_specs(driver.work_dir, driver.state(), ["statutes", "case_law", "doctrine"])
         self.assertEqual(
@@ -2211,13 +2170,13 @@ class ResearchLayerModelTest(unittest.TestCase):
         )
 
     def test_the_first_research_dispatch_runs_case_law_on_opus(self):
-        driver = Driver(temp_root(self), mode="full", slug="layer-models")
+        driver = Driver(temp_root(self), slug="layer-models")
         action = driver.run_until("research")
         self.assertEqual("dispatch", action["kind"])
         self.assertEqual({"statutes": "sonnet", "case_law": "opus", "doctrine": "sonnet"}, self._models(action))
 
     def test_a_followup_for_case_law_alone_runs_on_opus(self):
-        driver = Driver(temp_root(self), mode="full", slug="layer-models-followup")
+        driver = Driver(temp_root(self), slug="layer-models-followup")
         action = driver.run_until("research_sufficiency")
         agent = action["agents"][0]
         target = driver.work_dir / agent["expected_outputs"][0]["work_path"]
@@ -2533,23 +2492,45 @@ class ReviewerJsonRetryTotalTest(unittest.TestCase):
         self.assertEqual({}, attempts.get("reviewer_rerun") or {}, "a separate budget of §2.2")
 
 
+class OneModeApprovalTest(unittest.TestCase):
+    """D-242: approval always continues in Full, whatever an old answer names."""
+
+    def test_an_old_mode_answer_is_ignored(self):
+        applied = machine.apply_plan_answers({"config": {}}, {"Plan": "Approve", "Mode": "Brief"})
+        self.assertEqual("full", applied["mode"])
+        self.assertEqual(modes.resolve_config("full")["researcher_layers"], applied["config"]["researcher_layers"])
+        self.assertEqual("classical-memo", applied["config"]["template_id"])
+
+    def test_an_old_auq_answer_approves_the_run_as_full(self):
+        driver = Driver(temp_root(self), slug="one-mode-auq-answer")
+        gate = driver.run_until("plan_approval_pending")
+        answer = driver.report(
+            gate["step_id"],
+            gate["attempt"],
+            answers=json.dumps({"Plan": "Approve", "Mode": "Brief"}),
+            generation=gate.get("generation", 0),
+        )
+        self.assertTrue(answer["accepted"])
+        driver.run_until("research")
+        state = driver.state()
+        self.assertEqual("full", state["mode"])
+        self.assertEqual(["statutes", "case_law", "doctrine"], state["config"]["researcher_layers"])
+        self.assertEqual(modes.MODES["full"]["reviewer_list"], state["config"]["reviewer_list"])
+        self.assertEqual([], schema.validate(state, "state"))
+
+    def test_a_user_source_review_gate_survives_approval(self):
+        driver = Driver(temp_root(self), slug="one-mode-gate-off", user_config={"source_review_gate": "off"})
+        self.assertEqual("off", driver.state()["config"]["source_review_gate"])
+        driver.run_until("research")
+        self.assertEqual("off", driver.state()["config"]["source_review_gate"])
+        applied = machine.apply_plan_answers({"config": {"source_review_gate": "on"}}, {"Plan": "Approve"})
+        self.assertEqual("on", applied["config"]["source_review_gate"])
+
+
 class ForcedPlanApprovalModeTest(unittest.TestCase):
-    """D-70: the forced approval of an edited plan never resets the mode to `full` silently."""
+    """D-70 / D-242: the forced approval of an edited plan continues with the Full config."""
 
-    def test_the_last_recognised_mode_of_the_history_wins(self):
-        state = {
-            "config": {},
-            "plan_approval": {
-                "iterations": [
-                    {"action": "approve", "answers": {"Plan": "Edit", "Mode": "Brief"}},
-                    {"action": "edit", "answers": {"Plan": "Edit: add the UK angle"}},
-                ]
-            },
-        }
-        applied = machine.apply_plan_answers(state, {"Plan": "Edit: add the UK angle"})
-        self.assertEqual("brief", applied["mode"])
-
-    def test_a_forced_approval_without_any_mode_answer_keeps_the_state_mode(self):
+    def test_a_forced_approval_continues_in_full(self):
         driver = Driver(temp_root(self), slug="d70")
         gate = driver.run_until("plan_approval_pending")
         driver.report(
@@ -2562,15 +2543,14 @@ class ForcedPlanApprovalModeTest(unittest.TestCase):
         self.assertNotIn("Mode", answers, "the reply carries no Mode of its own")
 
         def exhaust(current: dict) -> None:
-            current["mode"] = "brief"
             current.setdefault("attempts", {})["plan_edit"] = limits.MAX_PLAN_EDIT + 1
 
         state_io.write_state(driver.work_dir, exhaust)
         driver.run_until("research")  # the edit is planned, then the plan is approved by force
 
         state = driver.state()
-        self.assertEqual("brief", state["mode"])
-        self.assertEqual(modes.MODES["brief"]["reviewer_list"], state["config"]["reviewer_list"])
+        self.assertEqual("full", state["mode"])
+        self.assertEqual(modes.MODES["full"]["reviewer_list"], state["config"]["reviewer_list"])
         self.assertIn(
             "plan_forced_approve", [banner["banner_id"] for banner in state["fallback_banners"]]
         )
@@ -2649,7 +2629,7 @@ class SkippedScriptStepTest(unittest.TestCase):
     def test_the_export_walks_on_without_a_second_validation_step(self):
         # D-117: `docx render` validated what it wrote, so the export goes straight to `finalize`
         # and a docx removed afterwards no longer re-opens a validation step.
-        driver = Driver(temp_root(self), mode="brief", slug="skip-validate")
+        driver = Driver(temp_root(self), slug="skip-validate")
         render = _drive_to_script(driver, "docx.render")
         row = machine.step_row(driver.state(), render["step_id"], 1)
         self.assertEqual("ok", row["status"])
@@ -2671,7 +2651,7 @@ class RerunInputsTest(unittest.TestCase):
     """§2.2: `reason: rerun` is the same action on **changed** inputs — `inputs_sha` decides (D-58)."""
 
     def test_a_closed_step_with_unchanged_inputs_is_not_re_issued(self):
-        driver = Driver(temp_root(self), mode="brief", slug="rerun-inputs")
+        driver = Driver(temp_root(self), slug="rerun-inputs")
         render = _drive_to_script(driver, "docx.render")
         state = driver.state()
         sha = machine.export_draft_sha(state)[0]
@@ -2693,7 +2673,7 @@ class RerunInputsTest(unittest.TestCase):
         self.assertEqual(1, len(stepctx.steps_for(driver.state(), render["step_id"])))
 
     def test_a_changed_input_sha_earns_the_rerun(self):
-        driver = Driver(temp_root(self), mode="brief", slug="rerun-changed")
+        driver = Driver(temp_root(self), slug="rerun-changed")
         render = _drive_to_script(driver, "docx.render")
         state = driver.state()
         sha = machine.export_draft_sha(state)[0]
@@ -2717,7 +2697,7 @@ class RerunInputsTest(unittest.TestCase):
 
     def test_a_step_issued_too_often_leaves_through_finalize(self):
         # D-58: whatever keeps a step repeating, the run exits instead of spinning.
-        driver = Driver(temp_root(self), mode="brief", slug="step-loop")
+        driver = Driver(temp_root(self), slug="step-loop")
         driver.run_until("research")
         work_dir = driver.work_dir
         step_id = machine.next_step_id(driver.state())
@@ -2926,7 +2906,7 @@ class SlotTimingTest(unittest.TestCase):
         ]
 
     def test_the_duration_is_the_slot_window_and_the_lags_are_their_own_fields(self):
-        driver = Driver(temp_root(self), mode="brief", slug="timing")
+        driver = Driver(temp_root(self), slug="timing")
         action = driver.run_until("research")
         slot = action["agents"][0]["slot"]
         self._log(driver, action, slot, "start")
@@ -2946,7 +2926,7 @@ class SlotTimingTest(unittest.TestCase):
         self.assertLessEqual(parts, total + 0.5, data)
 
     def test_without_a_start_event_the_old_value_stands_and_the_queue_is_null(self):
-        driver = Driver(temp_root(self), mode="brief", slug="timing-fallback")
+        driver = Driver(temp_root(self), slug="timing-fallback")
         action = driver.run_until("research")
         agent = action["agents"][0]
         # The fixture agent logs only `done`, the way an agent that forgot its first Bash call would.
@@ -2963,7 +2943,7 @@ class TerminalProgressTest(unittest.TestCase):
     """D-121: «0 of 12» at the end of a finished run reads as a broken counter."""
 
     def test_a_terminal_phase_puts_the_position_at_the_denominator(self):
-        driver = Driver(temp_root(self), mode="brief", slug="terminal-progress")
+        driver = Driver(temp_root(self), slug="terminal-progress")
         driver.run_to_end()
         progress = driver.state()["progress"]
         self.assertTrue(phases.is_terminal(driver.state()["current_phase"]))
@@ -2971,7 +2951,7 @@ class TerminalProgressTest(unittest.TestCase):
         self.assertEqual(len(progress["route"]), progress["position"])
 
     def test_a_live_phase_still_counts_from_one(self):
-        driver = Driver(temp_root(self), mode="brief", slug="live-progress")
+        driver = Driver(temp_root(self), slug="live-progress")
         driver.run_until("research")
         progress = driver.state()["progress"]
         self.assertLess(progress["position"], progress["total"])
@@ -2982,7 +2962,7 @@ class McpExhaustionTest(unittest.TestCase):
     """D-122: a provider that says «quota exhausted» is off the routing table for the day."""
 
     def _driver(self, slug: str) -> Driver:
-        return Driver(temp_root(self), mode="brief", slug=slug)
+        return Driver(temp_root(self), slug=slug)
 
     @staticmethod
     def _fallback(driver: Driver, **data) -> None:
@@ -3072,12 +3052,12 @@ class KnownBlockersTest(unittest.TestCase):
         self.assertEqual(machine.KNOWN_BLOCKERS_NONE, machine.known_blockers_text({}, self.SHA))
 
     def test_the_readiness_dispatch_carries_the_extra(self):
-        driver = Driver(temp_root(self), mode="brief", slug="known-blockers")
+        driver = Driver(temp_root(self), slug="known-blockers")
         action = driver.run_until("client_readiness")
         self.assertIn("already known blockers: none", action["agents"][0]["prompt"])
 
     def test_the_prompt_repeats_the_aggregated_blockers_when_there_are_some(self):
-        driver = Driver(temp_root(self), mode="brief", slug="known-blockers-live")
+        driver = Driver(temp_root(self), slug="known-blockers-live")
         action = driver.run_until("client_readiness")
 
         def mutate(state: dict) -> None:
@@ -3146,9 +3126,9 @@ RECHECK_BLOCKER = {
 """A blocker the citations re-check of the polish raises in s-3 (D-211)."""
 
 
-def _to_readiness(case, slug: str, rows: list[dict], *, mode: str = "full", language: str = "en") -> tuple:
+def _to_readiness(case, slug: str, rows: list[dict], *, language: str = "en") -> tuple:
     """Drive a run to its first client-readiness dispatch with `rows` as the loop's open majors."""
-    driver = Driver(temp_root(case), mode=mode, slug=slug)
+    driver = Driver(temp_root(case), slug=slug)
     if language != "en":
         state_io.write_state(driver.work_dir, lambda current: current.update({"language": language}))
     with mock.patch.object(review, "open_substance_majors", side_effect=lambda *_: copy.deepcopy(rows)):
@@ -3772,7 +3752,8 @@ class OpenMajorsReadinessTest(unittest.TestCase):
 
     def test_a_polish_row_without_a_polish_budget_is_unresolved(self):
         rows = [_major("om-1", "citations")]
-        driver, first = _to_readiness(self, "om-no-budget", rows, mode="brief")
+        driver, first = _to_readiness(self, "om-no-budget", rows)
+        state_io.write_state(driver.work_dir, lambda current: current["config"].update(max_client_polish=0))
         self.assertEqual(0, driver.state()["config"]["max_client_polish"])
         _answer(
             driver,
@@ -4233,6 +4214,10 @@ UNRESOLVED_TEXT = "REVIEWER NOTES NOT FULLY RESOLVED"
 UNRESOLVED_REASON_TEXT = "blocking reviewer notes remain unresolved"
 """The `unresolved_blockers` reason as the docx banner's reasons list prints it (D-197)."""
 
+OTHER_REASON = "incomplete_review"
+OTHER_BANNER = "lint_not_converged"
+"""A reason and a banner that are not the blocker's: the settlement keeps both (D-213)."""
+
 
 def _run_74(name: str):
     return json.loads((RUN_20260922 / name).read_text(encoding="utf-8-sig"))
@@ -4329,17 +4314,18 @@ class LastBlockerSettlementTest(unittest.TestCase):
         self.assertIn("1 blocking issue(s)", banners[0]["text"])
 
     def test_another_reason_keeps_the_label_and_drops_only_the_lifted_blocker(self):
+        # D-243: the other reason was the removed `length_overflow`; any reason but the blocker's serves.
         state = _run_74_state(om_4="resolved")
         state["final_status"] = "manual_review_required_on_v3"
-        state["final_status_reasons"] = ["unresolved_blockers", "length_overflow"]
-        review.record_banner(state, "length_overflow_recommendation")
+        state["final_status_reasons"] = ["unresolved_blockers", OTHER_REASON]
+        review.record_banner(state, OTHER_BANNER)
         machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
         self.assertEqual([], state["remaining_blocking_issues"])
         self.assertEqual("manual_review_required_on_v3", state["final_status"])
-        self.assertEqual(["length_overflow"], state["final_status_reasons"])
+        self.assertEqual([OTHER_REASON], state["final_status_reasons"])
         self.assertEqual([], _blocker_banners(state))
         self.assertEqual(
-            ["length_overflow"], [row["banner_id"] for row in state["fallback_banners"]]
+            [OTHER_BANNER], [row["condition_key"] for row in state["fallback_banners"]]
         )
 
         # Fix round 1: a blocker still left keeps the reason that says so.
@@ -4348,10 +4334,10 @@ class LastBlockerSettlementTest(unittest.TestCase):
         state["remaining_blocking_issues"].append(second)
         state["open_substance_majors"] += review.blocker_rows({"iteration": 3, "issues": [second]}, 5)
         state["final_status"] = "manual_review_required_on_v3"
-        state["final_status_reasons"] = ["unresolved_blockers", "length_overflow"]
+        state["final_status_reasons"] = ["unresolved_blockers", OTHER_REASON]
         machine._settle_open_majors(state, [], 3, lifted={"om-4"})  # noqa: SLF001
         self.assertEqual([second], state["remaining_blocking_issues"])
-        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
+        self.assertEqual(["unresolved_blockers", OTHER_REASON], state["final_status_reasons"])
 
         state = _run_74_state(om_4="resolved")
         recheck = {"severity": "blocker", "category": "unsupported_law", "section_id": "s-1", "issue": "No rule."}
@@ -4628,14 +4614,15 @@ class LastBlockerReadinessTest(unittest.TestCase):
             self.assertIn("1 blocking issue(s)", text)
             self.assertNotIn("2 blocking issue(s)", text)
 
-    def test_a_length_overflow_keeps_its_label_and_loses_the_blocker_banner(self):
+    def test_another_reason_keeps_its_label_and_loses_the_blocker_banner(self):
+        # D-243: the other reason was the removed `length_overflow`.
         blocker = _last_blocker()
         driver, _, recheck = self._to_recheck(
-            "lb-overflow",
+            "lb-other",
             [blocker],
             status="manual_review_required_on_v1",
-            reasons=["unresolved_blockers", "length_overflow"],
-            banners=("length_overflow_recommendation",),
+            reasons=["unresolved_blockers", OTHER_REASON],
+            banners=(OTHER_BANNER,),
         )
         _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved")]))
         driver.run_to_end()
@@ -4643,7 +4630,7 @@ class LastBlockerReadinessTest(unittest.TestCase):
         self.assertEqual([], state["remaining_blocking_issues"])
         self.assertEqual("manual_review_required_on_v1", state["final_status"])
         # Fix round 1: the list is empty, so the reason that says blockers remain goes; the other one stays.
-        self.assertEqual(["length_overflow"], state["final_status_reasons"])
+        self.assertEqual([OTHER_REASON], state["final_status_reasons"])
         self.assertEqual([], _blocker_banners(state))
         status = md_fallback.render_status(md_fallback.status_inputs(state))
         memo, docx = self._delivered(driver)
@@ -4652,23 +4639,23 @@ class LastBlockerReadinessTest(unittest.TestCase):
             self.assertNotIn(UNRESOLVED_TEXT, text)
             self.assertNotIn(UNRESOLVED_REASON_TEXT, text)
             self.assertNotIn("unresolved_blockers", text)
-        self.assertIn(md_fallback.reason_name("length_overflow"), docx)
+        self.assertIn(md_fallback.reason_name(OTHER_REASON), docx)
 
-    def test_a_length_overflow_with_a_blocker_left_keeps_the_unresolved_reason(self):
+    def test_another_reason_with_a_blocker_left_keeps_the_unresolved_reason(self):
         kept = _last_blocker("The second rule in section 3 is not in the cited article either.")
         driver, _, recheck = self._to_recheck(
-            "lb-overflow-partial",
+            "lb-other-partial",
             [_last_blocker(), kept],
             status="manual_review_required_on_v1",
-            reasons=["unresolved_blockers", "length_overflow"],
-            banners=("length_overflow_recommendation",),
+            reasons=["unresolved_blockers", OTHER_REASON],
+            banners=(OTHER_BANNER,),
         )
         _answer(driver, recheck, _recheck_document(driver, resolutions=[("om-1", "resolved"), ("om-2", "open")]))
         driver.run_to_end()
         state = driver.state()
         self.assertEqual([kept], state["remaining_blocking_issues"])
         self.assertEqual("manual_review_required_on_v1", state["final_status"])
-        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
+        self.assertEqual(["unresolved_blockers", OTHER_REASON], state["final_status_reasons"])
         self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(state)])
         _, docx = self._delivered(driver)
         self.assertIn(UNRESOLVED_REASON_TEXT, docx)
@@ -4849,16 +4836,16 @@ class UiLanguageGateTest(unittest.TestCase):
         answer = driver.report(
             action["step_id"],
             action["attempt"],
-            answers=json.dumps({"План": "Утвердить", "Режим": "Кратко"}),
+            answers=json.dumps({"План": "Утвердить", "Стиль": "standard"}),
             generation=action.get("generation", 0),
         )
         self.assertTrue(answer["accepted"])
         iteration = driver.state()["plan_approval"]["iterations"][-1]
-        self.assertEqual({"Plan": "Approve", "Mode": "Brief"}, iteration["answers"])
+        self.assertEqual({"Plan": "Approve", "Style": "standard"}, iteration["answers"])
         self.assertEqual("approved", driver.state()["plan_approval"]["status"])
         driver.next()
         self.assertEqual("research", driver.state()["current_phase"])
-        self.assertEqual("brief", driver.state()["mode"])
+        self.assertEqual("full", driver.state()["mode"])
 
     def test_resume_gate_reissues_the_plan_gate_in_russian(self):
         driver = self._russian_task("ui-resume")
@@ -4866,7 +4853,7 @@ class UiLanguageGateTest(unittest.TestCase):
         reissued = driver.next()
         self.assertTrue(reissued.get("reissued"))
         self.assertEqual(
-            ["План", "Режим"], [question["header"] for question in reissued["questions"][:2]]
+            ["План"], [question["header"] for question in reissued["questions"][:1]]
         )
         self.assertIn("Утвердить этот план исследования?", reissued["questions"][0]["question"])
         self.assertIn("Правовых вопросов для исследования:", reissued["text"])
@@ -4910,7 +4897,8 @@ class UiLanguageGateTest(unittest.TestCase):
         text = machine.plan_gate_text(driver.work_dir, state)
         self.assertIn("План исследования — на вашей панели: https://example.test/x", text)
         self.assertIn("Язык мемо: English", text)
-        self.assertIn("Правовых вопросов: 1 · рекомендуемый режим: full", text)
+        self.assertIn("Правовых вопросов: 1 · оценка сложности: high", text)
+        self.assertNotIn("рекомендуемый режим", text)
         english = dict(state, ui_language="en")
         self.assertNotIn("Memo language", machine.plan_gate_text(driver.work_dir, english))
 

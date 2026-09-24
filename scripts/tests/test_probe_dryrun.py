@@ -45,70 +45,66 @@ def _step_results(state: dict, key: str) -> list[dict]:
 
 
 class DryRunTest(unittest.TestCase):
-    """`mf probe dry-run` reaches `done` in both modes, within the G2 ceilings."""
+    """`mf probe dry-run` reaches `done` within the G2 ceilings (D-242: one mode)."""
 
-    def _run(self, mode: str) -> dict:
+    def _run(self) -> dict:
         root = temp_root(self)
-        return probe.run_dry_run(namespace(mode=mode, workdir=str(root), seed=0))
+        return probe.run_dry_run(namespace(workdir=str(root), seed=0))
+
+    def test_the_dry_run_takes_no_mode_and_reports_full(self):
+        """D-242: one mode — the report still names it, read from the state of the run."""
+        result = probe.run_dry_run(namespace(workdir=str(temp_root(self)), seed=0))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual("full", result["mode"])
+        self.assertEqual("full", state_io.read_state(Path(result["work_dir"]))["mode"])
 
     def test_dry_run_full_reaches_done(self):
-        result = self._run("full")
-        self.assertEqual("done", result["final_phase"], result["invariants"])
-        self.assertTrue(result["ok"], result)
-
-    def test_dry_run_brief_reaches_done(self):
-        result = self._run("brief")
+        result = self._run()
         self.assertEqual("done", result["final_phase"], result["invariants"])
         self.assertTrue(result["ok"], result)
 
     def test_the_dry_run_probe_document_carries_the_ru_servers(self):
         """D-184: the fixture `intake/mcp-probe.json` names `casus` and `fas` as connected."""
-        result = self._run("brief")
+        result = self._run()
         document = state_io.read_json(Path(result["work_dir"]) / "intake" / "mcp-probe.json")
         self.assertEqual("mcp__plugin_memoforge_casus", document["namespaces"]["casus"])
         self.assertEqual("mcp__plugin_memoforge_fas-search", document["namespaces"]["fas"])
         self.assertEqual("ok", document["status"]["casus"])
         self.assertEqual("ok", document["status"]["fas"])
 
-    def test_g2_ceilings_hold_in_both_modes(self):
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                result = self._run(mode)
-                self.assertEqual({}, result["g2_exceeded"], result["counts"])
-                for name, cap in probe.G2_LIMITS.items():
-                    self.assertLessEqual(result["counts"][name], cap, f"{mode}/{name}")
+    def test_g2_ceilings_hold(self):
+        result = self._run()
+        self.assertEqual({}, result["g2_exceeded"], result["counts"])
+        for name, cap in probe.G2_LIMITS.items():
+            self.assertLessEqual(result["counts"][name], cap, name)
 
     def test_the_script_ceiling_leaves_room_for_one_deviation(self):
         """D-63/D-117: the clean route plus a lint-fix round (+1) and one more iteration (+4)."""
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                counts = self._run(mode)["counts"]
-                self.assertLessEqual(counts["script"] + 7, probe.G2_LIMITS["script"], counts)
+        counts = self._run()["counts"]
+        self.assertLessEqual(counts["script"] + 7, probe.G2_LIMITS["script"], counts)
 
     def test_the_merged_steps_cost_three_script_calls_less(self):
         """D-117: `draft finish` replaces three steps and `docx render` validates itself: 13 -> 10.
 
         D-147 adds one back: `sources preflight` runs in `planning`, so the clean route is 11.
         """
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                result = self._run(mode)
-                self.assertEqual(11, result["counts"]["script"], result["counts"])
-                keys = [
-                    machine.command_key(row["command"])
-                    for row in state_io.read_state(Path(result["work_dir"]))["steps"]
-                    if row.get("kind") == "script"
-                ]
-                self.assertEqual(1, keys.count("draft.finish"), keys)
-                self.assertEqual(1, keys.count("sources.preflight"), keys)
-                for gone in ("draft.anchor", "draft.lint", "draft.audit-citations", "docx.validate"):
-                    self.assertNotIn(gone, keys)
+        result = self._run()
+        self.assertEqual(11, result["counts"]["script"], result["counts"])
+        keys = [
+            machine.command_key(row["command"])
+            for row in state_io.read_state(Path(result["work_dir"]))["steps"]
+            if row.get("kind") == "script"
+        ]
+        self.assertEqual(1, keys.count("draft.finish"), keys)
+        self.assertEqual(1, keys.count("sources.preflight"), keys)
+        for gone in ("draft.anchor", "draft.lint", "draft.audit-citations", "docx.validate"):
+            self.assertNotIn(gone, keys)
 
     def test_the_dry_run_never_opens_a_socket_for_the_preflight(self):
         """D-147: the fixture route runs `sources preflight` offline and restores the environment."""
         with mock.patch.dict(os.environ):
             os.environ.pop(preflight.OFFLINE_ENV, None)
-            result = self._run("brief")
+            result = self._run()
             self.assertIsNone(os.environ.get(preflight.OFFLINE_ENV), "the switch outlived the run")
         document = state_io.read_json(Path(result["work_dir"]) / preflight.PREFLIGHT_PATH)
         self.assertTrue(document["offline"])
@@ -116,112 +112,96 @@ class DryRunTest(unittest.TestCase):
 
     def test_the_observable_metric_is_estimated_and_stays_under_its_cap(self):
         """D-63 / §0.2 G2: the dry run cannot emit `cli_call` (D-43), so it prints an estimate."""
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                result = self._run(mode)
-                counts, estimate = result["counts"], result["g2_observed_estimate"]
-                journal = events.read_events(Path(result["work_dir"]))
-                self.assertEqual([], [row for row in journal if row["event"] == "cli_call"])
-                self.assertEqual(
-                    len([row for row in journal if row["event"] == "step_issued"]),
-                    estimate["step_issued"],
-                )
-                self.assertEqual(
-                    counts["next"] + counts["report"] + counts["script"] + counts["gate"],
-                    estimate["cli_call_estimate"],
-                )
-                self.assertEqual(estimate["cli_call_estimate"] + estimate["step_issued"], estimate["total"])
-                self.assertEqual(150, estimate["limit"])
-                self.assertLessEqual(estimate["total"], estimate["limit"], estimate)
-                self.assertEqual({}, result["g2_exceeded"])
+        result = self._run()
+        counts, estimate = result["counts"], result["g2_observed_estimate"]
+        journal = events.read_events(Path(result["work_dir"]))
+        self.assertEqual([], [row for row in journal if row["event"] == "cli_call"])
+        self.assertEqual(
+            len([row for row in journal if row["event"] == "step_issued"]),
+            estimate["step_issued"],
+        )
+        self.assertEqual(
+            counts["next"] + counts["report"] + counts["script"] + counts["gate"],
+            estimate["cli_call_estimate"],
+        )
+        self.assertEqual(estimate["cli_call_estimate"] + estimate["step_issued"], estimate["total"])
+        self.assertEqual(150, estimate["limit"])
+        self.assertLessEqual(estimate["total"], estimate["limit"], estimate)
+        self.assertEqual({}, result["g2_exceeded"])
 
     def test_invariants_hold_after_every_step(self):
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                result = self._run(mode)
-                self.assertEqual([], result["invariants"])
-                state = state_io.read_state(Path(result["work_dir"]))
-                self.assertEqual([], schema.validate(state, "state"))
-                for row in state["published"]:
-                    path = Path(result["work_dir"]) / row["canonical_path"]
-                    self.assertTrue(path.is_file(), row["canonical_path"])
-                    self.assertEqual(row["sha256"], state_io.sha256_file(path))
+        result = self._run()
+        self.assertEqual([], result["invariants"])
+        state = state_io.read_state(Path(result["work_dir"]))
+        self.assertEqual([], schema.validate(state, "state"))
+        for row in state["published"]:
+            path = Path(result["work_dir"]) / row["canonical_path"]
+            self.assertTrue(path.is_file(), row["canonical_path"])
+            self.assertEqual(row["sha256"], state_io.sha256_file(path))
 
     def test_no_gate_step_outside_a_gate_phase(self):
-        result = self._run("full")
+        result = self._run()
         for row in result["trace"]:
             if row["kind"] in ("gate-text", "gate-auq"):
                 self.assertTrue(phases.is_gate(str(row["phase"])), row)
 
-    def test_brief_skips_the_source_review_gate(self):
-        brief = self._run("brief")
-        full = self._run("full")
-        brief_phases = {row["phase"] for row in brief["trace"]}
-        full_phases = {row["phase"] for row in full["trace"]}
-        self.assertNotIn("source_review_pending", brief_phases)
-        self.assertIn("source_review_pending", full_phases)
-
     def test_deliverable_and_summary_exist_at_the_terminal_phase(self):
-        result = self._run("full")
+        result = self._run()
         work_dir = Path(result["work_dir"])
         self.assertTrue((work_dir / "summary.md").is_file())
         deliverables = list(work_dir.glob("deliverable.*"))
         self.assertTrue(deliverables, "M9: a terminal phase needs a deliverable")
 
-    def test_the_deliverable_of_both_modes_is_a_valid_docx(self):
+    def test_the_deliverable_is_a_valid_docx(self):
         """§5.5: the fixture draft renders through `renderer.py` — the md fallback is a regression."""
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                result = self._run(mode)
-                self.assertEqual("done", result["final_phase"], result.get("errors"))
-                work_dir = Path(result["work_dir"])
-                state = state_io.read_state(work_dir)
+        result = self._run()
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        work_dir = Path(result["work_dir"])
+        state = state_io.read_state(work_dir)
 
-                render = _step_results(state, "docx.render")[-1]
-                self.assertEqual("docx", render["renderer"], render.get("render_error"))
-                self.assertIsNone(render["render_error"])
-                # D-117: the render step validated its own output — there is no second step.
-                self.assertTrue(render["valid"], render["validation"])
-                self.assertIsNone(render["demoted_to"])
-                self.assertEqual([], _step_results(state, "docx.validate"))
+        render = _step_results(state, "docx.render")[-1]
+        self.assertEqual("docx", render["renderer"], render.get("render_error"))
+        self.assertIsNone(render["render_error"])
+        # D-117: the render step validated its own output — there is no second step.
+        self.assertTrue(render["valid"], render["validation"])
+        self.assertIsNone(render["demoted_to"])
+        self.assertEqual([], _step_results(state, "docx.validate"))
 
-                finalized = _step_results(state, "finalize")[-1]
-                self.assertEqual("deliverable.docx", finalized["deliverable"], finalized)
-                kind = finalize.choose_deliverable(work_dir, state, None)["kind"]
-                self.assertEqual("docx", kind, "`finalize` answers `deliverable_kind: docx`")
-                self.assertTrue((work_dir / "deliverable.docx").is_file())
+        finalized = _step_results(state, "finalize")[-1]
+        self.assertEqual("deliverable.docx", finalized["deliverable"], finalized)
+        kind = finalize.choose_deliverable(work_dir, state, None)["kind"]
+        self.assertEqual("docx", kind, "`finalize` answers `deliverable_kind: docx`")
+        self.assertTrue((work_dir / "deliverable.docx").is_file())
 
-                banners = [row.get("banner_id") for row in state.get("fallback_banners") or []]
-                self.assertNotIn("docx_export_failed", banners)
+        banners = [row.get("banner_id") for row in state.get("fallback_banners") or []]
+        self.assertNotIn("docx_export_failed", banners)
 
 
 class ProbeLanguageTest(unittest.TestCase):
     """D-178a: `mf probe dry-run` runs in another memo language and stays green in English."""
 
-    def _run(self, mode: str, language: str, ui_language: str = "en") -> dict:
+    def _run(self, language: str, ui_language: str = "en") -> dict:
         root = temp_root(self)
         return probe.run_dry_run(
-            namespace(
-                mode=mode, workdir=str(root), seed=0, language=language, ui_language=ui_language
-            )
+            namespace(workdir=str(root), seed=0, language=language, ui_language=ui_language)
         )
 
-    def test_brief_in_russian_reaches_approved_on_v1(self):
-        result = self._run("brief", "ru")
+    def test_russian_reaches_approved_on_v1(self):
+        result = self._run("ru")
         self.assertEqual("done", result["final_phase"], result.get("errors"))
         self.assertEqual("approved_on_v1", result["final_status"], result)
         state = state_io.read_state(Path(result["work_dir"]))
         self.assertEqual("ru", state["language"])
 
-    def test_full_in_german_reaches_approved_on_v1(self):
-        result = self._run("full", "de")
+    def test_german_reaches_approved_on_v1(self):
+        result = self._run("de")
         self.assertEqual("done", result["final_phase"], result.get("errors"))
         self.assertEqual("approved_on_v1", result["final_status"], result)
         state = state_io.read_state(Path(result["work_dir"]))
         self.assertEqual("de", state["language"])
 
     def test_the_russian_deliverable_carries_the_russian_risk_line_and_sources(self):
-        result = self._run("brief", "ru")
+        result = self._run("ru")
         self.assertEqual("approved_on_v1", result["final_status"], result.get("errors"))
         work_dir = Path(result["work_dir"])
         state = state_io.read_state(work_dir)
@@ -239,28 +219,24 @@ class ProbeLanguageTest(unittest.TestCase):
         self.assertNotIn("## Sources", text)
 
     def test_english_dry_runs_are_unchanged(self):
-        for mode in ("full", "brief"):
-            with self.subTest(mode=mode):
-                root = temp_root(self)
-                result = probe.run_dry_run(namespace(mode=mode, workdir=str(root), seed=0))
-                self.assertEqual("done", result["final_phase"], result.get("errors"))
-                self.assertTrue(result["ok"], result)
+        root = temp_root(self)
+        result = probe.run_dry_run(namespace(workdir=str(root), seed=0))
+        self.assertEqual("done", result["final_phase"], result.get("errors"))
+        self.assertTrue(result["ok"], result)
 
 
 class CrossedLanguageDryRunTest(unittest.TestCase):
     """Plan 56 task 6 (D-178a): crossed memo/UI languages — the probe answers the plan gate
     with the emitted localized labels, and the deliverable follows the memo language."""
 
-    def _run(self, mode: str, language: str, ui_language: str) -> dict:
+    def _run(self, language: str, ui_language: str) -> dict:
         root = temp_root(self)
         return probe.run_dry_run(
-            namespace(
-                mode=mode, workdir=str(root), seed=0, language=language, ui_language=ui_language
-            )
+            namespace(workdir=str(root), seed=0, language=language, ui_language=ui_language)
         )
 
-    def test_brief_ru_memo_de_ui_reaches_approved_on_v1(self):
-        result = self._run("brief", "ru", "de")
+    def test_ru_memo_de_ui_reaches_approved_on_v1(self):
+        result = self._run("ru", "de")
         self.assertEqual("done", result["final_phase"], result.get("errors"))
         self.assertEqual("approved_on_v1", result["final_status"], result)
         work_dir = Path(result["work_dir"])
@@ -272,7 +248,7 @@ class CrossedLanguageDryRunTest(unittest.TestCase):
         self.assertEqual("approve", iterations[-1].get("action"), iterations[-1])
         answers = iterations[-1].get("answers") or {}
         self.assertEqual("Approve", answers.get("Plan"), answers)
-        self.assertEqual("Brief", answers.get("Mode"), answers)
+        self.assertNotIn("Mode", answers, "D-242: the plan gate asks no Mode")
         self.assertNotIn("Genehmigen", json.dumps(answers), answers)
         # The deliverable follows the memo language, not the UI language.
         text = self._deliverable_text(work_dir, state)
@@ -282,8 +258,8 @@ class CrossedLanguageDryRunTest(unittest.TestCase):
         self.assertNotIn("Risiko:", text)
         self.assertNotIn("## Quellen", text)
 
-    def test_full_de_memo_ru_ui_reaches_approved_on_v1(self):
-        result = self._run("full", "de", "ru")
+    def test_de_memo_ru_ui_reaches_approved_on_v1(self):
+        result = self._run("de", "ru")
         self.assertEqual("done", result["final_phase"], result.get("errors"))
         self.assertEqual("approved_on_v1", result["final_status"], result)
         work_dir = Path(result["work_dir"])
@@ -294,7 +270,7 @@ class CrossedLanguageDryRunTest(unittest.TestCase):
         self.assertEqual("approve", iterations[-1].get("action"), iterations[-1])
         answers = iterations[-1].get("answers") or {}
         self.assertEqual("Approve", answers.get("Plan"), answers)
-        self.assertEqual("Full", answers.get("Mode"), answers)
+        self.assertNotIn("Mode", answers, "D-242: the plan gate asks no Mode")
         self.assertNotIn("Утвердить", json.dumps(answers), answers)
         # The deliverable follows the memo language, not the UI language.
         text = self._deliverable_text(work_dir, state)
@@ -317,12 +293,12 @@ class CrossedLanguageDryRunTest(unittest.TestCase):
         return candidates[0].read_text(encoding="utf-8-sig")
 
     def test_the_plan_gate_questions_follow_the_ui_language_not_the_memo_language(self):
-        for mode, language, ui_language, yes, no in (
-            ("brief", "ru", "de", "Genehmigen", "Утвердить"),
-            ("full", "de", "ru", "Утвердить", "Genehmigen"),
+        for language, ui_language, yes, no in (
+            ("ru", "de", "Genehmigen", "Утвердить"),
+            ("de", "ru", "Утвердить", "Genehmigen"),
         ):
-            with self.subTest(mode=mode, language=language, ui_language=ui_language):
-                driver = Driver(temp_root(self), mode=mode, slug=f"crossed-{language}-{ui_language}")
+            with self.subTest(language=language, ui_language=ui_language):
+                driver = Driver(temp_root(self), slug=f"crossed-{language}-{ui_language}")
                 state_io.write_state(
                     driver.work_dir,
                     lambda current: current.update(
@@ -437,7 +413,7 @@ class EntryPointTest(unittest.TestCase):
     """
 
     def test_docx_render_through_the_entry_point_produces_a_docx(self):
-        driver = Driver(temp_root(self), mode="brief", slug="entry-point")
+        driver = Driver(temp_root(self), slug="entry-point")
         action = None
         for _ in range(60):
             action = driver.next()
@@ -476,7 +452,7 @@ class DryRunErrorsTest(unittest.TestCase):
     def test_a_run_over_the_observable_cap_is_not_ok(self):
         root = temp_root(self)
         with mock.patch.object(probe, "G2_OBSERVED_LIMIT", 1):
-            result = probe.run_dry_run(namespace(mode="brief", workdir=str(root), seed=0))
+            result = probe.run_dry_run(namespace(workdir=str(root), seed=0))
         self.assertFalse(result["ok"], result["counts"])
         self.assertIn(probe.G2_OBSERVED_KEY, result["g2_exceeded"])
         self.assertTrue(
@@ -495,7 +471,7 @@ class DryRunErrorsTest(unittest.TestCase):
         """A truncated loop is the cheapest real failure: `ok: false` must carry `errors[]`."""
         root = temp_root(self)
         with mock.patch.object(probe, "MAX_LOOP", 1):
-            result = probe.run_dry_run(namespace(mode="brief", workdir=str(root), seed=0))
+            result = probe.run_dry_run(namespace(workdir=str(root), seed=0))
         self.assertFalse(result["ok"], result)
         self.assertNotEqual("done", result["final_phase"])
         self.assertTrue(
@@ -503,7 +479,7 @@ class DryRunErrorsTest(unittest.TestCase):
         )
 
     def test_a_successful_dry_run_carries_no_errors_key(self):
-        result = probe.run_dry_run(namespace(mode="brief", workdir=str(temp_root(self)), seed=0))
+        result = probe.run_dry_run(namespace(workdir=str(temp_root(self)), seed=0))
         self.assertTrue(result["ok"], result["invariants"])
         self.assertNotIn("errors", result)
 

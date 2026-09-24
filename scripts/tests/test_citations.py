@@ -188,16 +188,8 @@ class CitationsTestCase(unittest.TestCase):
 
         state_io.write_state(self.work_dir, mutator)
 
-    def audit(self, text: str, mode: str | None = None) -> list[dict]:
-        return citations.audit(text, work_dir=self.work_dir, mode=mode)
-
-    def set_mode(self, mode: str | None) -> None:
-        """Record the run mode the way `mode_selected` does (§2.3)."""
-
-        def mutator(state: dict) -> None:
-            state["mode"] = mode
-
-        state_io.write_state(self.work_dir, mutator)
+    def audit(self, text: str) -> list[dict]:
+        return citations.audit(text, work_dir=self.work_dir)
 
     def uncited_rule_source(self, mention: str | None = None) -> str:
         """`classical-clean` with gdpr-art-6 packed as a rule source and no token citing it."""
@@ -589,24 +581,18 @@ class C07Test(CitationsTestCase):
         self.freeze()
         self.assertNotIn("C-07", self.rules(self.audit(fixture("classical-clean"))))
 
-    def test_c07_is_info_in_brief_and_major_in_full(self):
-        # D34-10: for the brief the pack is far wider than the word cap, so «packed but never cited»
-        # is not a defect of the draft; for the full memo it stays the `major` of §5.4.
+    def test_c07_is_major_for_every_run_and_the_audit_takes_no_mode(self):
+        # D-243: the Brief `info` grade of C-07 went with the mode; the audit no longer takes one.
         self.freeze()
         text = self.uncited_rule_source()
-        for mode, severity in (("brief", "info"), ("full", "major")):
-            with self.subTest(mode=mode):
-                self.assertEqual(severity, self.only(self.audit(text, mode), "C-07")[0]["severity"])
-
-    def test_c07_reads_the_mode_from_state_when_it_is_not_passed_in(self):
-        self.freeze()
-        text = self.uncited_rule_source()
-        self.set_mode("brief")
-        self.assertEqual("info", self.only(self.audit(text), "C-07")[0]["severity"])
-        self.set_mode("full")
-        self.assertEqual("major", self.only(self.audit(text), "C-07")[0]["severity"])
-        self.set_mode(None)
-        self.assertEqual("major", self.only(self.audit(text), "C-07")[0]["severity"])
+        self.assertEqual("major", citations.SEVERITY["C-07"])
+        self.assertEqual(["major"], [row["severity"] for row in self.only(self.audit(text), "C-07")])
+        for name in ("SEVERITY_BY_MODE", "BRIEF_MODE", "resolve_mode", "severity_for"):
+            self.assertFalse(hasattr(citations, name), name)
+        with self.assertRaises(TypeError):
+            citations.audit(text, work_dir=self.work_dir, mode="full")
+        with self.assertRaises(TypeError):
+            citations.pinpoint_findings(text, work_dir=self.work_dir, mode="full")
 
     def test_c07_without_a_location_carries_null_and_never_an_empty_excerpt(self):
         # D34-10: the run shipped 25 findings with `line: null, section_id: null, excerpt: ""`.
@@ -776,7 +762,6 @@ class C09Test(CitationsTestCase):
 
     def test_c09_is_a_major_rule(self):
         self.assertEqual("major", citations.SEVERITY["C-09"])
-        self.assertEqual("major", citations.severity_for("C-09", "brief"))
 
     def test_a_number_the_saved_text_lacks_is_a_major_with_the_source_and_the_pinpoint(self):
         self.seed_ru()
@@ -1068,7 +1053,6 @@ class AuditCommandTest(CitationsTestCase):
     def test_the_report_counts_blockers_and_majors_beside_clean(self):
         # D34-10: the run returned `clean: true` over 25 majors and the orchestrator read it as «ok».
         self.freeze()
-        self.set_mode("full")
         self.write_draft(self.uncited_rule_source())
         result = self.run_audit()
         self.assertTrue(result["clean"])
@@ -1080,13 +1064,26 @@ class AuditCommandTest(CitationsTestCase):
         self.assertEqual(1, stepctx.current_step(stored, "s-012c")["result_ref"]["result"]["majors"])
 
     def test_an_info_finding_keeps_the_published_report_schema_valid(self):
+        """`schemas/lint.schema.json` keeps the `info` severity: a report carrying one still publishes.
+
+        The finding is made `info` here rather than by a run mode (D-242), so the check does not
+        depend on which rules `citations.audit` grades `info`.
+        """
         self.freeze()
-        self.set_mode("brief")
         self.write_draft(self.uncited_rule_source())
-        result = self.run_audit()
+        real_audit = citations.audit
+
+        def audit_as_info(text: str, **kwargs) -> list[dict]:
+            return [dict(row, severity="info") for row in real_audit(text, **kwargs)]
+
+        with mock.patch.object(citations, "audit", side_effect=audit_as_info):
+            result = self.run_audit()
+        self.assertTrue(result["clean"])
         self.assertEqual(0, result["majors"])
+        self.assertEqual(0, result["blockers"])
         report = state_io.read_json(self.work_dir / citations.CITATIONS_PATH)
         self.assertEqual([], schema.validate(report, "lint"))
+        self.assertEqual(["C-07"], sorted({row["rule"] for row in report["findings"]}))
         self.assertEqual(["info"], sorted({row["severity"] for row in report["findings"]}))
 
 

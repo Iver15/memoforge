@@ -28,7 +28,6 @@ from memoforge import (  # noqa: E402
     task,
 )
 
-LINT_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 TASK_ID = "memo-20260908T120000Z-fixture"
 DRAFT_SHA = "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e"
 
@@ -123,10 +122,10 @@ PACK_MISMATCH = issue(
 )
 
 
-def new_task(root: Path, *, mode: str = "full", iteration: int = 1, versions: int = 1) -> Path:
+def new_task(root: Path, *, iteration: int = 1, versions: int = 1) -> Path:
     work_dir = root / TASK_ID
     task.create_work_dir_tree(work_dir)
-    config = modes.resolve_config(mode)
+    config = modes.resolve_config("full")
     state = task.build_initial_state(
         task_id=TASK_ID,
         user_query="Biometric data of minors under the GDPR",
@@ -135,7 +134,6 @@ def new_task(root: Path, *, mode: str = "full", iteration: int = 1, versions: in
         output_folder=root,
         config=config,
     )
-    state["mode"] = mode
     state["current_phase"] = "revision_loop"
     state["current_iteration"] = iteration
     state["current_draft_path"] = f"drafts/v{iteration}.md"
@@ -328,7 +326,7 @@ class BranchTableTest(unittest.TestCase):
             "approved_on_v2",
         ),
         (
-            "8 in Brief: one iteration only",
+            "8 when the cap is one iteration",
             1,
             {"issues": (GROUNDED,)},
             0,
@@ -435,15 +433,15 @@ class RegressionTest(unittest.TestCase):
         self.assertNotEqual(3, decision["branch"])
         self.assertEqual(8, decision["branch"])
 
-    def test_brief_revises_once_before_the_loop_can_exit(self):
-        # D-115: Brief runs two iterations, so the first round of findings reaches the writer
+    def test_the_run_revises_once_before_the_loop_can_exit(self):
+        # D-115: a run has two iterations, so the first round of findings reaches the writer
         # (branch 6) instead of forcing the exit (branch 8), and branch 3 becomes reachable.
-        self.assertEqual(2, modes.MODES["brief"]["max_iterations"])
+        self.assertEqual(2, modes.MODES["full"]["max_iterations"])
         decision = revision.decide(
             iteration=1,
             record=record(issues=(GROUNDED,)),
             previous=None,
-            max_iterations=modes.MODES["brief"]["max_iterations"],
+            max_iterations=modes.MODES["full"]["max_iterations"],
             reviewer_rerun_used=0,
             mediator_exists=False,
         )
@@ -455,7 +453,7 @@ class RegressionTest(unittest.TestCase):
             iteration=2,
             record=self._regressed(),
             previous=self._previous(),
-            max_iterations=modes.MODES["brief"]["max_iterations"],
+            max_iterations=modes.MODES["full"]["max_iterations"],
             reviewer_rerun_used=0,
             mediator_exists=False,
         )
@@ -1036,7 +1034,7 @@ def run_74_exit() -> dict:
 class LastBlockerExitTest(unittest.TestCase):
     """D-213: a branch-8 exit whose blockers are branch-9-shaped, with the pass spent, lists them as rows."""
 
-    def exit(self, records: list[dict], *, targeted_used: int = 1, overflow: bool = False) -> tuple[dict, dict]:
+    def exit(self, records: list[dict], *, targeted_used: int = 1) -> tuple[dict, dict]:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         work_dir = new_task(Path(tmp.name), iteration=3, versions=3)
@@ -1044,9 +1042,6 @@ class LastBlockerExitTest(unittest.TestCase):
         state_io.write_state(
             work_dir, lambda state: state.setdefault("attempts", {}).update({"targeted_fix": targeted_used})
         )
-        if overflow:
-            report = json.loads((LINT_FIXTURES / "lint-length-overflow.json").read_text(encoding="utf-8-sig"))
-            state_io.write_json_atomic(work_dir / "lint.json", dict(report, draft_sha=DRAFT_SHA))
         result = revision.run_next(next_args(work_dir, iteration=3))
         return result, state_io.read_state(work_dir)
 
@@ -1126,13 +1121,6 @@ class LastBlockerExitTest(unittest.TestCase):
                 self.assertEqual(3, len(state["open_substance_majors"]))
                 self.assertFalse(any("blocker_of" in row for row in state["open_substance_majors"]))
 
-    def test_a_length_overflow_exit_still_lists_the_blocker_row(self):
-        result, state = self.exit(run_74_records(), overflow=True)
-        self.assertEqual(8, result["branch"])
-        self.assertEqual("manual_review_required_on_v3", state["final_status"])
-        self.assertEqual(["unresolved_blockers", "length_overflow"], state["final_status_reasons"])
-        self.assertEqual("blocker", state["open_substance_majors"][-1]["severity"])
-
 
 class OpenSubstanceMajorsExitTest(unittest.TestCase):
     """D-210: every exit to client readiness writes the open majors of the version it leaves on."""
@@ -1186,95 +1174,43 @@ class OpenSubstanceMajorsExitTest(unittest.TestCase):
                 self.assertEqual([], schema.validate(state, "state"))
 
 
-class LengthOverflowTest(unittest.TestCase):
-    """§2.1: an L-10 word cap surviving phase 13 forces manual review (D-21)."""
+class NoLengthOverlayTest(unittest.TestCase):
+    """D-243: the L-10 overlay went with the executive brief; a `lint.json` naming L-10 changes nothing."""
 
-    def put_lint(self, work_dir: Path, name: str, draft_sha: str | None = None) -> None:
-        report = json.loads((LINT_FIXTURES / f"{name}.json").read_text(encoding="utf-8-sig"))
-        if draft_sha:
-            report["draft_sha"] = draft_sha
-        state_io.write_json_atomic(work_dir / "lint.json", report)
-
-    def test_length_overflow_overrides_approved_in_brief(self):
+    def test_an_old_l10_finding_leaves_the_verdict_alone(self):
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp))
             set_iterations(work_dir, record(reviewers=("logic", "citations", "counterarguments")))
-            self.put_lint(work_dir, "lint-length-overflow")
-
-            result = revision.run_next(next_args(work_dir))
-            self.assertEqual(4, result["branch"])  # the reviewers themselves were clean
-            self.assertTrue(result["length_overflow"])
-            self.assertEqual("manual_review_required_on_v1", result["final_status"])
-            self.assertIn(revision.REASON_LENGTH_OVERFLOW, result["reasons"])
-
-            state = state_io.read_state(work_dir)
-            self.assertEqual("manual_review_required_on_v1", state["final_status"])
-            self.assertEqual([revision.REASON_LENGTH_OVERFLOW], state["final_status_reasons"])
-            self.assertIn(
-                "length_overflow", [banner["banner_id"] for banner in state["fallback_banners"]]
+            finding = {
+                "rule": "L-10",
+                "severity": "major",
+                "line": 3,
+                "section_id": "s-1",
+                "excerpt": "## 1. Executive summary",
+                "hint": "Brief is 1340 words; the cap is 1200.",
+            }
+            state_io.write_json_atomic(
+                work_dir / "lint.json", {"draft_sha": DRAFT_SHA, "clean": True, "findings": [finding]}
             )
-
-    def test_length_overflow_overrides_every_loop_exit_branch(self):
-        # D-44: branches 2, 4, 5, 7 and 8 all leave the loop for `client_readiness`.
-        # D-115: both modes now run two iterations, so branch 8 needs the last one.
-        cases = (
-            (2, 1, {"failed": ("form",)}, "brief", "manual_review_required_on_v1", limits.MAX_REVIEWER_RERUN),
-            (4, 1, {}, "brief", "approved_on_v1", 0),
-            (5, 1, {"issues": (FORM_BLOCKER,)}, "brief", "accepted_early_on_v1", 0),
-            (7, 1, {"issues": (UNGROUNDED,)}, "full", "accepted_early_on_v1", 0),  # needs an iteration left
-            (8, 2, {"issues": (GROUNDED,)}, "brief", "forced_exit_on_v2_with_remaining_issues", 0),
-        )
-        for branch, iteration, kwargs, mode, without_overflow, rerun_used in cases:
-            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as tmp:
-                work_dir = new_task(Path(tmp), mode=mode, iteration=iteration, versions=iteration)
-                if rerun_used:
-                    state_io.write_state(
-                        work_dir,
-                        lambda state: state["attempts"].__setitem__("reviewer_rerun", {"1": rerun_used}),
-                    )
-                set_iterations(work_dir, record(iteration=iteration, **kwargs))
-                self.assertEqual(
-                    without_overflow,
-                    revision.decide(
-                        iteration=iteration,
-                        record=record(iteration=iteration, **kwargs),
-                        previous=None,
-                        max_iterations=modes.MODES[mode]["max_iterations"],
-                        reviewer_rerun_used=rerun_used,
-                        mediator_exists=False,
-                    )["final_status"],
-                )
-                self.put_lint(work_dir, "lint-length-overflow")
-                result = revision.run_next(next_args(work_dir, iteration=iteration))
-                self.assertEqual(branch, result["branch"])
-                self.assertTrue(result["length_overflow"])
-                self.assertEqual(f"manual_review_required_on_v{iteration}", result["final_status"])
-                self.assertIn(revision.REASON_LENGTH_OVERFLOW, result["reasons"])
-                reasons = state_io.read_state(work_dir)["final_status_reasons"]
-                self.assertIn(revision.REASON_LENGTH_OVERFLOW, reasons)
-                if branch == 2:
-                    self.assertIn(revision.REASON_INCOMPLETE_REVIEW, reasons, "the branch reason survives")
-
-    def test_clean_or_stale_lint_leaves_the_verdict_alone(self):
-        for name, sha in (("lint-clean", None), ("lint-length-overflow", "b" * 64)):
-            with self.subTest(report=name), tempfile.TemporaryDirectory() as tmp:
-                work_dir = new_task(Path(tmp), mode="brief")
-                set_iterations(work_dir, record(reviewers=("logic",)))
-                self.put_lint(work_dir, name, draft_sha=sha)
-                result = revision.run_next(next_args(work_dir))
-                self.assertFalse(result["length_overflow"])
-                self.assertEqual("approved_on_v1", result["final_status"])
-
-    def test_overflow_does_not_touch_a_continuing_iteration(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp))  # Full: iteration 1 of 2 keeps going
-            set_iterations(work_dir, record(issues=(GROUNDED,)))
-            self.put_lint(work_dir, "lint-length-overflow")
             result = revision.run_next(next_args(work_dir))
-            self.assertEqual(revision.NEXT_WRITER, result["next"])
-            self.assertFalse(result["length_overflow"])
-            self.assertIsNone(result["final_status"])
-            self.assertEqual([], state_io.read_state(work_dir)["final_status_reasons"])
+            self.assertEqual(4, result["branch"])
+            self.assertEqual("approved_on_v1", result["final_status"])
+            self.assertEqual([], result["reasons"])
+            self.assertNotIn("length_overflow", result)
+            state = state_io.read_state(work_dir)
+            self.assertEqual("approved_on_v1", state["final_status"])
+            self.assertEqual([], state["final_status_reasons"])
+            self.assertEqual([], [row["banner_id"] for row in state.get("fallback_banners") or []])
+
+    def test_the_overlay_names_are_gone(self):
+        for name in (
+            "REASON_LENGTH_OVERFLOW",
+            "LENGTH_OVERFLOW_RULE",
+            "LENGTH_OVERFLOW_BRANCHES",
+            "length_overflow",
+            "apply_length_overflow",
+        ):
+            self.assertFalse(hasattr(revision, name), name)
 
 
 if __name__ == "__main__":

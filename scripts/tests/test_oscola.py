@@ -316,9 +316,8 @@ class PinpointTest(unittest.TestCase):
 
 
 class StyleResolutionTest(unittest.TestCase):
-    def test_both_templates_ship_the_inline_style(self):
-        for template in ("executive-brief", "classical-memo"):
-            self.assertEqual(oscola.STYLE_INLINE, oscola.template_style(template), template)
+    def test_the_template_ships_the_inline_style(self):
+        self.assertEqual(oscola.STYLE_INLINE, oscola.template_style("classical-memo"))
 
     def test_the_config_overrides_the_template(self):
         state = {"config": {"template_id": "classical-memo", "citation_style": "footnotes"}}

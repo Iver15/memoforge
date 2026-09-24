@@ -20,7 +20,8 @@ SCOPE_FILES = ("README.md",)
 # §9: the documented exceptions — history and developer notes may name what the code may not.
 EXCEPTIONS = ("docs/attic/", "docs/postmortems/", "docs/dev/", "CHANGELOG.md")
 
-# §9: the identifiers. `Quick/Standard/Deep` are the v1 mode names (v2 has Brief/Full only);
+# §9: the identifiers. `Quick/Standard/Deep` are the v1 mode names (v2 has one mode, Full, since
+# D-242); `executive-brief` is the template removed with the Brief mode (D-243, D-244);
 # `python3 "` is the Windows Store stub of M12 — bare `python3` inside prose is not a defect.
 IDENTIFIERS = (
     "heartbeat",
@@ -36,6 +37,7 @@ IDENTIFIERS = (
     'python3 "',
     "PHASE-MACHINE",
     "live_progress",
+    "executive-brief",
 )
 
 # The test tree may name the identifiers it forbids; so may this file. Fixtures replay v1 data.

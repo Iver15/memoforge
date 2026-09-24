@@ -29,8 +29,13 @@ def fixture(name: str) -> dict:
 
 
 def new_task(
-    root: Path, *, mode: str = "full", user_followup_used: int = 0, research_followup_used: int = 0
+    root: Path,
+    *,
+    layers: list[str] | None = None,
+    user_followup_used: int = 0,
+    research_followup_used: int = 0,
 ) -> Path:
+    """A task at `research_sufficiency`; `layers` narrows `config.researcher_layers` (D-112)."""
     work_dir = root / TASK_ID
     task.create_work_dir_tree(work_dir)
     state = task.build_initial_state(
@@ -39,9 +44,10 @@ def new_task(
         language="en",
         work_dir=work_dir,
         output_folder=root,
-        config=modes.resolve_config(mode),
+        config=modes.resolve_config("full"),
     )
-    state["mode"] = mode
+    if layers is not None:
+        state["config"]["researcher_layers"] = list(layers)
     state["current_phase"] = "research_sufficiency"
     # D-116: two budgets — asking the user and re-dispatching a researcher are charged apart.
     state["attempts"]["sufficiency_user_followup"] = user_followup_used
@@ -139,8 +145,7 @@ class PureRoutingTest(unittest.TestCase):
         decision = sufficiency.route(
             fixture("followup-user"),
             user_followup_used=limits.MAX_SUFFICIENCY_USER_FOLLOWUP,
-            research_followup_used=limits.research_followup_limit("full"),
-            mode="full",
+            research_followup_used=limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP,
         )
         self.assertEqual(sufficiency.NEXT_CURRENCY, decision["next"])
         self.assertFalse(decision["spend_budget"])
@@ -151,7 +156,6 @@ class PureRoutingTest(unittest.TestCase):
         decision = sufficiency.route(
             fixture("followup-user"),
             user_followup_used=limits.MAX_SUFFICIENCY_USER_FOLLOWUP,
-            mode="full",
         )
         self.assertEqual(sufficiency.NEXT_RESEARCH, decision["next"])
         self.assertEqual(["case_law"], decision["layers"])
@@ -159,22 +163,22 @@ class PureRoutingTest(unittest.TestCase):
         self.assertTrue(decision["spend_research_budget"])
         self.assertEqual(1, len(decision["warn_gaps"]), "the unanswered user gap is caveated")
 
-    def test_the_user_budget_is_two_in_either_mode(self):
-        """D-116: a question to the user costs ~100 s of waiting — two of them in any mode."""
+    def test_the_user_budget_is_two(self):
+        """D-116: a question to the user costs ~100 s of waiting — two of them per run."""
         self.assertEqual(2, limits.MAX_SUFFICIENCY_USER_FOLLOWUP)
-        for mode in ("brief", "full"):
-            decision = sufficiency.route(fixture("followup-user"), user_followup_used=1, mode=mode)
-            self.assertEqual(sufficiency.NEXT_GATE, decision["next"], mode)
+        decision = sufficiency.route(fixture("followup-user"), user_followup_used=1)
+        self.assertEqual(sufficiency.NEXT_GATE, decision["next"])
 
-    def test_the_research_budget_is_one_in_brief_and_two_in_full(self):
-        self.assertEqual(1, limits.research_followup_limit("brief"))
-        self.assertEqual(2, limits.research_followup_limit("full"))
-        spent = sufficiency.route(
-            fixture("followup-layers"), research_followup_used=1, mode="brief"
-        )
-        self.assertEqual(sufficiency.NEXT_CURRENCY, spent["next"])
-        left = sufficiency.route(fixture("followup-layers"), research_followup_used=1, mode="full")
+    def test_the_research_budget_is_two_with_no_mode_argument(self):
+        """D-242: one mode, one research follow-up budget (D-116)."""
+        self.assertEqual(2, limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP)
+        self.assertFalse(hasattr(limits, "research_followup_limit"))
+        left = sufficiency.route(fixture("followup-layers"), research_followup_used=1)
         self.assertEqual(sufficiency.NEXT_RESEARCH, left["next"])
+        spent = sufficiency.route(fixture("followup-layers"), research_followup_used=2)
+        self.assertEqual(sufficiency.NEXT_CURRENCY, spent["next"])
+        with self.assertRaises(TypeError):
+            sufficiency.route(fixture("followup-layers"), mode="full")
 
     def test_subset_r_missing_re_runs_the_named_layers(self):
         decision = sufficiency.route(fixture("followup-layers"))
@@ -186,8 +190,7 @@ class PureRoutingTest(unittest.TestCase):
     def test_subset_r_missing_without_budget_becomes_drafting_warnings(self):
         decision = sufficiency.route(
             fixture("followup-layers"),
-            research_followup_used=limits.research_followup_limit("full"),
-            mode="full",
+            research_followup_used=limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP,
         )
         self.assertEqual(sufficiency.NEXT_CURRENCY, decision["next"])
         self.assertEqual([], decision["layers"])
@@ -204,7 +207,7 @@ class PureRoutingTest(unittest.TestCase):
         self.assertEqual(sufficiency.NEXT_CURRENCY, sufficiency.route(document)["next"])
 
     def test_a_layer_outside_the_mode_is_not_re_researched(self):
-        """D-112: Brief researches statutes, so a `case_law` gap routes on instead of dispatching."""
+        """D-112: a run researching statutes only routes a `case_law` gap on instead of dispatching."""
         decision = sufficiency.route(fixture("followup-layers"), layers=["statutes"])
         self.assertEqual(sufficiency.NEXT_CURRENCY, decision["next"])
         self.assertEqual([], decision["layers"])
@@ -285,9 +288,9 @@ class RunRouteTest(unittest.TestCase):
             )
 
     def test_a_user_question_leaves_the_research_budget_alone(self):
-        """D-116: in Brief the `case_law` gap is out of scope, so the gate is charged to the user."""
+        """D-116: with `case_law` out of scope the gap is not bought, so the gate is charged to the user."""
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp), layers=["statutes"])
             put(work_dir, "followup-user")
             result = sufficiency.run_route(route_args(work_dir, step="s-060"))
             self.assertEqual("gate_followup", result["next"])
@@ -322,7 +325,7 @@ class RunRouteTest(unittest.TestCase):
         """N-01: `subset_r` still names the gap, but nothing was bought, so nothing is approved."""
         with tempfile.TemporaryDirectory() as tmp:
             work_dir = new_task(
-                Path(tmp), research_followup_used=limits.research_followup_limit("full")
+                Path(tmp), research_followup_used=limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP
             )
             put(work_dir, "followup-user")
             result = sufficiency.run_route(route_args(work_dir))
@@ -390,14 +393,18 @@ class RunRouteTest(unittest.TestCase):
 
 
 class OutOfScopeGapTest(unittest.TestCase):
-    """D-112: in Brief, a gap outside `config.researcher_layers` is a warning, not a second pass."""
+    """D-112: a gap outside `config.researcher_layers` is a warning, not a second pass.
+
+    D-242: every run is Full, so these tests narrow `config.researcher_layers` to `statutes`
+    to put the `case_law` gap out of scope; the reviewer's own `out_of_scope_gaps` need no narrowing.
+    """
 
     def _messages(self, work_dir: Path) -> list[str]:
         return [row["message"] for row in state_io.read_state(work_dir)["drafting_warnings"]]
 
-    def test_a_case_law_gap_in_brief_warns_and_continues(self):
+    def test_a_case_law_gap_out_of_scope_warns_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp), layers=["statutes"])
             put(work_dir, "followup-layers")
             result = sufficiency.run_route(route_args(work_dir))
             self.assertEqual("currency_check", result["next"])
@@ -411,26 +418,26 @@ class OutOfScopeGapTest(unittest.TestCase):
                 [row["code"] for row in state["drafting_warnings"]],
             )
             self.assertTrue(
-                self._messages(work_dir)[0].startswith("Out of scope for brief mode: "),
+                self._messages(work_dir)[0].startswith("Out of scope for full mode: "),
                 self._messages(work_dir),
             )
 
-    def test_the_followup_gate_of_brief_carries_the_warning_and_no_layer(self):
+    def test_the_followup_gate_carries_the_out_of_scope_warning_and_no_layer(self):
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp), layers=["statutes"])
             put(work_dir, "followup-user")
             result = sufficiency.run_route(route_args(work_dir))
             self.assertEqual("gate_followup", result["next"])
-            self.assertEqual([], result["layers"], "Brief never re-dispatches case_law")
+            self.assertEqual([], result["layers"], "an out-of-scope layer is never re-dispatched")
             state = state_io.read_state(work_dir)
             self.assertEqual([], state["sufficiency_followup"]["subset_r"])
             self.assertEqual(1, len(state["drafting_warnings"]))
-            self.assertIn("Out of scope for brief mode: ", self._messages(work_dir)[0])
+            self.assertIn("Out of scope for full mode: ", self._messages(work_dir)[0])
 
     def test_the_second_reviewer_pass_does_not_repeat_the_warning(self):
         """D-112: one warning per gap — the two passes differ only in the `at` of the row."""
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp), layers=["statutes"])
             put(work_dir, "followup-user")
             # D-116: the user budget is 2, so the second pass asks again; the warning is still one.
             self.assertEqual("gate_followup", sufficiency.run_route(route_args(work_dir, "s-060"))["next"])
@@ -439,13 +446,13 @@ class OutOfScopeGapTest(unittest.TestCase):
             out_of_scope = [
                 message
                 for message in self._messages(work_dir)
-                if message.startswith("Out of scope for brief mode: ")
+                if message.startswith("Out of scope for full mode: ")
             ]
             self.assertEqual(1, len(out_of_scope), self._messages(work_dir))
 
-    def test_full_mode_still_re_runs_the_layer(self):
+    def test_an_in_scope_layer_is_still_re_run(self):
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="full")
+            work_dir = new_task(Path(tmp))
             put(work_dir, "followup-layers")
             result = sufficiency.run_route(route_args(work_dir))
             self.assertEqual("research_subset", result["next"])
@@ -455,7 +462,7 @@ class OutOfScopeGapTest(unittest.TestCase):
 
     def test_out_of_scope_gaps_of_the_reviewer_become_warnings(self):
         with tempfile.TemporaryDirectory() as tmp:
-            work_dir = new_task(Path(tmp), mode="brief")
+            work_dir = new_task(Path(tmp))
             document = dict(
                 fixture("sufficient"),
                 out_of_scope_gaps=["No CJEU authority was searched for the oversight duty."],
@@ -466,7 +473,7 @@ class OutOfScopeGapTest(unittest.TestCase):
             self.assertEqual("currency_check", result["next"])
             self.assertEqual(1, result["out_of_scope_gaps"])
             self.assertEqual(
-                ["Out of scope for brief mode: No CJEU authority was searched for the oversight duty."],
+                ["Out of scope for full mode: No CJEU authority was searched for the oversight duty."],
                 self._messages(work_dir),
             )
 
@@ -487,10 +494,8 @@ class OutOfScopeGapTest(unittest.TestCase):
                     "de",
                     {"memo.warnings.out_of_scope_prefix": "Außerhalb des {mode}-Modus: "},
                 )
-                work_dir = new_task(Path(tmp) / "work", mode="brief")
-                state_io.write_state(
-                    work_dir, lambda state: state.update(language="de", mode="brief")
-                )
+                work_dir = new_task(Path(tmp) / "work", layers=["statutes"])
+                state_io.write_state(work_dir, lambda state: state.update(language="de"))
                 gap = "Keine EuGH-Rechtsprechung zur Aufsichtspflicht wurde geprüft."
                 document = dict(
                     fixture("sufficient"),
@@ -515,7 +520,7 @@ class OutOfScopeGapTest(unittest.TestCase):
                 collapsed = [row for row in rows if row["code"] == sufficiency.OUT_OF_SCOPE_CODE]
                 self.assertEqual(1, len(collapsed))
                 self.assertTrue(
-                    collapsed[0]["message"].startswith("Außerhalb des brief-Modus: "), collapsed
+                    collapsed[0]["message"].startswith("Außerhalb des full-Modus: "), collapsed
                 )
 
 
@@ -599,8 +604,8 @@ class WarningTextTest(unittest.TestCase):
 
     def test_an_out_of_scope_warning_carries_the_gap_only(self):
         # D-216 (carried from D-215): the D-112 warning reaches `summary.md` the same way.
-        rows = sufficiency._out_of_scope_warnings({}, [self._gap()], "brief")  # noqa: SLF001
-        self.assertEqual(["Out of scope for brief mode: " + self.GAP], [row["message"] for row in rows])
+        rows = sufficiency._out_of_scope_warnings({}, [self._gap()], "full")  # noqa: SLF001
+        self.assertEqual(["Out of scope for full mode: " + self.GAP], [row["message"] for row in rows])
         self.assertNotIn("Record a contrary finding", rows[0]["message"])
 
     def test_the_routed_warning_keeps_why_blocking_out_of_state(self):

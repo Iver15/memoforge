@@ -57,7 +57,7 @@ def _template(language: str, ui_language: str) -> Path:
     if key not in _TEMPLATES:
         root = Path(tempfile.mkdtemp(prefix="mf-brief-template-"))
         atexit.register(shutil.rmtree, root, True)
-        driver = Driver(root, "full", language=language, ui_language=ui_language)
+        driver = Driver(root, language=language, ui_language=ui_language)
         driver.run_to_end()
         _TEMPLATES[key] = driver.work_dir
     return _TEMPLATES[key]

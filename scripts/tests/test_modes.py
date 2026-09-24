@@ -16,18 +16,6 @@ from memoforge import events, limits, modes, routing  # noqa: E402
 # D-160: `fedregs` (US federal regulations) is the seventh.
 # D-161: `lex` (UK legislation, explanatory notes and amendments by i.AI) is the eighth.
 # D-184: `casus` (CasusLegal, RU) is the ninth, `fas` (FAS advertising practice, RU) the tenth.
-BRIEF_BUDGET = {
-    "ldh": 8,
-    "courtlistener": 10,
-    "legalviz": 10,
-    "uklegal": 10,
-    "justicelibre": 10,
-    "opencaselaw": 10,
-    "fedregs": 10,
-    "lex": 10,
-    "casus": 8,
-    "fas": 5,
-}
 FULL_BUDGET = {
     "ldh": 10,
     "courtlistener": 40,
@@ -41,20 +29,8 @@ FULL_BUDGET = {
     "fas": 12,
 }
 
-# Literal transcription of the ТЗ §2.3 table.
+# Literal transcription of the ТЗ §2.3 table; D-242 leaves the one Full column.
 SPEC_MATRIX = {
-    "brief": {
-        "researcher_layers": ["statutes"],
-        "reviewer_list": ["logic", "citations", "counterarguments"],
-        "max_iterations": 2,
-        "client_polish_enabled": False,
-        "max_client_polish": 0,
-        "template_id": "executive-brief",
-        "source_review_gate": "off",
-        "lint_fix_rounds": 1,
-        "intake_max_questions": 10,
-        "mcp_budget": BRIEF_BUDGET,
-    },
     "full": {
         "researcher_layers": ["statutes", "case_law", "doctrine"],
         "reviewer_list": ["logic", "form", "citations", "counterarguments"],
@@ -71,8 +47,9 @@ SPEC_MATRIX = {
 
 
 class ModeMatrixTest(unittest.TestCase):
-    def test_only_two_modes(self):
-        self.assertEqual(sorted(modes.MODES), ["brief", "full"])
+    def test_only_one_mode(self):
+        """D-242: every run is Full."""
+        self.assertEqual(sorted(modes.MODES), ["full"])
 
     def test_matrix_matches_spec(self):
         self.assertEqual(modes.MODES, SPEC_MATRIX)
@@ -83,11 +60,12 @@ class ModeMatrixTest(unittest.TestCase):
 
     def test_normalize_mode(self):
         self.assertEqual(modes.normalize_mode("Full"), "full")
-        self.assertEqual(modes.normalize_mode(" brief "), "brief")
+        self.assertEqual(modes.normalize_mode(" full "), "full")
         self.assertIsNone(modes.normalize_mode(None))
         self.assertIsNone(modes.normalize_mode(""))
-        with self.assertRaises(ValueError):
-            modes.normalize_mode("turbo")
+        for gone in ("turbo", "brief"):
+            with self.assertRaises(ValueError):
+                modes.normalize_mode(gone)
 
 
 class ResolveConfigTest(unittest.TestCase):
@@ -101,16 +79,6 @@ class ResolveConfigTest(unittest.TestCase):
         self.assertTrue(config["client_polish_enabled"])
         self.assertEqual(config["max_client_polish"], 1)
         self.assertEqual(config["mcp_budget"], FULL_BUDGET)
-
-    def test_brief_config(self):
-        config = modes.resolve_config("brief", {})
-        self.assertEqual(config["reviewer_list"], ["logic", "citations", "counterarguments"])
-        self.assertEqual(config["researcher_layers"], ["statutes"])
-        self.assertEqual(config["max_iterations"], 2)
-        self.assertEqual(config["template_id"], "executive-brief")
-        self.assertFalse(config["client_polish_enabled"])
-        self.assertEqual(config["max_client_polish"], 0)
-        self.assertEqual(config["mcp_budget"], BRIEF_BUDGET)
 
     def test_every_bundled_server_has_a_budget_and_a_daily_ceiling(self):
         """D-148: a server without a budget line is invisible to the plan gate's estimate."""
@@ -142,30 +110,27 @@ class ResolveConfigTest(unittest.TestCase):
             self.assertNotIn(key, config)
 
     def test_unknown_mode_raises(self):
-        with self.assertRaises(ValueError):
-            modes.resolve_config("turbo", {})
+        for gone in ("turbo", "brief"):
+            with self.assertRaises(ValueError):
+                modes.resolve_config(gone, {})
 
 
 class SourceReviewGateChainTest(unittest.TestCase):
     """`userConfig` explicit on|off > mode > auto (ТЗ §2.3)."""
 
     def test_mode_default_when_user_config_is_auto(self):
-        self.assertEqual(modes.resolve_config("brief", {"source_review_gate": "auto"})["source_review_gate"], "off")
         self.assertEqual(modes.resolve_config("full", {"source_review_gate": "auto"})["source_review_gate"], "auto")
 
     def test_mode_default_when_user_config_absent(self):
-        self.assertEqual(modes.resolve_config("brief", {})["source_review_gate"], "off")
         self.assertEqual(modes.resolve_config("full", {})["source_review_gate"], "auto")
 
     def test_user_config_on_overrides_mode(self):
-        for mode in ("brief", "full"):
-            config = modes.resolve_config(mode, {"source_review_gate": "on"})
-            self.assertEqual(config["source_review_gate"], "on")
+        config = modes.resolve_config("full", {"source_review_gate": "on"})
+        self.assertEqual(config["source_review_gate"], "on")
 
     def test_user_config_off_overrides_mode(self):
-        for mode in ("brief", "full"):
-            config = modes.resolve_config(mode, {"source_review_gate": "off"})
-            self.assertEqual(config["source_review_gate"], "off")
+        config = modes.resolve_config("full", {"source_review_gate": "off"})
+        self.assertEqual(config["source_review_gate"], "off")
 
     def test_without_mode_the_gate_is_auto(self):
         self.assertEqual(modes.resolve_source_review_gate(None, {}), "auto")
@@ -238,7 +203,8 @@ class PassthroughTest(unittest.TestCase):
         )
         self.assertEqual("house", config["style_profile"])
         self.assertEqual("styles/house", config["style_profile_path"])
-        self.assertEqual("full", config["style_profile_mode_binding"])
+        # D-244: a profile binds no mode, so the key is not copied even when an old config carries it.
+        self.assertNotIn("style_profile_mode_binding", config)
         self.assertIsNone(modes.resolve_config("full", {})["style_profile"])
 
     def test_launcher_fields_are_copied_when_present(self):

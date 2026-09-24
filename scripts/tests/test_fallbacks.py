@@ -223,6 +223,17 @@ class CoverageTest(unittest.TestCase):
         ):
             self.assertIn(key, fallbacks.BY_CONDITION)
 
+    def test_the_brief_word_cap_row_is_gone(self):
+        """D-243: the length-overflow recommendation existed only for the executive brief."""
+        self.assertNotIn("length_overflow_recommendation", fallbacks.BY_CONDITION)
+        self.assertNotIn("length_overflow", fallbacks.BANNER_IDS)
+        for code in ("en", "de", "es", "fr", "ru"):
+            with self.subTest(pack=code):
+                memo = i18n.load(code)["memo"]
+                self.assertNotIn("length_overflow", memo["banners"])
+                self.assertNotIn("length_overflow", memo["status_reasons"])
+                self.assertNotIn("L-10", memo["rules"])
+
     def test_no_removed_v1_subject_survives(self):
         """§0.4: the mid-run heartbeat gate, the research-summary mode and pandoc are gone."""
         blob = " ".join(

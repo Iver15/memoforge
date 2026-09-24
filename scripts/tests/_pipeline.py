@@ -30,7 +30,6 @@ class Driver:
     def __init__(
         self,
         root: Path,
-        mode: str = "full",
         *,
         slug: str = "test",
         user_config: dict | None = None,
@@ -38,7 +37,6 @@ class Driver:
         ui_language: str = "en",
     ) -> None:
         self.root = Path(root)
-        self.mode = mode
         self.work_dir = self.root / f"memo-20260908T120000Z-{slug}"
         task.create_work_dir_tree(self.work_dir)
         # D-224: the memo and interface languages of the task, so a test can drive a non-English run.
@@ -48,7 +46,7 @@ class Driver:
             language=language,
             work_dir=self.work_dir,
             output_folder=self.root,
-            config=modes.resolve_config(None, user_config or {}),
+            config=modes.resolve_config("full", user_config or {}),
             ui_language=ui_language,
         )
         state_io.create_state(self.work_dir, state)
@@ -112,9 +110,7 @@ class Driver:
             self.report(
                 action["step_id"],
                 action["attempt"],
-                answers=probe._plan_answers(
-                    self.work_dir, state_io.read_state(self.work_dir), self.mode
-                ),
+                answers=probe._plan_answers(self.work_dir, state_io.read_state(self.work_dir)),
                 generation=action.get("generation", 0),
             )
             return

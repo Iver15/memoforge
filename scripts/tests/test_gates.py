@@ -56,10 +56,11 @@ class ParserFormatTest(unittest.TestCase):
         self.assertEqual("cancel", parsed["action"])
         self.assertEqual({"Plan": "Cancel"}, parsed["answers"])
 
-    def test_approve_with_mode_style_and_sources(self):
+    def test_approve_with_style_and_sources(self):
         parsed = gates.parse_reply("plan", "approve brief style:my-firm sources:reduced")
         self.assertEqual("approve", parsed["action"])
-        self.assertEqual("Brief", parsed["answers"]["Mode"])
+        self.assertNotIn("Mode", parsed["answers"], "D-242: `brief` is no longer a choice")
+        self.assertEqual(["brief_mode_removed"], parsed["notices"])
         self.assertEqual("my-firm", parsed["answers"]["Style"])
         self.assertEqual("Reduced", parsed["answers"]["Sources"])
         self.assertEqual("Approve", parsed["answers"]["Plan"])
@@ -246,25 +247,19 @@ class NumberedKeyNormalisationTest(unittest.TestCase):
 
 
 class PlanEditAnswersTest(unittest.TestCase):
-    """D-66 / N-08: `edit:` на текстовом канале сохраняет распознанные Mode/Style/Sources."""
+    """D-66 / N-08: `edit:` на текстовом канале сохраняет распознанные Style/Sources."""
 
-    def test_edit_keeps_mode_style_and_sources(self):
+    def test_edit_keeps_style_and_sources(self):
         parsed = gates.parse_reply(
             "plan", "edit: add the UK angle\nbrief style:my-firm sources:reduced"
         )
         self.assertEqual("edit", parsed["action"])
         self.assertEqual("add the UK angle", parsed["answers"]["edit_text"])
         self.assertEqual("Edit", parsed["answers"]["Plan"])
-        self.assertEqual("Brief", parsed["answers"]["Mode"])
+        self.assertNotIn("Mode", parsed["answers"], "D-242: `brief` is no longer a choice")
+        self.assertEqual(["brief_mode_removed"], parsed["notices"])
         self.assertEqual("my-firm", parsed["answers"]["Style"])
         self.assertEqual("Reduced", parsed["answers"]["Sources"])
-
-    def test_the_forced_approval_of_an_edit_keeps_the_chosen_mode(self):
-        # §2.2: the forced approve applies the answers of the last edit iteration, so `Mode`
-        # must survive the `edit` branch instead of falling back to `full`.
-        parsed = gates.parse_reply("plan", "brief\nedit: add the UK angle")
-        applied = machine.apply_plan_answers({"config": {}}, parsed["answers"])
-        self.assertEqual("brief", applied["mode"])
 
     def test_edit_without_a_mode_answer_carries_none(self):
         parsed = gates.parse_reply("plan", "edit: add the UK angle")
@@ -275,13 +270,14 @@ class AuqAnswersTest(unittest.TestCase):
     """§2.4: `report --answers` runs through the same parser; Cancel first."""
 
     def test_cancel_in_any_component_cancels(self):
-        parsed = gates.parse_auq({"Plan": "Approve", "Mode": "Full", "Sources": "Cancel"})
+        parsed = gates.parse_auq({"Plan": "Approve", "Style": "my-firm", "Sources": "Cancel"})
         self.assertEqual("cancel", parsed["action"])
 
     def test_approve_keeps_every_answer(self):
-        parsed = gates.parse_auq({"Plan": "Approve", "Mode": "Brief", "Style": "my-firm"})
+        parsed = gates.parse_auq({"Plan": "Approve", "Style": "my-firm", "Sources": "Continue"})
         self.assertEqual("approve", parsed["action"])
-        self.assertEqual("Brief", parsed["answers"]["Mode"])
+        self.assertEqual("my-firm", parsed["answers"]["Style"])
+        self.assertEqual("Continue", parsed["answers"]["Sources"])
 
     def test_edit_is_recognised(self):
         self.assertEqual("edit", gates.parse_auq({"Plan": "Edit"})["action"])
@@ -289,13 +285,6 @@ class AuqAnswersTest(unittest.TestCase):
     def test_unknown_plan_answer_is_rejected(self):
         parsed = gates.parse_auq({"Plan": "Later"})
         self.assertFalse(parsed["recognized"])
-
-    def test_style_order_applies_mode_binding_before_mode(self):
-        # §2.4: Style is applied before Mode, so a profile's `mode_binding` wins.
-        state = {"config": {}}
-        applied = machine.apply_plan_answers(state, {"Plan": "Approve", "Mode": "Brief"})
-        self.assertEqual("brief", applied["mode"])
-        self.assertEqual(["statutes"], applied["config"]["researcher_layers"])
 
 
 class AuqPlanAnswerTest(unittest.TestCase):
@@ -385,17 +374,11 @@ class RenderTest(unittest.TestCase):
         driver = Driver(temp_root(self), slug="render-plan")
         action = driver.run_until("plan_approval_pending")
         headers = [question["header"] for question in action["questions"]]
-        self.assertEqual(["Plan", "Mode"], headers[:2])
-        recommended = [
-            option["label"]
-            for question in action["questions"]
-            if question["header"] == "Mode"
-            for option in question["options"]
-            if option["description"].startswith("(Recommended)")
-        ]
-        self.assertEqual(["Full"], recommended)
+        self.assertEqual("Plan", headers[0])
+        self.assertNotIn("Mode", headers, "D-242: no Mode question")
         fallback = action["text_fallback"]
-        self.assertIn("`approve [brief|full] [style:<name>|standard] [sources:reduced]`", fallback)
+        self.assertIn(f"/memoforge:continue {driver.work_dir.name} approve`", fallback)
+        self.assertIn("`approve [style:<name>|standard] [sources:reduced]`", fallback)
         self.assertIn("`edit: <what to change>`", fallback)
         self.assertIn("`cancel`", fallback)
 
@@ -409,7 +392,7 @@ class RenderTest(unittest.TestCase):
         self.assertIn("How long may the client keep customer records?", digest)
         self.assertIn("Research layers: statutes, case_law, doctrine", digest)
         self.assertIn("estimated complexity: high", digest)
-        self.assertIn("Recommended mode: full", digest)
+        self.assertNotIn("Recommended mode", digest)
         self.assertLessEqual(len(digest.splitlines()), 40, "the digest must stay readable in chat")
         for instruction in ("Reply with one of:", "edit: <what to change>", "/memoforge:continue"):
             self.assertNotIn(instruction, digest, "answer instructions belong to the text fallback")
@@ -451,84 +434,109 @@ class RenderTest(unittest.TestCase):
         self.assertIn("Reply `continue`", action["text"])
 
 
-class BriefMismatchHintTest(unittest.TestCase):
-    """D34-01: where Brief is not the recommendation, gate 4 says in one sentence what it costs."""
+class OneModePlanGateTest(unittest.TestCase):
+    """D-242: gate 4 asks no Mode; the word `brief` answers one line pointing to `/memoforge:brief`."""
 
-    def plan(self, complexity: str, issues: int) -> dict:
-        return dict(
-            probe.fixture_plan(),
-            estimated_complexity=complexity,
-            issues=[
-                {
-                    "issue_id": f"i{index}",
-                    "title": f"Issue {index}",
-                    "question": f"Question {index}?",
-                    "jurisdictions": ["EU"],
-                }
-                for index in range(1, issues + 1)
-            ],
-        )
+    PROFILE = [{"name": "my-firm", "valid": True}]
 
-    def test_the_hint_fires_on_high_complexity_and_on_more_than_three_issues(self):
-        self.assertIn(
-            "This plan has 1 issue at high complexity; Brief researches one layer",
-            gates.brief_mismatch_hint(self.plan("high", 1)),
-        )
-        self.assertIn(
-            "This plan has 4 issues at medium complexity",
-            gates.brief_mismatch_hint(self.plan("medium", 4)),
-        )
-        self.assertIn(
-            "case law and doctrine gaps become caveats",
-            gates.brief_mismatch_hint(self.plan("high", 8)),
-        )
+    def at_plan_gate(self, slug: str, **driver_kwargs) -> tuple[Driver, dict]:
+        driver = Driver(temp_root(self), slug=slug, **driver_kwargs)
+        return driver, driver.run_until("plan_approval_pending")
 
-    def test_a_plan_brief_can_carry_says_nothing(self):
-        self.assertEqual("", gates.brief_mismatch_hint(self.plan("low", 8)), "Brief is recommended")
-        self.assertEqual("", gates.brief_mismatch_hint(self.plan("medium", 3)))
-        self.assertEqual("", gates.brief_mismatch_hint(None))
-
-    def test_the_digest_and_the_brief_option_carry_it(self):
-        driver = Driver(temp_root(self), slug="brief-hint")
-        action = driver.run_until("plan_approval_pending")
-        hint = gates.brief_mismatch_hint(probe.fixture_plan())
-        self.assertTrue(hint)
-        self.assertIn(hint, gates.render_plan_digest(driver.work_dir, driver.state()))
-        self.assertIn(hint, action["text"])
-        options = {
-            option["label"]: option["description"]
-            for question in action["questions"]
-            if question["header"] == "Mode"
-            for option in question["options"]
-        }
-        self.assertIn(hint, options["Brief"])
-        self.assertNotIn(hint, options["Full"])
-
-    def test_a_low_complexity_plan_leaves_both_options_plain(self):
-        driver = Driver(temp_root(self), slug="brief-hint-low")
-        driver.run_until("plan_approval_pending")
+    def test_build_auq_of_a_medium_plan_asks_only_the_plan(self):
+        driver, _ = self.at_plan_gate("one-mode-auq")
         state_io.write_json_atomic(
-            driver.work_dir / gates.PLAN_PATH, dict(probe.fixture_plan(), estimated_complexity="low")
+            driver.work_dir / gates.PLAN_PATH, dict(probe.fixture_plan(), estimated_complexity="medium")
         )
-        auq = gates.build_auq(driver.work_dir, driver.state())
-        descriptions = [
-            option["description"]
-            for question in auq["questions"]
-            if question["header"] == "Mode"
-            for option in question["options"]
-        ]
-        self.assertEqual(
-            ["(Recommended) " + gates.MODE_SUMMARY["brief"], gates.MODE_SUMMARY["full"]], descriptions
-        )
-        self.assertNotIn("Brief researches one layer", gates.render_plan_digest(driver.work_dir, driver.state()))
+        with mock.patch.object(style_profile, "list_profiles", return_value=[]):
+            auq = gates.build_auq(driver.work_dir, driver.state())
+        self.assertEqual(["Plan"], [question["header"] for question in auq["questions"]])
+        self.assertNotIn("recommended_mode", auq)
+        with mock.patch.object(style_profile, "list_profiles", return_value=self.PROFILE):
+            auq = gates.build_auq(driver.work_dir, driver.state())
+        self.assertEqual(["Plan", "Style"], [question["header"] for question in auq["questions"]])
+        self.assertNotIn("recommended_mode", auq)
 
-    def test_the_answer_records_the_recommendation_it_was_given_against(self):
-        driver = Driver(temp_root(self), slug="brief-hint-record")
-        action = driver.run_until("plan_approval_pending")
-        driver.parse_gate(action, "approve brief")
-        iteration = driver.state()["plan_approval"]["iterations"][-1]
-        self.assertEqual("full", iteration["recommended_mode"])
-        self.assertEqual("Brief", iteration["answers"]["Mode"])
+    def test_low_complexity_plan_digest_is_full(self):
+        driver, _ = self.at_plan_gate("one-mode-low")
+        state_io.write_json_atomic(
+            driver.work_dir / gates.PLAN_PATH,
+            dict(probe.fixture_plan(), estimated_complexity="low", doctrine_required=False),
+        )
+        digest = gates.render_plan_digest(driver.work_dir, driver.state())
+        self.assertIn("Research layers: statutes, case_law (doctrine not required).", digest)
+        self.assertIn("estimated complexity: low", digest)
+        self.assertNotIn("Recommended mode", digest)
+        self.assertNotIn("Brief", digest)
+
+    def test_approve_brief_is_approve_with_notice(self):
+        for reply in ("approve brief", "brief approve"):
+            with self.subTest(reply=reply):
+                parsed = gates.parse_reply("plan", reply)
+                self.assertEqual("approve", parsed["action"])
+                self.assertEqual({"Plan": "Approve"}, parsed["answers"])
+                self.assertEqual(["brief_mode_removed"], parsed["notices"])
+        parsed = gates.parse_reply("plan", "approve full")
+        self.assertEqual("approve", parsed["action"])
+        self.assertEqual({"Plan": "Approve"}, parsed["answers"])
+        self.assertEqual([], parsed["notices"])
+
+    def test_brief_alone_is_not_an_answer_but_carries_the_notice(self):
+        parsed = gates.parse_reply("plan", "brief")
+        self.assertFalse(parsed["recognized"])
+        self.assertIsNone(parsed["action"])
+        self.assertEqual(["brief_mode_removed"], parsed["notices"])
+
+    def test_the_notice_belongs_to_the_plan_gate_only(self):
+        self.assertEqual([], gates.parse_reply("intake", "brief")["notices"])
+        self.assertEqual([], gates.parse_reply("intake", "1A brief")["notices"])
+
+    def test_every_parse_result_carries_notices(self):
+        self.assertEqual([], gates.apply_defaults("plan", [])["notices"])
+        self.assertEqual([], gates.apply_defaults("intake", [{"question": "q"}])["notices"])
+        self.assertEqual([], gates.parse_auq({"Plan": "Approve"})["notices"])
+        self.assertEqual([], gates.parse_auq({"Plan": "Cancel"})["notices"])
+        self.assertEqual([], gates.parse_auq({})["notices"])
+
+    def test_gate_parse_answers_approve_brief_with_the_notice(self):
+        driver, action = self.at_plan_gate("one-mode-parse")
+        answer = driver.parse_gate(action, "approve brief")
+        self.assertEqual("approve", answer["action"])
+        self.assertEqual(i18n.t("en", "ui.gates.brief_mode_removed"), answer["notice"])
+        self.assertNotIn("Mode", answer["answers"])
+        driver.run_until("research")
+        self.assertEqual("full", driver.state()["mode"])
+
+    def test_gate_parse_without_brief_carries_no_notice(self):
+        driver, action = self.at_plan_gate("one-mode-parse-plain")
+        answer = driver.parse_gate(action, "approve full")
+        self.assertEqual("approve", answer["action"])
+        self.assertNotIn("notice", answer)
+
+    def test_gate_parse_reprompts_brief_alone_with_the_notice(self):
+        driver, action = self.at_plan_gate("one-mode-reprompt")
+        answer = driver.parse_gate(action, "brief")
+        self.assertIn("reprompt", answer)
+        self.assertEqual(i18n.t("en", "ui.gates.brief_mode_removed"), answer["notice"])
+
+    def test_the_notice_is_in_the_interface_language(self):
+        driver, action = self.at_plan_gate("one-mode-parse-ru", ui_language="ru")
+        answer = driver.parse_gate(action, "approve brief")
+        russian = i18n.t("ru", "ui.gates.brief_mode_removed")
+        self.assertEqual(russian, answer["notice"])
+        self.assertNotEqual(i18n.t("en", "ui.gates.brief_mode_removed"), russian)
+
+    def test_budget_exhausted_brief_reply_keeps_the_notice(self):
+        driver, action = self.at_plan_gate("one-mode-budget")
+        for expected in (1, 2):
+            answer = driver.parse_gate(action, "maybe later")
+            self.assertEqual(expected, answer["parse_errors"])
+            self.assertNotIn("notice", answer)
+            action = dict(action, generation=1)
+        final = driver.parse_gate(action, "brief")
+        self.assertEqual(gates.EXHAUSTED_DEFAULT["plan"], final["action"])
+        self.assertEqual(i18n.t("en", "ui.gates.brief_mode_removed"), final["notice"])
+        self.assertEqual(1, sum(1 for key in final if key == "notice"))
 
 
 class FollowupFactsTest(unittest.TestCase):
@@ -765,9 +773,7 @@ class UnreadablePlanDegradesGateFourTest(unittest.TestCase):
         self.assertEqual("Plan", plan_question["header"])
         self.assertEqual(gates.PLAN_UNREADABLE, plan_question["question"])
         self.assertEqual(["Edit", "Cancel"], [row["label"] for row in plan_question["options"]])
-        mode_question = auq["questions"][1]
-        self.assertEqual("Mode", mode_question["header"])
-        self.assertEqual(["Full", "Brief"], [row["label"] for row in mode_question["options"]])
+        self.assertNotIn("Mode", [question["header"] for question in auq["questions"]])
         self.assertEqual(gates.PLAN_UNREADABLE + "\n", gates.render_plan_digest(driver.work_dir, state))
         fallback = gates.render(driver.work_dir, state, "plan")
         self.assertIn(gates.PLAN_UNREADABLE, fallback)
@@ -822,8 +828,8 @@ class SourcesCoverageTest(unittest.TestCase):
             "issues": [{"issue_id": "i1", "jurisdictions": list(codes)}],
         }
 
-    def budget(self, namespaces: dict, plan: dict, mode: str = "full") -> dict:
-        return gates.sources_question_needed(self.work_dir(namespaces), {}, plan, mode)
+    def budget(self, namespaces: dict, plan: dict) -> dict:
+        return gates.sources_question_needed(self.work_dir(namespaces), {}, plan)
 
     def test_one_connected_server_covers_the_eu_rows(self):
         budget = self.budget({"ldh": "mcp__x"}, self.plan("EU"))
@@ -921,7 +927,7 @@ class SourcesCoverageTest(unittest.TestCase):
             root / "intake" / "mcp-probe.json",
             {"namespaces": {"ldh": "mcp__x", "other": []}, "status": {"ldh": "quota"}},
         )
-        budget = gates.sources_question_needed(root, {}, self.plan("EU"), "full")
+        budget = gates.sources_question_needed(root, {}, self.plan("EU"))
         self.assertTrue(budget["needed"])
         self.assertEqual(
             [("statutes", "EU"), ("case_law", "EU")],
@@ -929,7 +935,7 @@ class SourcesCoverageTest(unittest.TestCase):
         )
 
     def test_a_plan_that_cannot_be_read_does_not_fire_on_coverage(self):
-        budget = gates.sources_question_needed(self.work_dir({}), {}, None, "full")
+        budget = gates.sources_question_needed(self.work_dir({}), {}, None)
         self.assertEqual([], budget["missing"])
         self.assertFalse(budget["needed"])
 
@@ -1189,7 +1195,7 @@ _EN_INSUFFICIENT = "\n".join(
 
 _EN_PLAN = "\n".join(
     [
-        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui approve full`.",
+        "Reply here, or run `/memoforge:continue memo-20260908T120000Z-ui approve`.",
         "",
         "Plan — regulatory_analysis, jurisdictions: EU, estimated complexity: high.",
         "Full plan: `plan.json` in the task work dir.",
@@ -1201,17 +1207,10 @@ _EN_PLAN = "\n".join(
         "  May the client transfer the records outside the EEA?",
         "",
         "Research layers: statutes, case_law, doctrine (doctrine required).",
-        "Recommended mode: full — Up to three layers, two review iterations, full memo.",
-        (
-            "This plan has 2 issues at high complexity; Brief researches one layer (statutes) and fits three sections "
-            "— case law and doctrine gaps become caveats."
-        ),
         "Planner notes: fixture plan produced by `mf probe dry-run`",
         "",
         "Plan: Approve this research plan?",
         "  options: Approve / Edit / Cancel",
-        "Mode: Which depth should the memo have?",
-        "  options: Full / Brief",
         "Style: Which writing style should the memo follow?",
         "  options: my-firm / standard",
         (
@@ -1224,7 +1223,7 @@ _EN_PLAN = "\n".join(
         "  options: Continue / Cancel",
         "",
         "Reply with one of:",
-        "- `approve [brief|full] [style:<name>|standard] [sources:reduced]`",
+        "- `approve [style:<name>|standard] [sources:reduced]`",
         "- `edit: <what to change>`",
         "- `cancel`",
     ]
@@ -1265,7 +1264,7 @@ class GateRenderPayloadTest(unittest.TestCase):
     """
 
     PAYLOAD_KEYS = ["gate", "phase", "text", "human", "auq"]
-    AUQ_KEYS = ["questions", "recommended_mode", "sources_budget", "style_options"]
+    AUQ_KEYS = ["questions", "sources_budget", "style_options"]
 
     def _rendered(self, driver: Driver) -> dict:
         return gates.run_render(
@@ -1398,22 +1397,17 @@ class UiLanguageGatesTest(unittest.TestCase):
                     self.expected_english(gate), gates.render(self.work, self.state_en, gate)
                 )
 
-    def test_the_russian_plan_gate_has_four_localized_questions_with_canonical_map(self):
+    def test_the_russian_plan_gate_has_three_localized_questions_with_canonical_map(self):
         auq = gates.build_auq(self.work, self.state_ru)
-        self.assertEqual(
-            ["План", "Режим", "Стиль", "Источники"], [q["header"] for q in auq["questions"]]
-        )
+        self.assertEqual(["План", "Стиль", "Источники"], [q["header"] for q in auq["questions"]])
         self.assertEqual(
             {
                 "План": "Plan",
-                "Режим": "Mode",
                 "Стиль": "Style",
                 "Источники": "Sources",
                 "Утвердить": "Approve",
                 "Изменить": "Edit",
                 "Отмена": "Cancel",
-                "Кратко": "Brief",
-                "Полный": "Full",
                 "Продолжить": "Continue",
             },
             {k: v for k, v in auq["canonical"].items() if v != k},
@@ -1421,12 +1415,12 @@ class UiLanguageGatesTest(unittest.TestCase):
 
     def test_localized_auq_answers_become_canonical_and_cancel_wins(self):
         parsed = gates.parse_auq(
-            {"План": "Утвердить", "Режим": "Кратко", "Стиль": "standard", "Источники": "Продолжить"},
+            {"План": "Утвердить", "Стиль": "standard", "Источники": "Продолжить"},
             ui="ru",
         )
         self.assertEqual("approve", parsed["action"])
         self.assertEqual(
-            {"Plan": "Approve", "Mode": "Brief", "Style": "standard", "Sources": "Continue"},
+            {"Plan": "Approve", "Style": "standard", "Sources": "Continue"},
             parsed["answers"],
         )
         self.assertEqual(
@@ -1469,10 +1463,10 @@ class UiLanguageGatesTest(unittest.TestCase):
         text = gates.render(self.work, self.state_ru, "plan")
         self.assertIn("Правовых вопросов для исследования: 2", text)
         self.assertIn("- i1 — Retention of customer records [EU]", text)
-        self.assertIn("Рекомендуемый режим: full — До трёх слоёв", text)
+        self.assertNotIn("Рекомендуемый режим", text)
         self.assertIn("План: Утвердить этот план исследования?", text)
         self.assertIn("  варианты: Утвердить / Изменить / Отмена", text)
-        self.assertIn("- `approve [brief|full] [style:<name>|standard] [sources:reduced]`", text)
+        self.assertIn("- `approve [style:<name>|standard] [sources:reduced]`", text)
         self.assertIn("- `edit: <what to change>`", text)
         self.assertIn("- `cancel`", text)
 
@@ -1505,18 +1499,6 @@ class UiLanguageGatesTest(unittest.TestCase):
         self.assertEqual("Continue", mapping["Continue"])
         # An unreadable `ui` pack falls back to the English floor (D-168), never to a crash.
         self.assertEqual(gates.canonical_map("en"), gates.canonical_map("fr"))
-
-    def test_the_recommended_mode_prefix_and_brief_hint_are_localized(self):
-        auq = gates.build_auq(self.work, self.state_ru)
-        options = {
-            option["label"]: option["description"]
-            for question in auq["questions"]
-            if question["header"] == "Режим"
-            for option in question["options"]
-        }
-        self.assertTrue(options["Полный"].startswith("(Рекомендуется) До трёх слоёв"))
-        self.assertIn("«Кратко» исследует один слой", options["Кратко"])
-        self.assertIn("Вопросов в плане: 2", options["Кратко"])
 
     def test_cancel_wins_over_an_alias_of_the_same_header_in_either_order(self):
         """Sol finding 3: the localized header and its English name collapse to one key, so a

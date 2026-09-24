@@ -24,8 +24,8 @@ First action (Bash, before any other tool call):
 - (none)
 
 A warning addressed to you is an instruction: execute it, do not quote it. Each warning that
-states a fact for the client goes into the Assumptions block of the facts section (classical memo)
-or into Key assumptions (executive brief) as one sentence, in your own words.
+states a fact for the client goes into the Assumptions block of the facts section as one sentence,
+in your own words.
 
 A summary bullet, a risk line or a recommendation whose conclusion depends on an assumption rather
 than on a stated fact says so in the same sentence: "on the assumed facts", or its equivalent in

@@ -52,16 +52,15 @@ PROBED_NAMESPACES = {
 """D-110: what the fixture `intake/mcp-probe.json` of `mcp_namespaces` above would have found."""
 
 
-def _state(mode: str, work_dir: Path) -> dict:
+def _state(work_dir: Path) -> dict:
     state = task.build_initial_state(
         task_id=TASK_ID,
         user_query="How long may the client keep customer records?",
         language="en",
         work_dir=work_dir,
         output_folder=work_dir.parent,
-        config=modes.resolve_config(mode),
+        config=modes.resolve_config("full"),
     )
-    state["mode"] = mode
     state["current_iteration"] = 1
     state["current_draft_path"] = "drafts/v1.md"
     state["current_draft_sha"] = "0" * 64
@@ -148,10 +147,8 @@ def _specs(work_dir: Path, state: dict) -> list[dict]:
             retry_errors="none",
         )
     )
-    if state["mode"] == "full":
-        # D-223: the two agents of `/memoforge:brief`, with the extras the brief driver passes. Only
-        # in Full, so the golden loop adds exactly two files and every Brief golden stays as it is.
-        specs.extend(_brief_specs())
+    # D-223: the two agents of `/memoforge:brief`, with the extras the brief driver passes.
+    specs.extend(_brief_specs())
     return specs
 
 
@@ -218,13 +215,13 @@ def normalize(text: str, work_dir: Path) -> str:
 
 
 class PromptGoldenTest(unittest.TestCase):
-    """§3.3: `substitute()` of every template, for Brief and Full, against a golden file."""
+    """§3.3: `substitute()` of every template against a golden file (D-242: one mode, `*.full.md`)."""
 
-    def _render(self, mode: str) -> dict:
+    def _render(self) -> dict:
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state(mode, work_dir)
+        state = _state(work_dir)
         state_io.write_json_atomic(work_dir / "plan.json", {
             "classification": "regulatory_analysis",
             "jurisdictions": ["EU"],
@@ -246,28 +243,36 @@ class PromptGoldenTest(unittest.TestCase):
             attempt=1,
             specs=_specs(work_dir, state),
             position=5,
-            total=13 if mode == "full" else 12,
+            total=13,
         )
         return {"work_dir": work_dir, "agents": agents}
 
     def test_prompts_match_the_golden_files(self):
         GOLDEN.mkdir(parents=True, exist_ok=True)
-        for mode in ("brief", "full"):
-            rendered = self._render(mode)
-            for agent in rendered["agents"]:
-                name = f"{agent['agent']}.{agent['slot']}.{mode}.md"
-                path = GOLDEN / name
-                text = normalize(agent["prompt"], rendered["work_dir"])
-                if UPDATE:
-                    path.write_bytes(text.encode("utf-8"))
-                    continue
-                with self.subTest(prompt=name):
-                    self.assertTrue(path.is_file(), f"missing golden {name}")
-                    self.assertEqual(path.read_text(encoding="utf-8-sig"), text)
+        rendered = self._render()
+        for agent in rendered["agents"]:
+            name = f"{agent['agent']}.{agent['slot']}.full.md"
+            path = GOLDEN / name
+            text = normalize(agent["prompt"], rendered["work_dir"])
+            if UPDATE:
+                path.write_bytes(text.encode("utf-8"))
+                continue
+            with self.subTest(prompt=name):
+                self.assertTrue(path.is_file(), f"missing golden {name}")
+                self.assertEqual(path.read_text(encoding="utf-8-sig"), text)
+
+    def test_the_writer_prompt_names_no_executive_brief(self):
+        """D-243: a warning for the client goes into the Assumptions block; there is no second template."""
+        for text in (
+            (dispatch.prompts_dir() / "memo-writer.md").read_text(encoding="utf-8"),
+            (GOLDEN / "memo-writer.writer.full.md").read_text(encoding="utf-8-sig"),
+        ):
+            self.assertNotIn("executive brief", text.lower())
+            self.assertIn("goes into the Assumptions block of the facts section as one sentence", text)
 
     def test_the_analyst_prompt_carries_the_routing_digest(self):
         """D-110: the intake pass is told what to call first for each jurisdiction."""
-        rendered = self._render("full")
+        rendered = self._render()
         prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "analyst")
         self.assertIn("- tool order by jurisdiction (statutes / case law):", prompt)
         for line in routing.routing_digest(PROBED_NAMESPACES).splitlines():
@@ -280,20 +285,18 @@ class PromptGoldenTest(unittest.TestCase):
                 self.assertNotIn("tool order by jurisdiction", agent["prompt"], agent["slot"])
 
     def test_the_sufficiency_prompt_names_the_layers_of_the_mode(self):
-        """D-112: the reviewer judges coverage against the layers its mode researches."""
-        for mode, layers in (("brief", "statutes"), ("full", "statutes, case_law, doctrine")):
-            rendered = self._render(mode)
-            prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
-            with self.subTest(mode=mode):
-                self.assertIn(f"- mode: `{mode}`", prompt)
-                self.assertIn(f"- layers this mode researches: {layers}", prompt)
-                self.assertIn("out_of_scope_gaps", prompt)
-                named = prompt.split("- layers this mode researches: ", 1)[1].splitlines()[0]
-                self.assertEqual(list(modes.MODES[mode]["researcher_layers"]), named.split(", "))
+        """D-112: the reviewer judges coverage against the layers the run researches."""
+        rendered = self._render()
+        prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
+        self.assertIn("- mode: `full`", prompt)
+        self.assertIn("- layers this mode researches: statutes, case_law, doctrine", prompt)
+        self.assertIn("out_of_scope_gaps", prompt)
+        named = prompt.split("- layers this mode researches: ", 1)[1].splitlines()[0]
+        self.assertEqual(list(modes.MODES["full"]["researcher_layers"]), named.split(", "))
 
     def test_the_currency_prompt_forbids_rewriting_its_declared_input(self):
         """D-114: `mf sources verify` inside the step moved `research/sources.json` under the step."""
-        rendered = self._render("full")
+        rendered = self._render()
         prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "currency")
         mf = dispatch.mf_path()
         self.assertIn("`research/sources.json` is the declared input of this step", prompt)
@@ -307,7 +310,7 @@ class PromptGoldenTest(unittest.TestCase):
 
     def test_the_researcher_prompt_carries_the_source_access_of_the_preflight(self):
         """D-147: the researcher is told which portal failed today before it tries it."""
-        rendered = self._render("full")
+        rendered = self._render()
         for agent in rendered["agents"]:
             line = [row for row in agent["prompt"].splitlines() if "source access today" in row]
             if agent["agent"] != "legal-researcher":
@@ -330,18 +333,16 @@ class PromptGoldenTest(unittest.TestCase):
         for agent in dispatch.PIPELINE_AGENTS:
             self.assertTrue(dispatch.prompt_path(agent).is_file(), agent)
 
-    def test_the_brief_agents_are_rendered_in_full_only(self):
-        """D-223: exactly two new goldens, `brief-writer.writer.full.md` and the fidelity reviewer's."""
-        names = {
-            mode: {f"{agent['agent']}.{agent['slot']}" for agent in self._render(mode)["agents"]}
-            for mode in ("brief", "full")
-        }
-        for mode, expected in (("full", {"brief-writer.writer", "brief-fidelity-reviewer.fidelity"}), ("brief", set())):
-            with self.subTest(mode=mode):
-                self.assertEqual(expected, {name for name in names[mode] if name.startswith("brief-")})
+    def test_the_brief_agents_are_rendered(self):
+        """D-223: exactly two goldens, `brief-writer.writer.full.md` and the fidelity reviewer's."""
+        names = {f"{agent['agent']}.{agent['slot']}" for agent in self._render()["agents"]}
+        self.assertEqual(
+            {"brief-writer.writer", "brief-fidelity-reviewer.fidelity"},
+            {name for name in names if name.startswith("brief-")},
+        )
 
     def test_paths_in_prompts_are_absolute(self):
-        rendered = self._render("full")
+        rendered = self._render()
         for agent in rendered["agents"]:
             for line in agent["prompt"].splitlines():
                 for match in re.findall(r"`([^`]+)`", line):
@@ -354,7 +355,7 @@ class PromptGoldenTest(unittest.TestCase):
             self.assertTrue(Path(dispatch.mf_path()).is_absolute())
 
     def test_researcher_prompt_carries_only_its_own_layer_rule(self):
-        rendered = self._render("full")
+        rendered = self._render()
         for agent in rendered["agents"]:
             if agent["agent"] != "legal-researcher":
                 continue
@@ -366,7 +367,7 @@ class PromptGoldenTest(unittest.TestCase):
                     self.assertNotIn(other, line, f"{layer} prompt leaked the {other} rule")
 
     def test_prompt_starts_and_ends_with_agent_log(self):
-        rendered = self._render("full")
+        rendered = self._render()
         for agent in rendered["agents"]:
             self.assertIn("--state start", agent["prompt"])
             self.assertIn("--state done", agent["prompt"])
@@ -380,15 +381,14 @@ class PromptGoldenTest(unittest.TestCase):
 
     def test_no_placeholder_survives_rendering(self):
         """D-78: `${…}` lives in the template only — a rendered prompt carries none."""
-        for mode in ("brief", "full"):
-            rendered = self._render(mode)
-            for agent in rendered["agents"]:
-                with self.subTest(mode=mode, agent=agent["agent"]):
-                    self.assertNotIn("${", agent["prompt"])
+        rendered = self._render()
+        for agent in rendered["agents"]:
+            with self.subTest(agent=agent["agent"]):
+                self.assertNotIn("${", agent["prompt"])
 
     def test_mediator_names_the_source_pack_and_writer_names_the_quote_limit(self):
         """D-183: the mediator checks a norm against the frozen pack; the writer sizes `--text`."""
-        rendered = self._render("full")
+        rendered = self._render()
         mediator = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "mediator")
         self.assertIn("research/source-pack.json", mediator)
         writer = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "writer")
@@ -396,27 +396,26 @@ class PromptGoldenTest(unittest.TestCase):
 
     def test_the_two_claim_reviewers_look_up_the_saved_text_within_their_budget(self):
         """D-208: citations spends 20 units, counterarguments 8; logic and form never look anything up."""
-        for mode in ("brief", "full"):
-            rendered = self._render(mode)
-            prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
-            command = (
-                f"`{dispatch.mf_path()} quote locate --workdir {rendered['work_dir']} "
-                '--source <id> --text "<phrase>" [--context N]`'
-            )
-            for slot, budget in (("citations", "20"), ("counterarguments", "8")):
-                with self.subTest(mode=mode, slot=slot):
-                    self.assertIn(command, prompts[slot])
-                    self.assertIn(f"Lookup budget: {budget} units", prompts[slot])
-                    self.assertIn("text_checks", prompts[slot])
-                    self.assertIn("source_evidence", prompts[slot])
-            for slot in ("logic", "form"):
-                if slot in prompts:
-                    with self.subTest(mode=mode, slot=slot):
-                        self.assertNotIn("quote locate", prompts[slot])
-                        self.assertNotIn("Lookup budget", prompts[slot])
-            for slot, prompt in prompts.items():
-                with self.subTest(mode=mode, removed_phrase=slot):
-                    self.assertNotIn("must not go beyond", prompt)
+        rendered = self._render()
+        prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
+        command = (
+            f"`{dispatch.mf_path()} quote locate --workdir {rendered['work_dir']} "
+            '--source <id> --text "<phrase>" [--context N]`'
+        )
+        for slot, budget in (("citations", "20"), ("counterarguments", "8")):
+            with self.subTest(slot=slot):
+                self.assertIn(command, prompts[slot])
+                self.assertIn(f"Lookup budget: {budget} units", prompts[slot])
+                self.assertIn("text_checks", prompts[slot])
+                self.assertIn("source_evidence", prompts[slot])
+        for slot in ("logic", "form"):
+            if slot in prompts:
+                with self.subTest(slot=slot):
+                    self.assertNotIn("quote locate", prompts[slot])
+                    self.assertNotIn("Lookup budget", prompts[slot])
+        for slot, prompt in prompts.items():
+            with self.subTest(removed_phrase=slot):
+                self.assertNotIn("must not go beyond", prompt)
 
     def test_the_two_claim_reviewers_confirm_a_court_s_act_only_by_its_own_sentence(self):
         """D-208, fix round 2: a recited clause never confirms what the court did; the passage is copied whole."""
@@ -428,17 +427,16 @@ class PromptGoldenTest(unittest.TestCase):
             "The passage is copied, not abbreviated.",
             "cut only at its two ends: no ellipses, no joined fragments",
         )
-        for mode in ("brief", "full"):
-            rendered = self._render(mode)
-            prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
-            for slot in ("citations", "counterarguments"):
-                for rule in rules:
-                    with self.subTest(mode=mode, slot=slot, rule=rule):
-                        self.assertIn(rule, " ".join(prompts[slot].split()))
-            for slot in ("logic", "form"):
-                if slot in prompts:
-                    with self.subTest(mode=mode, slot=slot):
-                        self.assertNotIn("court's own sentence", prompts[slot])
+        rendered = self._render()
+        prompts = {agent["slot"]: agent["prompt"] for agent in rendered["agents"]}
+        for slot in ("citations", "counterarguments"):
+            for rule in rules:
+                with self.subTest(slot=slot, rule=rule):
+                    self.assertIn(rule, " ".join(prompts[slot].split()))
+        for slot in ("logic", "form"):
+            if slot in prompts:
+                with self.subTest(slot=slot):
+                    self.assertNotIn("court's own sentence", prompts[slot])
 
     def test_the_citations_budget_checks_every_cit_01_candidate_first(self):
         """D-208, fix round 3: a statement whose finding lacks the rule is checked before items 2-4."""
@@ -448,20 +446,19 @@ class PromptGoldenTest(unittest.TestCase):
             "check each one before items 2–4: read the cited statute article whole (1 unit), or look up the "
             "court's own words.",
         )
-        for mode in ("brief", "full"):
-            rendered = self._render(mode)
-            prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in rendered["agents"]}
-            for rule in rules:
-                with self.subTest(mode=mode, rule=rule):
-                    self.assertIn(rule, prompts["citations"])
-            with self.subTest(mode=mode, slot="counterarguments"):
-                self.assertNotIn("CIT-01 candidate", prompts["counterarguments"])
+        rendered = self._render()
+        prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in rendered["agents"]}
+        for rule in rules:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, prompts["citations"])
+        with self.subTest(slot="counterarguments"):
+            self.assertNotIn("CIT-01 candidate", prompts["counterarguments"])
 
     def test_the_lookup_budget_of_each_reviewer_and_the_default_of_every_other_agent(self):
         """D-208: `${lookup_budget}` is 20 / 8 / 0 / 0 by reviewer kind, and 0 for every other agent."""
         work_dir = temp_root(self) / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         specs = machine.reviewer_specs(work_dir, state, ["logic", "form", "citations", "counterarguments"], 1)
         self.assertEqual(
             {"logic": "0", "form": "0", "citations": "20", "counterarguments": "8"},
@@ -471,24 +468,22 @@ class PromptGoldenTest(unittest.TestCase):
 
     def test_the_readiness_prompt_carries_the_open_findings_and_the_disposition_rules(self):
         """D-211: `${open_findings}` and the rules of the three dispositions; the re-check scope line."""
-        for mode in ("brief", "full"):
-            prompts = {agent["slot"]: agent["prompt"] for agent in self._render(mode)["agents"]}
-            readiness = prompts["client_readiness"]
-            with self.subTest(mode=mode):
-                self.assertIn("## Open reviewer findings\n\nnone\n", readiness)
-                for phrase in (
-                    "`dispositions`",
-                    '"action": "polish" | "manual_review" | "leave"',
-                    "no new statement of law and no new authority",
-                    "CIT-04",
-                    "counts as `manual_review` for `citations` and `leave` for the others",
-                    "for information",
-                ):
-                    self.assertIn(phrase, readiness)
-                self.assertIn(
-                    "- polish re-check (none: an ordinary review of the whole draft): none", prompts["citations"]
-                )
-                self.assertIn("`resolutions`", prompts["citations"])
+        prompts = {agent["slot"]: agent["prompt"] for agent in self._render()["agents"]}
+        readiness = prompts["client_readiness"]
+        self.assertIn("## Open reviewer findings\n\nnone\n", readiness)
+        for phrase in (
+            "`dispositions`",
+            '"action": "polish" | "manual_review" | "leave"',
+            "no new statement of law and no new authority",
+            "CIT-04",
+            "counts as `manual_review` for `citations` and `leave` for the others",
+            "for information",
+        ):
+            self.assertIn(phrase, readiness)
+        self.assertIn(
+            "- polish re-check (none: an ordinary review of the whole draft): none", prompts["citations"]
+        )
+        self.assertIn("`resolutions`", prompts["citations"])
         self.assertEqual("none", dispatch._DEFAULT_EXTRAS["open_findings"])  # noqa: SLF001
         self.assertEqual("none", dispatch._DEFAULT_EXTRAS["recheck_scope"])  # noqa: SLF001
 
@@ -496,7 +491,7 @@ class PromptGoldenTest(unittest.TestCase):
         """D-208 rule 1: the removed wording is gone from the spec, and the saved text wins."""
         work_dir = temp_root(self) / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         pairs = machine.reviewer_specs(work_dir, state, ["citations"], 1)[0]["extra"]["claim_pairs"]
         self.assertNotIn("must not go beyond", pairs)
         self.assertIn("pairing key", pairs)
@@ -518,13 +513,11 @@ class PromptGoldenTest(unittest.TestCase):
             "the source says: CIT-02 grades `false`, and the draft sentence gets a blocker with `checklist_id` "
             "`CIT-02` and `issue_category: source_drift`."
         )
-        for mode in ("brief", "full"):
-            prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in self._render(mode)["agents"]}
-            with self.subTest(mode=mode):
-                self.assertIn(carry, prompts["citations"])
-                self.assertIn(limb, prompts["citations"])
-                self.assertNotIn("did not reach come next", prompts["counterarguments"])
-                self.assertNotIn("sibling limb", prompts["counterarguments"])
+        prompts = {agent["slot"]: " ".join(agent["prompt"].split()) for agent in self._render()["agents"]}
+        self.assertIn(carry, prompts["citations"])
+        self.assertIn(limb, prompts["citations"])
+        self.assertNotIn("did not reach come next", prompts["counterarguments"])
+        self.assertNotIn("sibling limb", prompts["counterarguments"])
         self.assertEqual("none", dispatch._DEFAULT_EXTRAS["carry_over"])  # noqa: SLF001
 
     def test_only_the_citations_spec_carries_the_unchecked_pairs(self):
@@ -558,7 +551,7 @@ class PromptGoldenTest(unittest.TestCase):
             ],
         }
         path = state_io.write_json_atomic(work_dir / "reviews" / "v1-citations.json", document)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state.update(current_iteration=2, current_draft_path="drafts/v2.md")
         state["iterations"] = [{"iteration": 1, "draft_sha": "1" * 64}]
         state["published"] = [{"canonical_path": "reviews/v1-citations.json", "sha256": state_io.sha256_file(path)}]
@@ -577,7 +570,7 @@ class PromptGoldenTest(unittest.TestCase):
 
     def test_every_output_names_its_schema_file(self):
         """D-79: `${outputs}` prints the schema name and the absolute schema path."""
-        rendered = self._render("full")
+        rendered = self._render()
         for agent in rendered["agents"]:
             for row in agent["expected_outputs"]:
                 name = row["schema"]
@@ -611,7 +604,7 @@ class BriefPromptTest(unittest.TestCase):
     def _render(self, specs: list[dict]) -> list[dict]:
         work_dir = temp_root(self) / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         return dispatch.render_agents(
             work_dir, state, step_id="b-1a2b3c4d-001", attempt=1, specs=specs, position=0, total=0
         )
@@ -683,7 +676,7 @@ class BriefPromptTest(unittest.TestCase):
         """With both brief variables empty the memo prompt is byte-identical (the golden proves the rest)."""
         work_dir = temp_root(self) / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         spec = machine.reviewer_specs(work_dir, state, ["form"], 1)[0]
         lines = self._render([spec])[0]["prompt"].splitlines()
         self.assertIn("Every issue carries `lens`: `clarity` or `style`.", lines)
@@ -709,7 +702,7 @@ class DraftingWarningsBlockTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("brief", work_dir)
+        state = _state(work_dir)
         state["drafting_warnings"] = list(warnings)
         agents = dispatch.render_agents(
             work_dir,
@@ -781,7 +774,7 @@ class SpecStoreEncodingTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("brief", work_dir)
+        state = _state(work_dir)
         specs = [
             dispatch.spec(
                 "writer",
@@ -827,9 +820,9 @@ class DescriptionTest(unittest.TestCase):
             dispatch.description(5, 13, "legal-researcher", "statutes"),
         )
 
-    def test_denominator_follows_the_mode(self):
-        for mode, total in (("full", 13), ("brief", 12)):
-            driver = Driver(temp_root(self), mode=mode, slug=f"denom-{mode}")
+    def test_denominator_follows_the_route(self):
+        for user_config, total in (({}, 13), ({"source_review_gate": "off"}, 12)):
+            driver = Driver(temp_root(self), slug=f"denom-{total}", user_config=user_config)
             action = driver.run_until("research")
             for agent in action["agents"]:
                 self.assertTrue(agent["description"].startswith(f"P5/{total} · "))
@@ -853,7 +846,7 @@ class DescriptionTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state["progress"]["mcp_calls"] = {"ldh": 7, "legalviz": 54}
         context = dispatch.build_context(
             work_dir,
@@ -902,7 +895,7 @@ class ModelsTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state["config"]["writer_model"] = "fable"
         agents = dispatch.render_agents(
             work_dir,
@@ -930,7 +923,7 @@ class ModelsTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         agents = dispatch.render_agents(
             work_dir,
             state,
@@ -1039,7 +1032,7 @@ class RetrySpecTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state_io.write_json_atomic(work_dir / "plan.json", {
             "classification": "regulatory_analysis",
             "jurisdictions": ["EU"],
@@ -1179,7 +1172,7 @@ class RoutingParameterTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         work_dir.mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state_io.write_json_atomic(work_dir / "plan.json", {
             "classification": "regulatory_analysis",
             "jurisdictions": list(codes),
@@ -1252,14 +1245,12 @@ class CurrencyUnresolvedChangeTest(unittest.TestCase):
     """D-218, fix round 1: a listed change whose effect the checker could not resolve is `manual_check`."""
 
     def test_the_rendered_currency_prompt_names_the_status_of_an_unresolved_change(self):
-        for mode in ("brief", "full"):
-            rendered = PromptGoldenTest._render(self, mode)
-            prompt = next(a["prompt"] for a in rendered["agents"] if a["agent"] == "currency-checker")
-            text = " ".join(prompt.split())
-            with self.subTest(mode=mode):
-                self.assertIn("If that lookup fails, the status is `manual_check`", text)
-                self.assertIn("names the amending instrument and says its effect is unresolved", text)
-                self.assertNotIn("the source is not `current` on that text", text)
+        rendered = PromptGoldenTest._render(self)
+        prompt = next(a["prompt"] for a in rendered["agents"] if a["agent"] == "currency-checker")
+        text = " ".join(prompt.split())
+        self.assertIn("If that lookup fails, the status is `manual_check`", text)
+        self.assertIn("names the amending instrument and says its effect is unresolved", text)
+        self.assertNotIn("the source is not `current` on that text", text)
 
 
 class ResearcherSaveRuleTest(unittest.TestCase):
@@ -1271,14 +1262,13 @@ class ResearcherSaveRuleTest(unittest.TestCase):
     """
 
     def _researchers(self) -> list[str]:
-        """Every researcher prompt of both modes, normalised exactly as the goldens are."""
+        """Every researcher prompt of the run, normalised exactly as the goldens are."""
         prompts = []
-        for mode in ("brief", "full"):
-            rendered = PromptGoldenTest._render(self, mode)
-            for agent in rendered["agents"]:
-                if agent["agent"] == "legal-researcher":
-                    prompts.append(normalize(agent["prompt"], rendered["work_dir"]))
-        self.assertEqual(4, len(prompts), "statutes in Brief; statutes, case_law, doctrine in Full")
+        rendered = PromptGoldenTest._render(self)
+        for agent in rendered["agents"]:
+            if agent["agent"] == "legal-researcher":
+                prompts.append(normalize(agent["prompt"], rendered["work_dir"]))
+        self.assertEqual(3, len(prompts), "statutes, case_law, doctrine")
         return prompts
 
     @staticmethod
@@ -1390,7 +1380,7 @@ class ResearcherSaveRuleTest(unittest.TestCase):
 
     def test_the_sufficiency_reviewer_reads_raw_kind_and_the_save_outcome(self):
         """D-205: a critical source not saved whole goes back for `save` — unless a save was tried."""
-        rendered = PromptGoldenTest._render(self, "full")
+        rendered = PromptGoldenTest._render(self)
         prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
         for words in (
             "`raw_kind`",
@@ -1436,15 +1426,13 @@ class CourtWordsPromptTest(unittest.TestCase):
                     self.assertIn(words, prompt)
 
     def test_the_sufficiency_prompt_spot_checks_at_most_five_case_law_holdings(self):
-        for mode in ("brief", "full"):
-            rendered = PromptGoldenTest._render(self, mode)
-            prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
-            prompt = normalize(prompt, rendered["work_dir"])
-            with self.subTest(mode=mode):
-                self.assertIn(self.LOCATE, prompt)
-                self.assertIn("up to 5 `critical` case-law findings", prompt)
-                self.assertIn("is a gap for `case_law`", prompt)
-                self.assertIn("is a `missing` gap for `statutes`", prompt)
+        rendered = PromptGoldenTest._render(self)
+        prompt = next(a["prompt"] for a in rendered["agents"] if a["slot"] == "sufficiency")
+        prompt = normalize(prompt, rendered["work_dir"])
+        self.assertIn(self.LOCATE, prompt)
+        self.assertIn("up to 5 `critical` case-law findings", prompt)
+        self.assertIn("is a gap for `case_law`", prompt)
+        self.assertIn("is a `missing` gap for `statutes`", prompt)
 
     def test_the_locate_line_is_a_command_the_cli_accepts(self):
         tokens = shlex.split(self.LOCATE.strip("`").replace("{MF}", "mf", 1))
@@ -1460,7 +1448,7 @@ class McpNamespaceFieldTest(unittest.TestCase):
         root = temp_root(self)
         work_dir = root / TASK_ID
         (work_dir / "intake").mkdir(parents=True, exist_ok=True)
-        state = _state("full", work_dir)
+        state = _state(work_dir)
         state_io.write_json_atomic(work_dir / gates.PLAN_PATH, {
             "classification": "regulatory_analysis",
             "jurisdictions": ["RU"],
@@ -1543,7 +1531,7 @@ class MemoLanguageTest(unittest.TestCase):
         with mock.patch.object(i18n, "PACK_DIR", packs):
             work_dir = temp_root(self) / TASK_ID
             work_dir.mkdir(parents=True, exist_ok=True)
-            state = _state("brief", work_dir)
+            state = _state(work_dir)
             state["language"] = language
             agents = dispatch.render_agents(
                 work_dir, state, step_id="s-017", attempt=1, specs=[make_spec(work_dir, state)],
@@ -1610,7 +1598,7 @@ class SourceAccessLanguageTest(unittest.TestCase):
         with mock.patch.object(i18n, "PACK_DIR", packs):
             root = temp_root(self) / (TASK_ID + "-ui")
             root.mkdir(parents=True, exist_ok=True)
-            state = _state("full", root)
+            state = _state(root)
             state["ui_language"] = "ru"
             state_io.write_json_atomic(
                 root / preflight.PREFLIGHT_PATH,
@@ -1655,7 +1643,7 @@ class UiLanguageAgentFieldsTest(unittest.TestCase):
         with mock.patch.object(i18n, "PACK_DIR", packs):
             work_dir = temp_root(self) / TASK_ID
             work_dir.mkdir(parents=True, exist_ok=True)
-            state = _state("brief", work_dir)
+            state = _state(work_dir)
             state["language"] = language
             state["ui_language"] = ui_language
             agents = dispatch.render_agents(
@@ -1688,7 +1676,7 @@ class UiLanguageAgentFieldsTest(unittest.TestCase):
         with mock.patch.object(i18n, "PACK_DIR", packs):
             work_dir = temp_root(self) / TASK_ID
             work_dir.mkdir(parents=True, exist_ok=True)
-            state = _state("brief", work_dir)
+            state = _state(work_dir)
             state["language"] = language
             state["ui_language"] = ui_language
             agents = dispatch.render_agents(

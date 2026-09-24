@@ -57,16 +57,6 @@ RU_UI: dict = {
     "ui.phases.done": "Готово",
     "ui.phases.failed": "Остановлено с резервным результатом",
     "ui.phases.cancelled_by_user": "Отменено",
-    "ui.gates.mode_summary_brief": "Один слой исследования, два раунда ревью, ~1200 слов.",
-    "ui.gates.mode_summary_full": "До трёх слоёв, два раунда ревью, полное мемо.",
-    "ui.gates.brief_mismatch_hint_one": (
-        "Вопросов в плане: {count}, сложность — {complexity}; «Кратко» исследует один слой "
-        "(законодательство) и вмещает три раздела: практика и доктрина уйдут в оговорки."
-    ),
-    "ui.gates.brief_mismatch_hint_many": (
-        "Вопросов в плане: {count}, сложность — {complexity}; «Кратко» исследует один слой "
-        "(законодательство) и вмещает три раздела: практика и доктрина уйдут в оговорки."
-    ),
     "ui.gates.question_line": "{index}. {question}",
     "ui.gates.option_line": "{letter}) {label} — {description}",
     "ui.gates.default_line": "{question} — допущение: {default}",
@@ -105,28 +95,26 @@ RU_UI: dict = {
     "ui.gates.plan_digest_no_layers": "нет",
     "ui.gates.plan_digest_doctrine_required": "нужна",
     "ui.gates.plan_digest_doctrine_not_required": "не нужна",
-    "ui.gates.plan_digest_recommended_mode": "Рекомендуемый режим: {mode} — {summary}",
     "ui.gates.plan_digest_notes": "Заметки планировщика: {notes}",
     "ui.gates.plan_text_question": "{header}: {question}",
     "ui.gates.plan_text_options": "варианты: {labels}",
     "ui.gates.plan_text_reply_heading": "Ответьте одним из:",
+    "ui.gates.brief_mode_removed": (
+        "Режима «Кратко» больше нет: каждый запуск полный. Когда мемо готово, /memoforge:brief "
+        "делает из него справку для принятия решения."
+    ),
     "ui.gates.header_plan": "План",
-    "ui.gates.header_mode": "Режим",
     "ui.gates.header_style": "Стиль",
     "ui.gates.header_sources": "Источники",
     "ui.gates.option_approve": "Утвердить",
     "ui.gates.option_edit": "Изменить",
     "ui.gates.option_cancel": "Отмена",
-    "ui.gates.option_brief": "Кратко",
-    "ui.gates.option_full": "Полный",
     "ui.gates.option_continue": "Продолжить",
     "ui.gates.option_approve_description": "Начать исследование по плану как есть.",
     "ui.gates.option_edit_description": "Скажите, что изменить; план будет перестроен.",
     "ui.gates.option_cancel_description": "Остановить задачу сейчас.",
     "ui.gates.option_continue_description": "Продолжить с ограниченным покрытием.",
     "ui.gates.plan_question": "Утвердить этот план исследования?",
-    "ui.gates.mode_question": "Какой глубины должно быть мемо?",
-    "ui.gates.mode_recommended": "(Рекомендуется) {description}",
     "ui.gates.style_question": "В каком стиле писать мемо?",
     "ui.gates.style_option_profile_description": "Использовать сохранённый профиль `{name}`.",
     "ui.gates.style_option_standard_description": "Использовать встроенный стиль.",
@@ -143,12 +131,8 @@ RU_UI: dict = {
     ),
     "ui.machine.plan_gate_dashboard": "План исследования — на вашей панели: {url}",
     "ui.machine.plan_gate_file": "Файл: {path} в рабочей папке {work_dir}",
-    "ui.machine.plan_gate_shape_one": (
-        "Правовых вопросов: {count} · рекомендуемый режим: {mode} · оценка сложности: {complexity}"
-    ),
-    "ui.machine.plan_gate_shape_many": (
-        "Правовых вопросов: {count} · рекомендуемый режим: {mode} · оценка сложности: {complexity}"
-    ),
+    "ui.machine.plan_gate_shape_one": "Правовых вопросов: {count} · оценка сложности: {complexity}",
+    "ui.machine.plan_gate_shape_many": "Правовых вопросов: {count} · оценка сложности: {complexity}",
     "ui.machine.gate_pointer": "{label} — на панели: {url}",
     "ui.machine.gate_pointer_one": "{label} (вопросов: {count}) — на панели: {url}",
     "ui.machine.gate_pointer_many": "{label} (вопросов: {count}) — на панели: {url}",
@@ -161,7 +145,7 @@ RU_UI: dict = {
     "ui.machine.answer_hint_insufficient": "Ответьте в чате: continue · cancel",
     "ui.machine.answer_hint_source_review": "Ответьте в чате: continue · cancel",
     "ui.machine.answer_hint_plan": (
-        "Ответьте на вопрос из чата (или текстом: approve [brief|full] · edit: … · cancel)"
+        "Ответьте на вопрос из чата (или текстом: approve · edit: … · cancel)"
     ),
     "ui.machine.agent_fact_assumption_analyst": "Аналитик фактов и допущений",
     "ui.machine.agent_legal_researcher": "Исследователь",
@@ -264,7 +248,6 @@ RU_UI: dict = {
     "ui.dashboard.skip_note": "Если пропустите: {default}",
     "ui.dashboard.plan_unclassified": "без классификации",
     "ui.dashboard.plan_complexity": "сложность {value}",
-    "ui.dashboard.plan_recommended_mode": "рекомендуемый режим {value}",
     "ui.dashboard.plan_layers": "слои: {value}",
     "ui.dashboard.plan_approved": "утверждено",
     "ui.dashboard.plan_awaiting": "ждёт вашего утверждения",
