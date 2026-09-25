@@ -538,6 +538,34 @@ class CourtPositionTest(unittest.TestCase):
         self.assertIn("A misstated court position is CIT-02, never CIT-07.", body)
 
 
+class FindingUnitAndAuthorshipTest(unittest.TestCase):
+    """D-247: run 74 verified a compound finding by the quote of one half, and run 79 credited the court with
+    words whose speaker the saved text never established."""
+
+    def test_the_researcher_prompt_keeps_one_thought_per_finding_and_withholds_unestablished_authorship(self):
+        prompt = flat(PROMPTS / "legal-researcher.md")
+        for needle in (
+            "One finding is one self-contained, verifiable thought",
+            "a condition is never split from its consequence",
+            "its authorship is not established",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, prompt)
+
+    def test_the_researcher_body_carries_both_rules(self):
+        rules = " ".join(rules_of("legal-researcher").split())
+        for needle in ("One finding is one self-contained, verifiable thought", "authorship is not established"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rules)
+
+    def test_the_writer_never_upgrades_an_unestablished_statement_to_the_court_s(self):
+        prompt = flat(PROMPTS / "memo-writer.md")
+        self.assertTrue("«суд установил»" in prompt or "«суд исходил»" in prompt)
+        self.assertIn("whose position it is does not appear from the text", prompt)
+        body = " ".join(read(AGENTS / "memo-writer.md").split())
+        self.assertIn("whose authorship the research marks as not established", body)
+
+
 class MoneyAndRequiredStepsTest(unittest.TestCase):
     """D-240: run 79 counted a loss and its replacement twice and called a prudent step required."""
 

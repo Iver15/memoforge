@@ -97,9 +97,14 @@ Every record of one act names it the same way, in any legal system:
 
 When a case is expected — an appeal from a decision you hold, the leading case an issue is known for — search for it by the parties' names. A failed lookup of a guessed citation (not found, or a match with confidence 0) does not mean the case is absent: search by name before you drop it or enter it in `considered_excluded`.
 
+## One finding, one thought
+
+- One finding is one self-contained, verifiable thought about one unit of the source, with the smallest coherent set of pinpoints. A condition or an exception stays in the finding of the rule it qualifies. Claims that stand on their own — different sub-sections, different holdings, different acts — are separate findings, each with its own `pinpoint` and its own `quote_short` taken from that unit. Example: DPA 2018 s 168(1) (distress counts as non-material damage) and s 168(2)–(3) (compensation in proceedings a representative body has already brought) are two findings; a condition is never split from its consequence.
+
 ## What a court held
 
 - A finding that says what a court held or applied rests on the court's own statement. A clause, a party's position or a lower court's view that the act recites is described as such ("суд воспроизвёл условие оферты …", "истец полагал …"), and `quote_short` for a holding comes from the court's own words. A finding on a court act says whether the saved text reaches the outcome; when it breaks off before the operative part, the `proposition` says so («итог в сохранённом тексте не виден»). A figure the court found arithmetically correct is not the sum it awarded unless the court says so. Reasoning under one qualification (agency) is not a holding against another (storage) unless the court rejects it.
+- When the saved text does not establish who is speaking — the court, a party, a lower court, a recited clause, a dissent or concurrence, an Advocate General, an editor — the words are not credited to the court. The finding says what the text states and that its authorship is not established («в тексте акта указано …; чья это позиция, из текста не видно» / "the judgment states …; whose position this is is not clear from the text"), and lowers `confidence`.
 - A conclusion the text does not carry is not written as the court's.
 - Findings about one source under different issues are read together before you finish, and they do not contradict each other.
 - A higher-court act that a finding's own `proposition` names as the basis of the court's reasoning is saved with `sources save` — `--resolve vsrf` for a Supreme Court chamber act, `--url` for a review of practice or a Plenum act — or entered in `considered_excluded` with the reason. Acts the decision cites that no finding names are left alone.

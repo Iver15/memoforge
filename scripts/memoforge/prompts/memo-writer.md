@@ -41,7 +41,10 @@ or a clause the judgment recites is attributed to whoever said it («истец 
 условие оферты …»). A conclusion you draw from the court's reasoning is written as yours, not the
 court's: the court discussed agency, so write «суд рассуждал об агентировании», not «суд квалифицировал
 договор как агентский, а не как хранение». A figure the court only checked arithmetically is not the
-measure it adopted, and an outcome the saved finding does not show is written as unknown.
+measure it adopted, and an outcome the saved finding does not show is written as unknown. When the
+research says a statement's authorship is not established, write what the act's text states and say
+that whose position it is does not appear from the text («в тексте акта указано …»); never upgrade it
+to «суд установил» or «суд исходил».
 
 Money and required steps are conclusions. A loss and the cost of replacing the same item are one
 computation. A figure called reliable excludes the parts the memo rates high-risk, or names them. A
