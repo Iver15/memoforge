@@ -516,6 +516,28 @@ class CourtAttributionTest(unittest.TestCase):
                 self.assertIn("rests on one source", text)
 
 
+class CourtPositionTest(unittest.TestCase):
+    """D-246: run 79's court misattributions were born at the writer, and the citations reviewer graded one
+    as CIT-07, which the mediator then dropped, instead of CIT-02."""
+
+    def test_the_writer_credits_a_court_only_with_its_own_reasoning_and_conclusion(self):
+        prompt = flat(PROMPTS / "memo-writer.md")
+        for needle in (
+            "A court is credited only with its own reasoning and its own conclusion",
+            "«суд рассуждал об агентировании»",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, prompt)
+        self.assertIn(
+            "A court is credited only with its own reasoning and conclusion", " ".join(rules_of("memo-writer").split())
+        )
+
+    def test_the_auditor_grades_a_misstated_court_position_as_cit_02(self):
+        self.assertIn("is CIT-02, never CIT-07", flat(PROMPTS / "citation-auditor.md"))
+        body = " ".join(read(AGENTS / "citation-auditor.md").split())
+        self.assertIn("A misstated court position is CIT-02, never CIT-07.", body)
+
+
 class MoneyAndRequiredStepsTest(unittest.TestCase):
     """D-240: run 79 counted a loss and its replacement twice and called a prudent step required."""
 

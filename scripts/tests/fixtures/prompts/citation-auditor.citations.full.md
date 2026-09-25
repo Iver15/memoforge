@@ -98,7 +98,10 @@ Each checked statement gets one row in `text_checks`: `{"source_id", "section_id
   only recited or found arithmetically correct, presented as the measure it adopted or the sum it awarded;
   an outcome past the point where the saved text breaks off. What is reported truthfully passes: «суд
   признал контррасчёт ответчика арифметически верным» is `confirmed` when the text says so. No issue when
-  confirmed.
+  confirmed. A statement that misstates what a court held or did — its reasoning, its conclusion, the
+  measure it applied, the outcome — is CIT-02, never CIT-07: CIT-07 is for an authority described as more
+  current, more settled or more on point than the record supports, not for a court credited with a
+  position it did not take.
 - `contradicted` — the located text says otherwise, or the rule is absent. The draft sentence gets a
   blocker: `issue_category: unsupported_claim`, `checklist_id` `CIT-01` (the rule is not in the source)
   or `CIT-02` (the holding is misstated), and `source_evidence` `{"source_id", "status": "contradicted",

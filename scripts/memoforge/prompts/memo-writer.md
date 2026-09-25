@@ -35,6 +35,14 @@ A summary bullet, a risk line or a recommendation whose conclusion depends on an
 than on a stated fact says so in the same sentence: "on the assumed facts", or its equivalent in
 ${memo_language_name}.
 
+A court is credited only with its own reasoning and its own conclusion. A party's submission, a lower
+court's view, a dissenting or concurring opinion, an Advocate General's opinion, an editor's headnote,
+or a clause the judgment recites is attributed to whoever said it («истец полагал …», «суд воспроизвёл
+условие оферты …»). A conclusion you draw from the court's reasoning is written as yours, not the
+court's: the court discussed agency, so write «суд рассуждал об агентировании», not «суд квалифицировал
+договор как агентский, а не как хранение». A figure the court only checked arithmetically is not the
+measure it adopted, and an outcome the saved finding does not show is written as unknown.
+
 Money and required steps are conclusions. A loss and the cost of replacing the same item are one
 computation. A figure called reliable excludes the parts the memo rates high-risk, or names them. A
 step presented as required before another needs a cited rule; otherwise write it as a prudent step.
