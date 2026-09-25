@@ -30,6 +30,7 @@ from memoforge import (  # noqa: E402
     quotes,
     review,
     routing,
+    schema,
     sources,
     state_io,
     task,
@@ -476,7 +477,7 @@ class PromptGoldenTest(unittest.TestCase):
             '"action": "polish" | "manual_review" | "leave"',
             "no new statement of law and no new authority",
             "CIT-04",
-            "counts as `manual_review` for `citations` and `leave` for the others",
+            "not allow, counts as `manual_review`.",  # D-237: one default, `manual_review`, for every class
             "for information",
         ):
             self.assertIn(phrase, readiness)
@@ -567,6 +568,60 @@ class PromptGoldenTest(unittest.TestCase):
         )
         first = machine.reviewer_specs(work_dir, state, ["citations"], 1)[0]
         self.assertEqual("none", first["extra"]["carry_over"])
+
+    def test_only_the_citations_spec_carries_the_sufficiency_checks(self):
+        """D-238: a weak gap's `why_blocking` reaches the citations reviewer; the client-facing `gap` does not."""
+        # Run 79, first weak gap: the `gap` is about the unread offer, `why_blocking` about the saved text.
+        gap = "Текст оферты Ozon в редакции на август 2026 года получить не удалось."
+        why = (
+            "Находка по п. 1 ст. 902 ГК РФ опускает оговорку «если законом или договором хранения\n"
+            "не предусмотрено иное», хотя сохранённый текст статьи её содержит."
+        )
+        work_dir = temp_root(self) / TASK_ID
+        (work_dir / "research").mkdir(parents=True, exist_ok=True)
+        state = _state(work_dir)
+        kinds = ["logic", "form", "citations", "counterarguments"]
+        self.assertEqual("none", dispatch._DEFAULT_EXTRAS["sufficiency_checks"])  # noqa: SLF001
+        before = machine.reviewer_specs(work_dir, state, ["citations"], 1)[0]
+        self.assertEqual("none", before["extra"]["sufficiency_checks"], "no reviewer file, nothing to check")
+        document = {
+            "reviewer": "research_sufficiency",
+            "overall_verdict": "sufficient",
+            "blocking_gaps": [
+                {"gap": gap, "target": "statutes", "status": "weak", "why_blocking": why, "followup_question": None},
+                {"gap": "Практика округов не найдена.", "target": "case_law", "status": "weak",
+                 "why_blocking": " ", "followup_question": None},
+                {"gap": "Доктрина не найдена.", "target": "doctrine", "status": "missing",
+                 "why_blocking": "Слой доктрины пуст.", "followup_question": None},
+                # Fix round 1: a user gap says nothing about a saved text, so it spends no lookup.
+                {"gap": "Не известно, кто указан продавцом в чеках.", "target": "user", "status": "weak",
+                 "why_blocking": "Ответ пользователя не получен.",
+                 "followup_question": {
+                     "question": "Кто указан продавцом в чеках?",
+                     "header": "Продавец",
+                     "options": [
+                         {"label": "Селлер", "description": "В чеках продавцом указан селлер."},
+                         {"label": "Маркетплейс", "description": "В чеках продавцом указан маркетплейс."},
+                     ],
+                     "default_assumption_if_skipped": "Продавцом в чеках указан селлер.",
+                 }},
+            ],
+            "drafting_warnings": [],
+        }
+        self.assertEqual([], schema.validate(document, "research-sufficiency"))
+        state_io.write_json_atomic(work_dir / "research" / "research-sufficiency.json", document)
+        specs = machine.reviewer_specs(work_dir, state, kinds, 1)
+        checks = {spec["slot"]: spec["extra"]["sufficiency_checks"] for spec in specs}
+        self.assertEqual(
+            "statutes · Находка по п. 1 ст. 902 ГК РФ опускает оговорку «если законом или договором хранения "
+            "не предусмотрено иное», хотя сохранённый текст статьи её содержит.",
+            checks["citations"],
+        )
+        self.assertNotIn(gap, checks["citations"])
+        self.assertNotIn("Ответ пользователя не получен.", checks["citations"])
+        self.assertNotIn("user ·", checks["citations"])
+        self.assertEqual({"logic": "none", "form": "none", "counterarguments": "none"},
+                         {slot: text for slot, text in checks.items() if slot != "citations"})
 
     def test_every_output_names_its_schema_file(self):
         """D-79: `${outputs}` prints the schema name and the absolute schema path."""
@@ -880,16 +935,19 @@ class ModelsTest(unittest.TestCase):
         for agent, expected in sorted(rows.items()):
             self.assertEqual(expected, dispatch.AGENT_MODELS[agent], agent)
 
-    def test_the_case_law_slot_is_the_one_layer_override_and_models_md_names_it(self):
-        """D-209: `case_law` runs on `opus`; the agent's own row, and so its frontmatter, stays `sonnet`."""
-        self.assertEqual({"case_law": "opus"}, dispatch.RESEARCH_LAYER_MODELS)
-        self.assertEqual("sonnet", dispatch.AGENT_MODELS["legal-researcher"]["model"])
-        self.assertLessEqual(set(dispatch.RESEARCH_LAYER_MODELS), set(routing.LAYERS))
+    def test_every_research_layer_runs_on_the_agent_row(self):
+        """D-245: the researcher's row is `opus`, so the D-209 per-layer override is gone with its table."""
+        self.assertEqual({"model": "opus", "effort": "high"}, dispatch.AGENT_MODELS["legal-researcher"])
+        self.assertFalse(hasattr(dispatch, "RESEARCH_LAYER_MODELS"))
         text = (PLUGIN_ROOT / "lib" / "models.md").read_text(encoding="utf-8-sig")
         row = next(line for line in text.splitlines() if line.startswith("| `legal-researcher` |"))
-        self.assertIn("`dispatch.RESEARCH_LAYER_MODELS`", row)
-        for layer, model in dispatch.RESEARCH_LAYER_MODELS.items():
-            self.assertIn(f"The `{layer}` slot is dispatched on `{model}`", row)
+        self.assertNotIn("RESEARCH_LAYER_MODELS", row)
+
+    def test_no_pipeline_agent_runs_on_sonnet(self):
+        """D-245: every agent that judges substance runs on `opus`; `config.writer_model` may still pick `sonnet`."""
+        for agent in dispatch.PIPELINE_AGENTS:
+            with self.subTest(agent=agent):
+                self.assertNotEqual("sonnet", dispatch.AGENT_MODELS[agent]["model"])
 
     def test_writer_model_comes_from_config(self):
         root = temp_root(self)
@@ -1075,6 +1133,7 @@ class RetrySpecTest(unittest.TestCase):
             "user_response": "only the German entity, 2019 onwards",
         }
         originals = machine.researcher_specs(work_dir, state, ["statutes", "case_law"])
+        originals[1]["model"] = "fable"
         issued, restored, again = self._round_trip(state, work_dir, "s-071", originals)
         for index, original in enumerate(originals):
             with self.subTest(slot=original["slot"]):
@@ -1085,8 +1144,9 @@ class RetrySpecTest(unittest.TestCase):
                 self.assertEqual(original["extra"], restored[index]["extra"])
                 self.assertEqual(original["inputs"], restored[index]["inputs"])
                 self.assertEqual(issued[index]["prompt"], again[index]["prompt"])
-        # D-209: the stored spec carries the slot's model, so a retry of `case_law` stays on `opus`.
-        self.assertEqual(["sonnet", "opus"], [agent["model"] for agent in again])
+        # D-55: the stored spec carries a slot's own model, so a retry keeps it; the other slot takes the
+        # agent's row, `opus` for every layer (D-245).
+        self.assertEqual(["opus", "fable"], [agent["model"] for agent in again])
 
     def test_only_identity_paths_and_errors_change_on_the_next_attempt(self):
         work_dir, state = self._work_dir()

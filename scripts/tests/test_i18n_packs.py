@@ -491,6 +491,27 @@ class PackParityTest(unittest.TestCase):
             with self.subTest(key=dotted):
                 self.assertEqual(value, i18n.node("ru", dotted))
 
+    def test_the_d237_status_sentences(self):
+        # D-237: the reason covers every substantive class, and a moved row without its client sentence
+        # says what is known — not confirmed as fixed — and where its text is.
+        expected = {
+            "en": (
+                "a substantive reviewer finding was not verifiably fixed",
+                "the reviewer's finding here is not confirmed as fixed; its text is in summary.md",
+            ),
+            "ru": (
+                "замечание рецензента по существу не было проверяемо устранено",
+                "замечание рецензента здесь не подтверждено как устранённое; его текст — в summary.md",
+            ),
+        }
+        for code, (reason, line) in expected.items():
+            with self.subTest(language=code):
+                self.assertEqual(reason, i18n.node(code, "memo.status_reasons.open_substance_majors"))
+                self.assertEqual(line, i18n.node(code, "memo.labels.status_issue_without_client_text"))
+        for code in PACK_CODES:
+            with self.subTest(language=code):
+                self.assertIn("summary.md", i18n.node(code, "memo.labels.status_issue_without_client_text"))
+
     def test_ru_section_label_is_statya(self):
         """Post-run fix: a UK Act section is «статья» in Russian legal usage."""
         self.assertEqual("ст.", i18n.node("ru", "memo.citation.s"))

@@ -231,6 +231,14 @@ class PureRoutingTest(unittest.TestCase):
         self.assertEqual([], decision["subset_r"])
         self.assertEqual(1, len(decision["out_of_scope"]))
 
+    def test_a_sufficient_verdict_warns_its_gaps(self):
+        """D-238: a gap the reviewer leaves on a `sufficient` verdict is a limitation of the memo."""
+        self.assertEqual([], schema.validate(fixture("sufficient-weak"), "research-sufficiency"))
+        decision = sufficiency.route(fixture("sufficient-weak"))
+        self.assertEqual(sufficiency.NEXT_CURRENCY, decision["next"])
+        self.assertFalse(decision["spend_budget"])
+        self.assertEqual(3, len(decision["warn_gaps"]))
+
     def test_partition_splits_user_and_layer_targets(self):
         parts = sufficiency.partition(fixture("insufficient"))
         self.assertEqual(1, len(parts["subset_u"]))
@@ -248,6 +256,22 @@ class RunRouteTest(unittest.TestCase):
             state = state_io.read_state(work_dir)
             self.assertEqual("resolved", state["sufficiency_followup"]["status"])
             self.assertEqual([], state["drafting_warnings"])
+            self.assertEqual((0, 0), counters(work_dir))
+
+    def test_a_sufficient_verdict_carries_its_user_gap_as_a_caveat(self):
+        """D-238: the gaps become warnings; no question is stored and no follow-up banner is raised."""
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = new_task(Path(tmp))
+            put(work_dir, "sufficient-weak")
+            result = sufficiency.run_route(route_args(work_dir))
+            self.assertEqual("currency_check", result["next"])
+            state = state_io.read_state(work_dir)
+            self.assertEqual("resolved", state["sufficiency_followup"]["status"])
+            messages = [row["message"] for row in state["drafting_warnings"]]
+            self.assertEqual(3, len(messages))
+            self.assertTrue(any("14-П" in message for message in messages))
+            self.assertEqual([], state["sufficiency_followup"].get("questions") or [])
+            self.assertEqual([], state.get("fallback_banners") or [])
             self.assertEqual((0, 0), counters(work_dir))
 
     def test_gate_followup_records_questions_and_charges_both_budgets_apart(self):
@@ -556,15 +580,24 @@ class WarningDeduplicationTest(unittest.TestCase):
     def test_the_gap_is_dropped_when_the_reviewer_already_says_it_to_the_client(self):
         # The gap sentence repeated as a drafting warning: the client-facing line is the one kept,
         # and the technical `why_blocking` half never reaches the memo.
+        # D-238 fix 1: the kept line is still a research gap, so it keeps the gap's code.
         rows = self._route(self._document(f"{self.GAP} Treat the point as open."))
-        self.assertEqual(["sufficiency_warning"], [row["code"] for row in rows])
+        self.assertEqual(["unresolved_research_gap"], [row["code"] for row in rows])
         self.assertNotIn("statutes.json", rows[0]["message"])
 
     def test_the_comparison_ignores_case_spacing_and_the_final_stop(self):
         rows = self._route(
             self._document("  the article 88 IMPLEMENTING   provision of the\nmember state was not reviewed")
         )
-        self.assertEqual(["sufficiency_warning"], [row["code"] for row in rows])
+        self.assertEqual(["unresolved_research_gap"], [row["code"] for row in rows])
+
+    def test_a_sufficient_verdict_keeps_the_reviewer_s_line_under_the_research_gap_code(self):
+        """D-238 fix 1: the collapsed pair of a sufficient verdict is one limitation, not an assumption."""
+        warning = f"{self.GAP} Treat the point as open."
+        rows = self._route(dict(self._document(warning), overall_verdict="sufficient"))
+        self.assertEqual(1, len(rows), rows)
+        self.assertEqual("unresolved_research_gap", rows[0]["code"])
+        self.assertEqual(warning, rows[0]["message"])
 
     def test_a_warning_about_something_else_keeps_both_lines(self):
         rows = self._route(self._document("Doctrine coverage is thin for the balancing test."))

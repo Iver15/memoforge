@@ -39,6 +39,8 @@ After each MCP call, count it — on a host without the `PostToolUse` hook this 
 
 Every `critical` and `supporting` source is saved or registered before it appears in a finding. Use the `source_id` the command returns; never invent one. `background` sources need no text. When two sources could share a short title, pass an explicit `--id <slug>` so the ids stay apart.
 
+A review of an act is not the act. A portal's news item or «Обзор документа» about a judgment or a law is saved under its own title as background (`--tier supporting`), never under the act's citation, and never as the act's full text.
+
 A web source is saved by code, not by you: `sources save` fetches the page, certifies that it is the document you named and that it is whole, and registers it.
 `{MF} sources save --workdir {WORK_DIR} --layer doctrine --title "<t>" --citation "<c>" --tier critical --url "<the public address of the document itself>"`
 Add the requisites the code certifies, or the text stays an excerpt: `--expect-article <N>` for a statute article (`152` is not `152.1`), and for a unit other than an article or a section its label with the number (`--expect-article "reg 22"`, `"Sch 1"`, `"Rule 23"`); `--expect-number` for a judgment, and for a Russian court act `--expect-date` too. The number goes in as printed, suffix included (`305-ЭС24-8702 (1,3)`): never strip it — the code strips it for a portal's search by itself, and the suffix is what tells the twins of one chain apart. `--expect-date` is the date of the act itself, `YYYY-MM-DD`, never the date a portal's listing shows. A Russian court act can be found from its requisites instead of an address — `--resolve vsrf` or `--resolve sudact` in place of `--url`, both requisites required, as your routing note shows.
@@ -97,7 +99,7 @@ When a case is expected — an appeal from a decision you hold, the leading case
 
 ## What a court held
 
-- A finding that says what a court held or applied rests on the court's own statement. A clause, a party's position or a lower court's view that the act recites is described as such ("суд воспроизвёл условие оферты …", "истец полагал …"), and `quote_short` for a holding comes from the court's own words.
+- A finding that says what a court held or applied rests on the court's own statement. A clause, a party's position or a lower court's view that the act recites is described as such ("суд воспроизвёл условие оферты …", "истец полагал …"), and `quote_short` for a holding comes from the court's own words. A finding on a court act says whether the saved text reaches the outcome; when it breaks off before the operative part, the `proposition` says so («итог в сохранённом тексте не виден»). A figure the court found arithmetically correct is not the sum it awarded unless the court says so. Reasoning under one qualification (agency) is not a holding against another (storage) unless the court rejects it.
 - A conclusion the text does not carry is not written as the court's.
 - Findings about one source under different issues are read together before you finish, and they do not contradict each other.
 - A higher-court act that a finding's own `proposition` names as the basis of the court's reasoning is saved with `sources save` — `--resolve vsrf` for a Supreme Court chamber act, `--url` for a review of practice or a Plenum act — or entered in `considered_excluded` with the reason. Acts the decision cites that no finding names are left alone.

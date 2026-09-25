@@ -31,6 +31,7 @@ The memo itself is written in English. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo
 language above is not English, a finding with `severity: blocker` also carries `issue_client` —
 one sentence in English saying what the client must check before relying on the memo.
+In this review a finding with `severity: major` carries `issue_client` too, on the same terms.
 
 ## Write
 

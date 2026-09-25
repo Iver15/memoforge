@@ -1573,6 +1573,27 @@ class AppendixScopeTest(unittest.TestCase):
         issue.pop("issue_client")
         self.assertTrue(fallback.blocking_issue_line(issue).endswith("Risk line format: …"))
 
+    def test_a_row_without_a_client_sentence_prints_the_localized_line(self):
+        # D-237: a moved major without `issue_client` never prints its English `issue` in a non-English memo.
+        issue = {
+            "severity": "major",
+            "section_id": "s-4-4",
+            "issue": "The figure is stated more firmly than the analysis.",
+            "source_reviewer": "counterarguments",
+        }
+        line = fallback.blocking_issue_line(issue, "ru")
+        self.assertNotIn("stated more firmly", line)
+        self.assertIn("4.4", line)
+        self.assertIn(i18n.t("ru", "memo.labels.status_issue_without_client_text"), line)
+        self.assertIn("stated more firmly", fallback.blocking_issue_line(issue, None))  # summary.md keeps the record
+        self.assertIn("stated more firmly", fallback.blocking_issue_line(issue, "en"))
+        client = "Сумма названа надёжной без оговорки."
+        self.assertTrue(fallback.blocking_issue_line(dict(issue, issue_client=client), "ru").endswith(client))
+        # Both deliverables print the Status rows `status_inputs` holds.
+        inputs = fallback.status_inputs({"language": "ru", "final_status": "manual_review_required_on_v1",
+                                         "remaining_blocking_issues": [issue]})
+        self.assertEqual([line], inputs["issues"])
+
 
 class CurrencyUnavailableTest(unittest.TestCase):
     """D-113: a checker that was down for the whole run is one line, not one line per source."""

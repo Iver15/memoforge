@@ -25,6 +25,7 @@ from memoforge import (  # noqa: E402
     events,
     i18n,
     limits,
+    review,
     schema,
     state_io,
     stepctx,
@@ -333,14 +334,18 @@ class ClassifyTest(BriefCase):
         )
 
     def test_a_citations_row_already_among_the_blockers_is_listed_once(self):
+        # D-237: the row is left out only when its own moved entry is among the blockers (paired one-to-one,
+        # every field both carry agreeing), so the fixture holds the entry the settlement writes for it.
         row = open_major("om-1", **{"class": "citations", "reviewer": "citations", "status": "unresolved",
-                                    "issue_client": None})
+                                    "issue_client": None, "category": BLOCKER["category"], "issue": BLOCKER["issue"]})
         result = self.classify(
-            "manual_review_required_on_v1", remaining_blocking_issues=[BLOCKER], open_substance_majors=[row]
+            "manual_review_required_on_v1",
+            remaining_blocking_issues=[review.moved_finding(row)],
+            open_substance_majors=[row],
         )
         self.assertFalse(result["clean"])
         self.assertEqual(
-            [{"id": "ob-1", "section_id": "s-3", "class": "citations", "severity": "blocker",
+            [{"id": "ob-1", "section_id": "s-3", "class": "citations", "severity": "major",
               "text": BLOCKER["issue"]}],
             result["open_issues"],
         )
@@ -448,9 +453,9 @@ class DispatchTest(BriefCase):
         self.assertIn(blocks, slots["fidelity"]["prompt"])
         self.assertIn(dispatch.lib_path("lib", "checklists", "brief-fidelity.json"), slots["fidelity"]["prompt"])
         self.assertEqual("memoforge:form-reviewer", slots["form"]["subagent_type"])
-        # D-228: every brief reviewer runs on Opus; the memo pipeline's form reviewer stays on Sonnet.
+        # D-228: every brief reviewer runs on Opus; since D-245 that is the form reviewer's own row.
         self.assertEqual(("opus", "opus"), (slots["fidelity"]["model"], slots["form"]["model"]))
-        self.assertEqual("sonnet", dispatch.AGENT_MODELS["form-reviewer"]["model"])
+        self.assertEqual("opus", dispatch.AGENT_MODELS["form-reviewer"]["model"])
         self.assertIn(brief.BRIEF_ROLE, slots["form"]["prompt"])
         self.assertIn(blocks + "; use document only for the whole brief.", slots["form"]["prompt"])
         self.assertIn(dispatch.lib_path("lib", "checklists", "brief-form.json"), slots["form"]["prompt"])

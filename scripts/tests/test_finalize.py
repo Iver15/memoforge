@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import inspect
 import io
 import json
@@ -2667,6 +2668,10 @@ class SummaryStatusLineTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("brand_new_status", line)
 
 
+RUN_20260923 = Path(__file__).resolve().parent / "fixtures" / "run-20260923"
+"""Run 79 (2026-09-23, Russian law): the export state its previous build settled, trimmed to the settlement fields."""
+
+
 def open_major(
     number: int,
     cls: str,
@@ -2709,18 +2714,23 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
         finalize.run_finalize(finalize_args(work_dir))
         return (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
 
-    def test_the_predicate_is_decided_by_the_row_alone(self):
-        # Ruling A: a citations row of the loop left `unresolved` is the one the readiness step moves
-        # into `remaining_blocking_issues`, so the section never prints it a second time.
+    def test_the_predicate_is_decided_by_the_row_and_the_blocker_list(self):
+        # Ruling A: a row of the loop left `unresolved` is the one the readiness step moves into
+        # `remaining_blocking_issues`, so the section never prints it a second time. D-237 fix round 1:
+        # it is left out only when its moved entry is really there; a state settled by an earlier build
+        # (which moved no logic/counterarguments row) keeps it here.
         for cls in ("citations", "logic", "counterarguments"):
             for origin in ("loop", "recheck"):
                 for status in self.STATUSES:
                     with self.subTest(cls=cls, origin=origin, status=status):
-                        expected = status in ("open", "left", "unresolved") and not (
-                            cls == "citations" and origin == "loop" and status == "unresolved"
-                        )
                         row = open_major(1, cls, status, origin=origin)
-                        self.assertEqual(expected, finalize.lists_open_finding(row))
+                        listed = status in ("open", "left", "unresolved")
+                        moved = [machine._moved_finding(row)]  # noqa: SLF001
+                        self.assertEqual(listed, finalize.lists_open_finding(row))
+                        expected = listed and not (origin == "loop" and status == "unresolved")
+                        self.assertEqual(expected, finalize.lists_open_finding(row, moved))
+        other = [dict(machine._moved_finding(open_major(1, "logic", "unresolved")), issue="Another.")]  # noqa: SLF001
+        self.assertTrue(finalize.lists_open_finding(open_major(1, "logic", "unresolved"), other))
 
     def test_a_blocker_row_is_never_listed_here(self):
         # D-213: a lifted blocker is gone; an unlifted one stays under «Remaining blocking issues».
@@ -2810,10 +2820,106 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
             issue="The pinpoint sends the reader to point 3.",
         )
         blocker = {"severity": "major", "category": moved["category"], "section_id": "s-9", "issue": moved["issue"]}
-        summary = self.summary([kept, moved], blockers=[blocker])
+        # D-237: an unresolved counterarguments row of the loop is moved into the blockers too.
+        also = {"severity": "major", "category": kept["category"], "section_id": "s-7-1", "issue": kept["issue"]}
+        summary = self.summary([kept, moved], blockers=[blocker, also])
         self.assertEqual(1, summary.count(kept["issue"]))
         self.assertEqual(1, summary.count(moved["issue"]))
         self.assertIn("- major · s-9 · The pinpoint sends the reader to point 3.", summary)
+
+    def test_an_unresolved_logic_row_is_not_an_open_finding_and_a_left_one_is(self):
+        # D-237: the unresolved row is printed once, under «Remaining blocking issues».
+        unresolved = open_major(1, "logic", "unresolved", section_id="s-4-4", issue="The step from 4.3 is missing.")
+        left = open_major(2, "logic", "left", section_id="s-5-2", issue="The heading overstates 5.2.")
+        moved = [machine._moved_finding(unresolved)]  # noqa: SLF001
+        self.assertFalse(finalize.lists_open_finding(unresolved, moved))
+        self.assertTrue(finalize.lists_open_finding(left, moved))
+        settled = {
+            "final_status": "approved_on_v3",
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": [unresolved, left],
+        }
+        machine._settle_open_majors(settled, [], 3)  # noqa: SLF001
+        summary = self.summary(settled["open_substance_majors"], blockers=settled["remaining_blocking_issues"])
+        blockers, _, rest = summary.partition("## Open reviewer findings")
+        self.assertIn("- major · s-4-4 · The step from 4.3 is missing.", blockers)
+        self.assertNotIn("The step from 4.3 is missing.", rest)
+        self.assertIn("- logic · loop · left · s-5-2 · narrow_trigger · The heading overstates 5.2.", rest)
+
+    def test_a_state_settled_by_the_previous_build_keeps_its_open_findings(self):
+        # D-237 fix round 1: run 79 stopped in `export` under the previous build with five unresolved
+        # logic/counterarguments rows and nothing moved. Finalize does not settle again, so each finding
+        # stays in «Open reviewer findings», printed once.
+        saved = json.loads((RUN_20260923 / "state-export.json").read_text(encoding="utf-8"))
+        self.assertEqual([], saved["remaining_blocking_issues"])
+        rows = saved["open_substance_majors"]
+        self.assertEqual(["unresolved"] * 5, [row["status"] for row in rows])
+        for row in rows:
+            with self.subTest(row=row["id"]):
+                self.assertTrue(finalize.lists_open_finding(row, saved["remaining_blocking_issues"]))
+        fields = ("language", "final_status", "final_status_reasons", "remaining_blocking_issues",
+                  "fallback_banners", "open_substance_majors")
+        work_dir = self.make_task(mutate=lambda state: state.update(copy.deepcopy({k: saved[k] for k in fields})))
+        finalize.run_finalize(finalize_args(work_dir))
+        summary = (work_dir / finalize.SUMMARY_MD).read_text(encoding="utf-8")
+        findings = summary.partition(i18n.t("ru", "memo.summary.open_reviewer_findings"))[2]
+        for row in rows:
+            issue = " ".join(row["issue"].split())
+            with self.subTest(row=row["id"]):
+                self.assertEqual(1, summary.count(issue))
+                self.assertIn(issue, findings)
+
+    def test_two_rows_of_one_finding_are_each_printed_once(self):
+        # Final fix wave (finding 1): two rows with one section, category and issue (a major the targeted
+        # pass repeated, D-235) keep two entries and two notes; each row is printed once.
+        rows = [
+            dict(open_major(1, "counterarguments", "manual_review", section_id="s-3"), disposition_note="First?"),
+            dict(open_major(2, "counterarguments", "unresolved", section_id="s-3"), disposition_note="Second?"),
+        ]
+        settled = {
+            "final_status": "approved_on_v3",
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": rows,
+        }
+        machine._settle_open_majors(settled, [], 3)  # noqa: SLF001
+        summary = self.summary(settled["open_substance_majors"], blockers=settled["remaining_blocking_issues"])
+        blockers, _, rest = summary.partition("## Open reviewer findings")
+        for note in ("First?", "Second?"):
+            with self.subTest(note=note):
+                self.assertEqual(1, summary.count(f"- major · s-3 · The trigger is drawn too narrowly. · {note}\n"))
+        self.assertIn("## Open reviewer findings\n\n- none\n", summary)
+        self.assertEqual(2, blockers.count("The trigger is drawn too narrowly."))
+
+        # One entry for two unresolved rows (a state an earlier build settled): one row is printed among the
+        # blockers, the other stays an open finding, so each row is printed once.
+        pair = [open_major(n, "logic", "unresolved", section_id="s-3") for n in (1, 2)]
+        entry = machine._moved_finding(pair[0])  # noqa: SLF001
+        self.assertEqual([pair[1]], finalize.open_findings(pair, [entry]))
+        summary = self.summary(pair, blockers=[entry])
+        self.assertEqual(2, summary.count("The trigger is drawn too narrowly."))
+        self.assertIn("- logic · loop · unresolved · s-3 · narrow_trigger · The trigger is drawn too narrowly.\n",
+                      summary.partition("## Open reviewer findings")[2])
+
+    def test_a_moved_row_prints_the_lawyer_s_question_in_the_summary_only(self):
+        # D-237 (F3): the `note` of the `manual_review` disposition follows the blocking line of `summary.md`;
+        # the deliverable keeps the client sentence, because the note is English.
+        row = dict(open_major(1, "counterarguments", "manual_review", section_id="s-3"),
+                   disposition_note="Does the exemption cover shoppers?")
+        settled = {
+            "final_status": "approved_on_v3",
+            "final_status_reasons": [],
+            "remaining_blocking_issues": [],
+            "open_substance_majors": [row],
+        }
+        machine._settle_open_majors(settled, [], 3)  # noqa: SLF001
+        summary = self.summary(settled["open_substance_majors"], blockers=settled["remaining_blocking_issues"])
+        self.assertIn("- major · s-3 · The trigger is drawn too narrowly. · Does the exemption cover shoppers?\n",
+                      summary)
+        self.assertEqual(1, summary.count("Does the exemption cover shoppers?"))
+        entry = settled["remaining_blocking_issues"][0]
+        self.assertNotIn("Does the exemption", md_fallback.blocking_issue_line(entry, "en"))
 
     def test_the_rows_the_readiness_step_settles_are_each_printed_once(self):
         # D-211: settlement moves a citations row into the blockers and leaves the rest to this section.

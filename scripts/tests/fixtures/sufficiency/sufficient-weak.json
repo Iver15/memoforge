@@ -1,0 +1,42 @@
+{
+  "reviewer": "research_sufficiency",
+  "overall_verdict": "sufficient",
+  "blocking_gaps": [
+    {
+      "gap": "Позиции Конституционного Суда РФ о толковании ст. 428 ГК РФ (постановления № 14-П и № 34-П) в исследовании не проанализированы.",
+      "target": "case_law",
+      "status": "weak",
+      "why_blocking": "Слой статутов исключил их как практику, слой практики не рассмотрел.",
+      "followup_question": null
+    },
+    {
+      "gap": "Практика судов округов по искам продавцов к маркетплейсу об утрате товара на складе не найдена.",
+      "target": "case_law",
+      "status": "weak",
+      "why_blocking": "Повторный поиск выполнен, каналы недоступны.",
+      "followup_question": null
+    },
+    {
+      "gap": "Не известно, кто указан продавцом в кассовых чеках.",
+      "target": "user",
+      "status": "weak",
+      "why_blocking": "Ответ пользователя не получен.",
+      "followup_question": {
+        "question": "Кто указан продавцом в кассовых чеках?",
+        "header": "Продавец",
+        "options": [
+          {
+            "label": "Селлер",
+            "description": "В чеках продавцом указан сам селлер."
+          },
+          {
+            "label": "Маркетплейс",
+            "description": "В чеках продавцом указан маркетплейс."
+          }
+        ],
+        "default_assumption_if_skipped": "Продавцом в чеках указан селлер."
+      }
+    }
+  ],
+  "drafting_warnings": []
+}

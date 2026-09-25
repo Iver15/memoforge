@@ -387,6 +387,21 @@ class SourcedDirectionTest(unittest.TestCase):
         self.assertIn("depends on an assumption rather than on a stated fact", text)
         self.assertIn('"on the assumed facts"', text)
 
+    def test_a_polish_reuses_a_cited_authority_only_in_the_finding_s_own_section(self):
+        # D-236: the scope check allows the reuse only where the citations re-check grades it.
+        writer = (
+            "On `polish`, a source the memo already cites may be cited again only in the section of the "
+            "finding you are polishing; the summary bullet, the conclusion item and the risk line you keep "
+            "in step get no new `[[src:]]` token."
+        )
+        readiness = (
+            "a polish issue may ask for an authority the memo already cites only in the finding's own section."
+        )
+        for stem, needle in (("memo-writer", writer), ("client-readiness-reviewer", readiness)):
+            with self.subTest(agent=stem):
+                self.assertIn(needle, " ".join(rules_of(stem).split()))
+                self.assertIn(needle, " ".join(read(PROMPTS / f"{stem}.md").split()))
+
     def test_a_gap_closed_from_a_saved_text_is_weak_and_why_blocking_stays_with_the_researcher(self):
         rules = rules_of("research-sufficiency-reviewer")
         text = " ".join(read(PROMPTS / "research-sufficiency-reviewer.md").split())
@@ -400,6 +415,141 @@ class SourcedDirectionTest(unittest.TestCase):
 def flat(path: Path) -> str:
     """A dispatch prompt with its line breaks folded, so a needle may span a wrapped line."""
     return " ".join(read(path).split())
+
+
+class ReasoningGapTest(unittest.TestCase):
+    """D-237: a gap in the reasoning goes to a lawyer, and the client sees it in the memo language."""
+
+    READINESS = "client-readiness-reviewer"
+
+    def both(self, stem: str) -> tuple[str, str]:
+        return flat(PROMPTS / f"{stem}.md"), " ".join(rules_of(stem).split())
+
+    def test_readiness_decides_by_the_repair_and_asks_the_lawyer_s_question(self):
+        for needle in (
+            "the repair you choose",
+            "the question the lawyer must answer",
+            "A `logic` or `counterarguments` finding allows `polish`, `manual_review` or `leave`.",
+        ):
+            for where, text in zip(("prompt", "body"), self.both(self.READINESS)):
+                with self.subTest(needle=needle, where=where):
+                    self.assertIn(needle, text)
+
+    def test_a_manual_review_row_never_switches_the_polish_off(self):
+        # C1: `manual_review_required` exports without a polish, so one lawyer's row would strand the rest.
+        needle = (
+            "A `manual_review` disposition does not by itself make the verdict `manual_review_required`: when any "
+            "open finding is `polish`, or any issue of yours can be fixed by a polish, the verdict is "
+            "`needs_final_polish`, and the `manual_review` findings reach the Status section anyway."
+        )
+        for where, text in zip(("prompt", "body"), self.both(self.READINESS)):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_readiness_writes_a_blocker_only_for_a_blocker_row(self):
+        # C4: a `blocker` issue reads to the writer as "withdraw or qualify", which cannot add a disclosure.
+        needle = "`severity: blocker` on an issue of yours is used only for a finding the list marks `blocker`."
+        for where, text in zip(("prompt", "body"), self.both(self.READINESS)):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_the_logic_and_counterarguments_reviewers_write_issue_client_on_majors(self):
+        for stem in ("logic-reviewer", "counterargument-reviewer"):
+            prompt, body = self.both(stem)
+            with self.subTest(agent=stem):
+                self.assertIn("`severity: major` carries `issue_client` too", prompt)
+                self.assertIn("every `major` issue carries `issue_client`", body)
+
+
+class SufficientGapsTest(unittest.TestCase):
+    """D-238: the gaps of a `sufficient` verdict are disclosed, checked at delivery and handed to citations."""
+
+    def test_readiness_receives_the_warnings_and_fails_crd_03_on_an_undisclosed_one(self):
+        prompt = read(PROMPTS / "client-readiness-reviewer.md")
+        self.assertIn("- warnings the memo must disclose: ${drafting_warnings}", prompt)
+        needle = (
+            "CRD-03 fails for a warning that touches a conclusion and that the memo does not disclose; "
+            "the issue names the warning."
+        )
+        self.assertIn(needle, flat(PROMPTS / "client-readiness-reviewer.md"))
+        self.assertIn(needle, " ".join(rules_of("client-readiness-reviewer").split()))
+
+    def test_the_writer_states_a_research_gap_as_a_limitation(self):
+        needle = (
+            "A research-gap warning (`unresolved_research_gap`) is stated as a limitation of the memo, in the "
+            "facts section's limitations block, and next to the conclusion it touches."
+        )
+        self.assertIn(needle, flat(PROMPTS / "memo-writer.md"))
+        self.assertIn(needle, " ".join(rules_of("memo-writer").split()))
+
+    def test_the_citations_reviewer_checks_the_sufficiency_findings_first(self):
+        self.assertIn(
+            "- what the sufficiency reviewer found on saved texts (check the draft's statements on these first, "
+            "as item 1 of your budget): ${sufficiency_checks}",
+            read(PROMPTS / "citation-auditor.md"),
+        )
+        self.assertIn("and the sufficiency checks your prompt lists", " ".join(rules_of("citation-auditor").split()))
+
+
+class CourtAttributionTest(unittest.TestCase):
+    """D-239: run 79 credited a court with a negative, an adopted measure and an outcome its text never states."""
+
+    def both(self, stem: str) -> tuple[str, str]:
+        return flat(PROMPTS / f"{stem}.md"), " ".join(rules_of(stem).split())
+
+    def test_the_auditor_confirms_only_the_whole_statement(self):
+        # The prompt quotes «агентский, а не как хранение», the body «а не как хранение»: the needle fits both.
+        for needle in ("covers the whole statement", "а не как хранение»", "reported truthfully"):
+            for where, text in zip(("prompt", "body"), self.both("citation-auditor")):
+                with self.subTest(needle=needle, where=where):
+                    self.assertIn(needle, text)
+
+    def test_the_researcher_says_where_the_text_stops_and_what_arithmetic_proves(self):
+        for needle in ("breaks off before the operative part", "arithmetically correct"):
+            for where, text in zip(("prompt", "body"), self.both("legal-researcher")):
+                with self.subTest(needle=needle, where=where):
+                    self.assertIn(needle, text)
+
+    def test_the_counterarguments_reviewer_checks_the_other_sources_before_one_source(self):
+        for where, text in zip(("prompt", "body"), self.both("counterargument-reviewer")):
+            with self.subTest(where=where):
+                self.assertIn("rests on one source", text)
+
+
+class MoneyAndRequiredStepsTest(unittest.TestCase):
+    """D-240: run 79 counted a loss and its replacement twice and called a prudent step required."""
+
+    def both(self, stem: str) -> tuple[str, str]:
+        return flat(PROMPTS / f"{stem}.md"), " ".join(rules_of(stem).split())
+
+    def test_the_writer_treats_money_and_required_steps_as_conclusions(self):
+        needle = (
+            "Money and required steps are conclusions. A loss and the cost of replacing the same item are one "
+            "computation. A figure called reliable excludes the parts the memo rates high-risk, or names them. "
+            "A step presented as required before another needs a cited rule; otherwise write it as a prudent step."
+        )
+        for where, text in zip(("prompt", "body"), self.both("memo-writer")):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_an_understated_exposure_that_changes_what_the_client_pays_is_major(self):
+        needle = (
+            "An understated exposure that changes what the client pays or must do — a fine, a penalty, a sum "
+            "called safe, a step called optional — is `major`, not `minor`."
+        )
+        for where, text in zip(("prompt", "body"), self.both("counterargument-reviewer")):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_the_mediator_never_drops_a_substantive_major_because_its_reviewer_approved(self):
+        # F6: a counterarguments reviewer approves with majors as a matter of course (run 79 v2: four).
+        rules = " ".join(rules_of("revision-mediator").split())
+        self.assertIn(
+            "Minor issues on sections nothing else touches are the usual candidates for `dropped[]`; a substantive "
+            "major is never dropped because its reviewer approved.",
+            rules,
+        )
+        self.assertNotIn("Issues from a reviewer that approved", rules)
 
 
 class SavedTextFirstTest(unittest.TestCase):
@@ -445,6 +595,66 @@ class SavedTextFirstTest(unittest.TestCase):
             "`unchecked` only after those",
         ):
             with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+
+class LawTimingTest(unittest.TestCase):
+    """D-241: run 79 called ст. 13 ЗоЗПП `current` with no note over a saved text announcing 290-ФЗ changes
+    from 01.10.2026, and saved a portal's news review as the full text of a Constitutional Court ruling."""
+
+    def both(self, stem: str) -> tuple[str, str]:
+        return flat(PROMPTS / f"{stem}.md"), " ".join(rules_of(stem).split())
+
+    def test_the_checker_resolves_an_announced_change_against_the_part_relied_on(self):
+        for needle in ("«вступает в силу с", "the part relied on", "in force from"):
+            for where, text in zip(("prompt", "body"), self.both("currency-checker")):
+                with self.subTest(needle=needle, where=where):
+                    self.assertIn(needle, text)
+        prompt = flat(PROMPTS / "currency-checker.md")
+        self.assertIn(
+            "when it does not, the status stays `current` and the `note` names the amending act, the date and "
+            "the change; `manual_check` only when that lookup fails or the change governs the facts.",
+            prompt,
+        )
+        self.assertIn("it is never marked as governing earlier facts.", prompt)
+
+    def test_the_checker_receives_the_facts_it_judges_against(self):
+        self.assertIn(
+            '- the questions and the facts with their dates: `plan.json`, `intake/user-facts.md`; judge "the part '
+            'relied on" and "governs the facts" against them',
+            read(PROMPTS / "currency-checker.md"),
+        )
+
+    def test_the_writer_states_a_later_change_in_the_section_that_relies_on_it(self):
+        needle = (
+            "A currency note naming a later change to the provision relied on is stated in that section in one "
+            "sentence: what changes and from when."
+        )
+        for where, text in zip(("prompt", "body"), self.both("memo-writer")):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_the_researcher_never_saves_a_review_as_the_act(self):
+        needle = (
+            "A review of an act is not the act. A portal's news item or «Обзор документа» about a judgment or a "
+            "law is saved under its own title as background (`--tier supporting`), never under the act's "
+            "citation, and never as the act's full text."
+        )
+        for where, text in zip(("prompt", "body"), self.both("legal-researcher")):
+            with self.subTest(where=where):
+                self.assertIn(needle, text)
+
+    def test_readiness_receives_the_currency_notes_and_fails_crd_03_on_an_undisclosed_change(self):
+        self.assertIn(
+            "- currency notes of the sources the memo cites: ${currency_notes}",
+            read(PROMPTS / "client-readiness-reviewer.md"),
+        )
+        needle = (
+            "A note that names a later change to a provision the memo relies on is disclosed in the section that "
+            "relies on it; CRD-03 fails otherwise, and the issue names the source."
+        )
+        for where, text in zip(("prompt", "body"), self.both("client-readiness-reviewer")):
+            with self.subTest(where=where):
                 self.assertIn(needle, text)
 
 

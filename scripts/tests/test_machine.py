@@ -2140,7 +2140,7 @@ class SufficiencyBudgetCombinationsTest(unittest.TestCase):
 
 
 class ResearchLayerModelTest(unittest.TestCase):
-    """D-209: the `case_law` researcher is dispatched on `opus`; `statutes` and `doctrine` keep `sonnet`."""
+    """D-245: every research layer is dispatched on `opus`, the researcher's own row; no slot overrides it."""
 
     SUFFICIENCY = {
         "reviewer": "research_sufficiency",
@@ -2160,20 +2160,20 @@ class ResearchLayerModelTest(unittest.TestCase):
     def _models(action: dict) -> dict:
         return {item["slot"]: item["model"] for item in action["agents"]}
 
-    def test_the_researcher_specs_override_only_the_case_law_slot(self):
+    def test_the_researcher_specs_override_no_slot(self):
         driver = Driver(temp_root(self), slug="layer-model-specs")
         driver.run_until("plan_approval_pending")
         specs = machine.researcher_specs(driver.work_dir, driver.state(), ["statutes", "case_law", "doctrine"])
         self.assertEqual(
-            {"statutes": None, "case_law": "opus", "doctrine": None},
+            {"statutes": None, "case_law": None, "doctrine": None},
             {spec["slot"]: spec["model"] for spec in specs},
         )
 
-    def test_the_first_research_dispatch_runs_case_law_on_opus(self):
+    def test_the_first_research_dispatch_runs_every_layer_on_opus(self):
         driver = Driver(temp_root(self), slug="layer-models")
         action = driver.run_until("research")
         self.assertEqual("dispatch", action["kind"])
-        self.assertEqual({"statutes": "sonnet", "case_law": "opus", "doctrine": "sonnet"}, self._models(action))
+        self.assertEqual({"statutes": "opus", "case_law": "opus", "doctrine": "opus"}, self._models(action))
 
     def test_a_followup_for_case_law_alone_runs_on_opus(self):
         driver = Driver(temp_root(self), slug="layer-models-followup")
@@ -3076,6 +3076,89 @@ class KnownBlockersTest(unittest.TestCase):
         self.assertIsNotNone(action)
 
 
+class ReadinessWarningsTest(unittest.TestCase):
+    """D-238: readiness grades CRD-03 on the run's warnings, so its spec carries them."""
+
+    def test_the_readiness_spec_carries_the_run_s_warning(self):
+        message = "Позиции КС РФ о ст. 428 ГК РФ (№ 14-П, № 34-П) в исследовании не проанализированы."
+        state = {
+            "config": {"max_client_polish": 1},
+            "current_phase": "client_readiness",
+            "drafting_warnings": [
+                {"code": "unresolved_research_gap", "message": message, "phase": "research_sufficiency"}
+            ],
+        }
+        with mock.patch.object(machine, "issue_dispatch", return_value={}) as issued:
+            machine._dispatch_readiness(temp_root(self), state, "drafts/v2.md", 2)  # noqa: SLF001
+        spec = issued.call_args.args[2][0]
+        self.assertEqual("client_readiness", spec["slot"])
+        self.assertEqual(message, spec["extra"]["drafting_warnings"])
+
+
+class CurrencyNotesTest(unittest.TestCase):
+    """D-241: the checker judges a change against the facts, and readiness checks its note reaches the memo."""
+
+    NOTE = "290-ФЗ меняет пп. 1, 4, 6 ст. 13 с 01.10.2026; п. 6 (штраф) — в используемой части."
+
+    def test_the_currency_spec_declares_the_plan_and_the_user_facts(self):
+        state = {"current_phase": "currency_check", "steps": []}
+        with mock.patch.object(machine, "script_done", return_value={"status": "ok"}), \
+                mock.patch.object(machine, "issue_dispatch", return_value={}) as issued:
+            machine.plan_currency_check(temp_root(self), state)
+        spec = issued.call_args.args[2][0]
+        self.assertEqual("currency-checker", spec["agent"])
+        for path in ("research/sources.json", gates.PLAN_PATH, gates.USER_FACTS_PATH):
+            with self.subTest(path=path):
+                self.assertIn(path, spec["inputs"])
+
+    def _readiness(self, draft: str, rows: list[dict]) -> dict:
+        work_dir = temp_root(self)
+        (work_dir / "drafts").mkdir(parents=True, exist_ok=True)
+        (work_dir / "drafts" / "v2.md").write_text(draft, encoding="utf-8")
+        state_io.write_json_atomic(
+            work_dir / sources.CURRENCY_PATH,
+            {"checked_at": "2026-09-23", "sources": rows, "blocking": [], "warnings": []},
+        )
+        state = {"config": {"max_client_polish": 1}, "current_phase": "client_readiness", "language": "ru"}
+        with mock.patch.object(machine, "issue_dispatch", return_value={}) as issued:
+            machine._dispatch_readiness(work_dir, state, "drafts/v2.md", 2)  # noqa: SLF001
+        return issued.call_args.args[2][0]
+
+    def test_readiness_lists_the_note_of_a_cited_source_only(self):
+        draft = (
+            "## 4. Анализ\n\n"
+            "Потребитель вправе требовать неустойку [[src:ru-zozpp-13 п. 6 ст. 13]].\n\n"
+            "Хранитель отвечает за утрату вещи [[src:ru-gk-902 п. 1 ст. 902]].\n"
+        )
+        rows = [
+            {"source_id": "ru-zozpp-13", "status": "current", "note": self.NOTE},
+            {"source_id": "ru-gk-902", "status": "current", "note": ""},
+            {"source_id": "ru-uncited", "status": "manual_check", "note": "Не цитируется в черновике."},
+        ]
+        spec = self._readiness(draft, rows)
+        self.assertEqual(f"ru-zozpp-13 · current · {self.NOTE}", spec["extra"]["currency_notes"])
+
+    def test_two_rows_of_one_cited_source_give_two_lines_in_file_order(self):
+        # Fix round 1 (Sol): a map keyed by `source_id` kept only the last row, so the earlier note was lost.
+        later = "Постановление КС № 7-П от 2026-03-05 — в используемой части не меняет."
+        rows = [
+            {"source_id": "ru-zozpp-13", "status": "current", "note": self.NOTE},
+            {"source_id": "ru-zozpp-13", "status": "current", "note": later},
+        ]
+        spec = self._readiness("Неустойка [[src:ru-zozpp-13 п. 6 ст. 13]].\n", rows)
+        self.assertEqual(
+            f"ru-zozpp-13 · current · {self.NOTE}\nru-zozpp-13 · current · {later}", spec["extra"]["currency_notes"]
+        )
+
+    def test_readiness_gets_none_when_no_cited_source_carries_a_note(self):
+        rows = [{"source_id": "ru-gk-902", "status": "current", "note": "  "}]
+        spec = self._readiness("Хранитель отвечает [[src:ru-gk-902 п. 1 ст. 902]].\n", rows)
+        self.assertEqual("none", spec["extra"]["currency_notes"])
+
+    def test_the_default_of_a_re_render_is_none(self):
+        self.assertEqual("none", machine.dispatch._DEFAULT_EXTRAS["currency_notes"])  # noqa: SLF001
+
+
 # --- D-211: the last reader acts on the open substantive majors ------------------------------
 
 
@@ -3407,11 +3490,16 @@ class OpenMajorsReadinessTest(unittest.TestCase):
         state = driver.state()
         self.assertEqual("manual_review_required_on_v1", state["final_status"])
         self.assertIn("polish_recheck_blocker", state["final_status_reasons"])
-        self.assertNotIn("open_substance_majors", state["final_status_reasons"])
+        # D-237: an unresolved logic/counterarguments row now reaches the Status.
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
         self.assertEqual("unresolved", _row(state, "om-1")["status"])
         self.assertIn(RECHECK_BLOCKER, state["remaining_blocking_issues"])
         status = md_fallback.render_status(md_fallback.status_inputs(state))
         self.assertIn(f"- блокирующее замечание · раздел 3 · {RECHECK_BLOCKER['issue_client']}", status)
+        # The moved row has no client sentence: the Russian Status prints the pack's line, never the English issue.
+        without = md_fallback.label("status_issue_without_client_text", "ru")
+        self.assertIn(f"- существенное замечание · раздел 3 · {without}", status)
+        self.assertNotIn(rows[0]["issue"], status)
 
     def test_a_downgraded_recheck_keeps_its_own_blocker_and_the_synthetic_one(self):
         rows = [_major("om-1", "counterarguments")]
@@ -3474,6 +3562,52 @@ class OpenMajorsReadinessTest(unittest.TestCase):
         self.assertEqual("unresolved", _row(state, "om-1")["status"])
         self.assertIn("open_substance_majors", state["final_status_reasons"])
         self.assertEqual([], schema.validate(state, "state"))
+
+    def test_a_polish_may_cite_in_the_polished_section_a_source_the_summary_cites(self):
+        # D-236 (incident I2): the reuse is no scope error, and the citations re-check grades that section.
+        original = probe.fixture_draft
+        cited: list[str] = []
+
+        def summary_cites(work_dir, state, version, existing, language="en"):
+            text = original(work_dir, state, version, existing, language)
+            if existing:
+                return text
+            cited.append(sorted(sources.read_registry(work_dir)["sources"])[1])
+            return text.replace(
+                "beyond the purpose that justified them.",
+                f"beyond the purpose that justified them [[src:{cited[-1]} art 5(1)(e)]].",
+                1,
+            )
+
+        rows = [_major("om-1", "citations")]
+        with mock.patch.object(probe, "fixture_draft", side_effect=summary_cites):
+            driver, first = _to_readiness(self, "om-reuse", rows)
+        source_id = cited[0]
+        self.assertIn(f"[[src:{source_id} art 5(1)(e)]]", (driver.work_dir / "drafts/v1.md").read_text("utf-8"))
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "needs_final_polish", issues=[SOFTEN_S3], dispositions=[("om-1", "polish")]),
+        )
+        _act_writer(
+            driver,
+            driver.next(),
+            edit=(
+                "exceeds that period (v1 review).",
+                f"exceeds that period (v1 review) [[src:{source_id} art 5(1)(e)]].",
+            ),
+        )
+
+        finish = driver.next()
+        self.assertEqual("draft.finish", machine.command_key(finish["command"]))
+        state = driver.state()
+        self.assertEqual([], state["polish_check"]["errors"])
+        driver.act(finish)
+        recheck = driver.next()
+        agent = recheck["agents"][0]
+        self.assertEqual("citations_polish", agent["slot"])
+        self.assertIn("Scope: sections s-3; the open findings om-1 · citations · ", agent["prompt"])
+        self.assertNotIn("polish_out_of_scope", driver.state()["final_status_reasons"])
 
     def test_an_out_of_scope_polish_after_a_forced_exit_on_v2_keeps_the_label_and_pins_v2(self):
         # Fix round 1 (5): the scope error follows the settlement rule - a forced exit keeps its label.
@@ -3780,6 +3914,32 @@ class OpenMajorsReadinessTest(unittest.TestCase):
         summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
         self.assertIn("- logic · loop · left · s-3 · overstated_recourse · ", summary)
 
+    def test_a_logic_row_sent_to_manual_review_reaches_the_status(self):
+        # D-237: a finding no polish can answer goes to a lawyer, and the Status section prints it.
+        rows = [_major("om-1", "logic")]
+        driver, first = _to_readiness(self, "om-logic-manual", rows)
+        _answer(
+            driver,
+            first,
+            _readiness_document(driver, "manual_review_required", dispositions=[("om-1", "manual_review")]),
+        )
+        driver.run_to_end()
+        state = driver.state()
+        self.assertEqual("manual_review_required_on_v1", state["final_status"])
+        self.assertIn("open_substance_majors", state["final_status_reasons"])
+        self.assertEqual("manual_review", _row(state, "om-1")["status"])
+        self.assertEqual(1, len(state["remaining_blocking_issues"]))
+        moved = state["remaining_blocking_issues"][0]
+        self.assertEqual(
+            (rows[0]["issue"], "logic", "Fixture disposition."),
+            (moved["issue"], moved["source_reviewer"], moved["disposition_note"]),
+        )
+        status = md_fallback.render_status(md_fallback.status_inputs(state))
+        self.assertIn(f"- major · section 3 · {rows[0]['issue']}", status)
+        summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
+        self.assertEqual(1, summary.count(rows[0]["issue"]))
+        self.assertIn(f"- major · s-3 · {rows[0]['issue']} · Fixture disposition.", summary)
+
     def test_a_new_major_of_the_recheck_is_summary_only_and_asks_no_disposition(self):
         rows = [_major("om-1", "citations")]
         driver, recheck = _to_recheck(self, "om-recheck-major", rows, dispositions=[("om-1", "polish")])
@@ -3976,6 +4136,33 @@ class PolishScopeTest(unittest.TestCase):
             machine.polish_scope_errors(POLISH_DRAFT_RU, token, {"s-9"}, language="ru"),
         )
 
+    REUSE_IN_S52 = ("compels a longer period [[src:tax-code s 147]].",
+                    "compels a longer period [[src:tax-code s 147]] [[src:gdpr art 5(1)(b)]].")
+
+    def test_a_source_the_memo_cites_may_move_into_a_section_an_open_polish_row_holds(self):
+        # D-236: the citations re-check grades the sections of the open polish rows.
+        after = _edit(POLISH_DRAFT_EN, self.REUSE_IN_S52)
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"}, graded={"s-5-2"}))
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5"}, graded={"s-5"}))
+        self.assertEqual([], machine.polish_scope_errors(POLISH_DRAFT_EN, after, None, graded={"document"}))
+
+    def test_a_reused_source_outside_the_polished_rows_is_still_refused(self):
+        after = _edit(POLISH_DRAFT_EN, ("Risk: medium.", "See [[src:tax-code s 147]]. Risk: medium."))
+        self.assertEqual(["new_source_token: s-1: tax-code"],
+                         machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"}, graded={"s-5-2"}))
+        moved = _edit(POLISH_DRAFT_EN, self.REUSE_IN_S52)
+        self.assertEqual(["new_source_token: s-5-2: gdpr"],
+                         machine.polish_scope_errors(POLISH_DRAFT_EN, moved, {"s-5-2"}, graded={"s-5-1"}))
+        for graded in (None, set()):
+            with self.subTest(graded=graded):
+                self.assertEqual(["new_source_token: s-5-2: gdpr"],
+                                 machine.polish_scope_errors(POLISH_DRAFT_EN, moved, {"s-5-2"}, graded=graded))
+
+    def test_a_source_the_memo_never_cites_is_refused_even_in_a_polished_section(self):
+        after = _edit(POLISH_DRAFT_EN, ("[[src:tax-code s 147]].", "[[src:tax-code s 147]] [[src:vat-act s 12]]."))
+        self.assertEqual(["new_source_token: s-5-2: vat-act"],
+                         machine.polish_scope_errors(POLISH_DRAFT_EN, after, {"s-5-2"}, graded={"s-5-2"}))
+
     def test_a_row_is_held_by_its_section_and_every_descendant(self):
         rows = [
             _major("om-1", "citations", "s-5"),
@@ -4025,18 +4212,135 @@ class SettleOpenMajorsTest(unittest.TestCase):
                 self.assertEqual("unresolved", current["open_substance_majors"][0]["status"])
                 self.assertEqual(2, len(current["remaining_blocking_issues"]))
 
-    def test_logic_counterarguments_and_recheck_rows_never_change_the_status(self):
-        current = self.state(
-            "approved_on_v1",
-            _major("om-1", "logic", status="left"),
-            _major("om-2", "counterarguments"),
-            _major("om-3", "citations", origin="recheck"),
-        )
+    def test_a_left_logic_row_still_changes_nothing(self):
+        current = self.state("approved_on_v1", _major("om-1", "logic", status="left"),
+                             _major("om-2", "citations", origin="recheck"))
         machine._settle_open_majors(current, [], 1)  # noqa: SLF001
         self.assertEqual("approved_on_v1", current["final_status"])
         self.assertEqual([], current["final_status_reasons"])
         self.assertEqual([], current["remaining_blocking_issues"])
-        self.assertEqual(["left", "unresolved", "open"], [row["status"] for row in current["open_substance_majors"]])
+        self.assertEqual(["left", "open"], [row["status"] for row in current["open_substance_majors"]])
+
+    def test_an_unresolved_counterarguments_row_reaches_the_status_in_its_client_sentence(self):
+        # D-237: a gap in the reasoning goes to a lawyer, and the client sees it.
+        row = _major(
+            "om-1", "counterarguments", issue_client="Сумма 390 600 ₽ названа надёжной без оговорки о шопперах."
+        )
+        current = self.state("approved_on_v3", row)
+        machine._settle_open_majors(current, [], 3)  # noqa: SLF001
+        self.assertEqual("manual_review_required_on_v3", current["final_status"])
+        self.assertEqual(["open_substance_majors"], current["final_status_reasons"])
+        self.assertEqual("unresolved", current["open_substance_majors"][0]["status"])
+        moved = current["remaining_blocking_issues"][0]
+        self.assertEqual(("major", "s-3", row["issue_client"], "counterarguments"),
+                         (moved["severity"], moved["section_id"], moved["issue_client"], moved["source_reviewer"]))
+
+    def test_a_logic_row_sent_to_manual_review_moves(self):
+        current = self.state("approved_on_v1", _major("om-1", "logic", status="manual_review"))
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        self.assertEqual("manual_review_required_on_v1", current["final_status"])
+        self.assertEqual(["open_substance_majors"], current["final_status_reasons"])
+        self.assertEqual(1, len(current["remaining_blocking_issues"]))
+
+    def test_a_moved_row_carries_the_lawyer_s_question(self):
+        # D-237 (F3): the `note` of a `manual_review` disposition is the question the lawyer must answer.
+        row = _major("om-1", "logic", status="manual_review", disposition_note="Does the exemption cover shoppers?")
+        current = self.state("approved_on_v1", row)
+        machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        moved = current["remaining_blocking_issues"][0]
+        self.assertEqual("Does the exemption cover shoppers?", moved["disposition_note"])
+        plain = self.state("approved_on_v1", _major("om-1", "logic", status="manual_review"))
+        machine._settle_open_majors(plain, [], 1)  # noqa: SLF001
+        self.assertNotIn("disposition_note", plain["remaining_blocking_issues"][0])
+
+    def test_an_entry_the_previous_build_moved_is_enriched_not_duplicated(self):
+        # D-237 fix round 1: the previous build moved this row without its note (a settlement persisted by a
+        # cancel); this build's settlement, run twice, finds the entry by section, category and issue.
+        row = _major("om-1", "citations", status="manual_review", disposition_note="Is point 3 the pinpoint?")
+        current = self.state("manual_review_required_on_v1", row)
+        current["final_status_reasons"] = ["open_substance_majors"]
+        previous = {key: value for key, value in machine._moved_finding(row).items() if key != "disposition_note"}  # noqa: SLF001
+        current["remaining_blocking_issues"].append(previous)
+        review.record_banner(current, BLOCKER_BANNER, count=1)
+        for _ in range(2):
+            machine._settle_open_majors(current, [], 1)  # noqa: SLF001
+        self.assertEqual(1, len(current["remaining_blocking_issues"]))
+        self.assertEqual("Is point 3 the pinpoint?", current["remaining_blocking_issues"][0]["disposition_note"])
+        self.assertEqual(["open_substance_majors"], current["final_status_reasons"])
+        self.assertEqual([{"count": "1"}], [banner["params"] for banner in _blocker_banners(current)])
+
+    def test_two_rows_of_one_finding_keep_their_own_lawyer_questions(self):
+        # Final fix wave (finding 1): D-235 keeps a major the targeted pass repeated as two rows; each is
+        # moved into its own entry, with its own note, and a repeated settlement changes nothing.
+        issue = "The retention rule is stated more firmly than its source allows."
+        rows = (
+            _major("om-1", "logic", status="manual_review", issue=issue, disposition_note="Does art. 5 apply?"),
+            _major("om-2", "logic", status="manual_review", issue=issue, disposition_note="Is the term binding?"),
+        )
+        current = self.state("approved_on_v2", *rows)
+        machine._settle_open_majors(current, [], 2)  # noqa: SLF001
+        notes = [entry.get("disposition_note") for entry in current["remaining_blocking_issues"]]
+        self.assertEqual(["Does art. 5 apply?", "Is the term binding?"], notes)
+        settled = copy.deepcopy(current)
+        machine._settle_open_majors(current, [], 2)  # noqa: SLF001
+        self.assertEqual(settled, current)
+
+        # An entry the previous build moved (no note) is claimed by one row and enriched; the other row
+        # gets its own entry.
+        previous = self.state("manual_review_required_on_v2", *rows)
+        previous["final_status_reasons"] = ["open_substance_majors"]
+        old = {key: value for key, value in machine._moved_finding(rows[0]).items() if key != "disposition_note"}  # noqa: SLF001
+        previous["remaining_blocking_issues"].append(old)
+        for _ in range(2):
+            machine._settle_open_majors(previous, [], 2)  # noqa: SLF001
+        notes = [entry.get("disposition_note") for entry in previous["remaining_blocking_issues"]]
+        self.assertEqual(["Does art. 5 apply?", "Is the term binding?"], notes)
+
+    def test_a_move_recounts_the_blocker_banner_with_and_without_a_lift(self):
+        # D-237: the banner counts what the Status section lists — the blockers left and the moved rows.
+        # (a) the run-74 blocker is kept, and one logic row is moved: two rows, banner count 2.
+        kept = _run_74_state(om_4="open")
+        kept["open_substance_majors"][0]["status"] = "manual_review"
+        blocker = copy.deepcopy(kept["remaining_blocking_issues"][0])
+        self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(kept)])
+        machine._settle_open_majors(kept, [], 3, lifted=set())  # noqa: SLF001
+        self.assertEqual(2, len(kept["remaining_blocking_issues"]))
+        self.assertEqual(blocker, kept["remaining_blocking_issues"][0])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", kept["final_status"])
+        self.assertEqual(["unresolved_blockers", "open_substance_majors"], kept["final_status_reasons"])
+        self.assertEqual([{"count": "2"}], [row["params"] for row in _blocker_banners(kept)])
+
+        # (b) the blocker is lifted, and one logic row is moved: one row, banner count 1.
+        lifted = _run_74_state(om_4="resolved")
+        lifted["open_substance_majors"][0]["status"] = "manual_review"
+        machine._settle_open_majors(lifted, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual(["logic"], [row["source_reviewer"] for row in lifted["remaining_blocking_issues"]])
+        self.assertEqual("forced_exit_on_v3_with_remaining_issues", lifted["final_status"])
+        # Final fix wave (finding 2): no blocker is left, so `unresolved_blockers` goes; the moved row's reason stays.
+        self.assertEqual(["open_substance_majors"], lifted["final_status_reasons"])
+        self.assertEqual([{"count": "1"}], [row["params"] for row in _blocker_banners(lifted)])
+        other = _run_74_state(om_4="resolved")
+        other["final_status_reasons"] = ["unresolved_blockers", OTHER_REASON]
+        other["open_substance_majors"][0]["status"] = "manual_review"
+        machine._settle_open_majors(other, [], 3, lifted={"om-4"})  # noqa: SLF001
+        self.assertEqual([OTHER_REASON, "open_substance_majors"], other["final_status_reasons"])
+
+        # (c) a forced exit with one blocker and its banner, and one moved row: the label is kept, the reason
+        # is added once however often the settlement runs, and the banner counts both rows.
+        forced = {
+            "final_status": "forced_exit_on_v2_with_remaining_issues",
+            "final_status_reasons": ["unresolved_blockers"],
+            "remaining_blocking_issues": [dict(self.BLOCKER)],
+            "fallback_banners": [],
+            "open_substance_majors": [_major("om-1", "counterarguments", status="unresolved")],
+        }
+        review.record_banner(forced, BLOCKER_BANNER, count=1)
+        for _ in range(2):
+            machine._settle_open_majors(forced, [], 2)  # noqa: SLF001
+        self.assertEqual("forced_exit_on_v2_with_remaining_issues", forced["final_status"])
+        self.assertEqual(["unresolved_blockers", "open_substance_majors"], forced["final_status_reasons"])
+        self.assertEqual(2, len(forced["remaining_blocking_issues"]))
+        self.assertEqual([{"count": "2"}], [row["params"] for row in _blocker_banners(forced)])
 
     def test_a_moved_row_carries_its_client_sentence_and_is_moved_once(self):
         row = _major("om-1", "citations", status="unresolved", issue_client="Пинпойнт указывает не туда.")
@@ -4080,10 +4384,11 @@ class DispositionTest(unittest.TestCase):
                     ["manual_review", "open", "open"],
                     self.statuses([("om-1", first), ("om-2", "polish"), ("om-1", second), ("om-3", "polish")]),
                 )
+        # D-237 (C2/F4): the class default of a `logic` row is `manual_review`, so the finding stays in view.
         for first, second in (("polish", "leave"), ("leave", "polish"), ("polish", "polish")):
             with self.subTest(logic=(first, second)):
                 self.assertEqual(
-                    ["open", "left", "open"],
+                    ["open", "manual_review", "open"],
                     self.statuses([("om-2", first), ("om-1", "polish"), ("om-3", "polish"), ("om-2", second)]),
                 )
 
@@ -4116,7 +4421,23 @@ class DispositionTest(unittest.TestCase):
         }
         machine._apply_dispositions(current, document)  # noqa: SLF001
         self.assertEqual([None, None, None], [row.get("disposition_note") for row in current["open_substance_majors"]])
-        self.assertEqual(["manual_review", "left", "left"], [row["status"] for row in current["open_substance_majors"]])
+        # D-237 (C2/F4): the duplicated `logic` id takes the class default, now `manual_review`, so a
+        # disposition the machine cannot read shows the finding instead of hiding it.
+        self.assertEqual(
+            ["manual_review", "manual_review", "manual_review"],
+            [row["status"] for row in current["open_substance_majors"]],
+        )
+
+    def test_a_missing_disposition_sends_a_logic_or_counterarguments_row_to_manual_review(self):
+        # D-237 (C2/F4): a missing row shows the finding; an explicit `leave` works as before.
+        self.assertEqual(["manual_review", "manual_review", "manual_review"], self.statuses([]))
+        self.assertEqual(
+            ["manual_review", "left", "left"], self.statuses([("om-2", "leave"), ("om-3", "leave")])
+        )
+        self.assertEqual(
+            ["manual_review", "manual_review", "manual_review"],
+            self.statuses([("om-1", "manual_review"), ("om-2", "manual_review"), ("om-3", "manual_review")]),
+        )
 
     def test_unique_by_id_drops_every_row_of_a_duplicated_id(self):
         rows = [

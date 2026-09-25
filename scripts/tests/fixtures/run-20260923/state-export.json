@@ -1,0 +1,88 @@
+{
+  "task_id": "memo-20260923T135856Z-ozon-24-2-480-4-300-23-620-310-1-490",
+  "language": "ru",
+  "current_phase": "export",
+  "final_status": "manual_review_required_on_v3",
+  "final_status_reasons": [
+    "polish_out_of_scope"
+  ],
+  "remaining_blocking_issues": [],
+  "fallback_banners": [],
+  "open_substance_majors": [
+    {
+      "id": "om-1",
+      "class": "logic",
+      "reviewer": "logic",
+      "section_id": "s-4-1",
+      "category": "skipped_step",
+      "issue_category": null,
+      "issue": "The conclusion that AHO has a claim 'при любой из проверенных квалификаций' is supported, for the reading where Ozon acts as agent on behalf of AHO, only by 'Ozon отвечает по общему правилу для предпринимателей [[п. 3 ст. 401]]'. Art. 401(3) is a standard of liability for breach; the subsection never names which obligation Ozon breaches under that reading (the WB court read the contract as agency 'а не как хранение').",
+      "issue_client": null,
+      "suggestion": "In the paragraph starting 'При такой модели запасное основание по ст. 998 ГК РФ отпадает', state the obligation Ozon breaches under the agency-on-behalf reading (for instance, whether the storage component of the mixed contract under art. 421(3) survives that reading, or which agency duty covers safekeeping of the goods), or narrow 'при любой из проверенных квалификаций' in 4.1 and the summary bullet to the readings where that obligation is shown.",
+      "from_iteration": 2,
+      "origin": "loop",
+      "status": "unresolved",
+      "disposition_note": "Logic gap on which obligation supports the claim under the agency reading; fixable by softening the 'при любой из проверенных квалификаций' claim without new authority, covered by the s-4-1 issue above."
+    },
+    {
+      "id": "om-2",
+      "class": "counterarguments",
+      "reviewer": "counterarguments",
+      "section_id": "s-4-4",
+      "category": "overstated_recovery",
+      "issue_category": null,
+      "issue": "Both the summary and 4.4 call 390 600 ₽ the 'надёжно взыскиваемый' amount that is 'хорошо защищена'. It includes 93 000 ₽ for the 300 shoppers, which 4.3 rates high risk on proof of transfer. 4.4 itself concedes that an August offer formula may set compensation below purchase cost. The headline figure is stated more firmly than the analysis beneath it.",
+      "issue_client": null,
+      "suggestion": "Split the figure. Treat 297 600 ₽ for the accepted mugs as the stronger core, subject to the offer formula, and 93 000 ₽ for the shoppers as contingent on the proof issues in 4.3. Drop or qualify 'надёжно' and 'хорошо защищена' in the summary and the risk line.",
+      "from_iteration": 2,
+      "origin": "loop",
+      "status": "unresolved",
+      "disposition_note": "Overstated quantum framing versus the memo's own s-4-3 risk rating and s-4-4 caveat; fixable by splitting and softening the figure, covered by the s-4-4 issue above."
+    },
+    {
+      "id": "om-3",
+      "class": "counterarguments",
+      "reviewer": "counterarguments",
+      "section_id": "s-5-1",
+      "category": "strongest_counterargument_underplayed",
+      "issue_category": null,
+      "issue": "The draft says Ozon's freedom-of-contract point 'действует против упущенной выгоды, но не против самого основания ответственности за пожар неустановленной причины'. No authority is given for that limit. The Plenum text lets a pre-agreed clause exclude liability for a non-intentional breach through named circumstances, with the debtor proving only that they occurred. Under the agency qualification (4.1) nothing else in the record stops that. Under the storage qualification the only barrier is the unverified 3352/12 fragment.",
+      "issue_client": null,
+      "suggestion": "Restate Ozon's point in its strong form: the offer may name circumstances (including fire) that exclude liability for a non-intentional breach, and Ozon would then have to prove only that they occurred and that it did not act intentionally. Then say what defeats it in each qualification: the unverified 3352/12 fragment and п. 2 ст. 428 under storage, only п. 2 ст. 428 and the minimal-care test under agency. Qualify 'не против самого основания' accordingly. The writer may also test whether the nullity limb of п. 6 of the same Plenum ruling (limits contrary to the essence of a type of obligation) extends to a professional storekeeper.",
+      "from_iteration": 2,
+      "origin": "loop",
+      "status": "unresolved",
+      "disposition_note": "Force-majeure limit stated without its own defeaters spelled out; fixable by restating the strong form and citing the defeaters already in the draft, covered by the first s-5-1 issue above."
+    },
+    {
+      "id": "om-4",
+      "class": "counterarguments",
+      "reviewer": "counterarguments",
+      "section_id": "s-5-1",
+      "category": "hidden_assumption",
+      "issue_category": null,
+      "issue": "'Оговорка о том, что Ozon не отвечает за форс-мажор, повторяет закон' is stated as fact, and the summary repeats it ('оговорка о форс-мажоре не освобождает Ozon от ответственности за пожар неустановленной причины'). The offer text was never read, and the client describes the clause as excluding liability 'вообще ни в каком объёме'. The conclusion quietly assumes the offer's force-majeure definition does not list fire or other ordinary events.",
+      "issue_client": null,
+      "suggestion": "State the assumption openly: the conclusion holds only if the offer defines force majeure by the standard of п. 3 ст. 401. Say what follows if the definition lists fire, namely the as-mo-a41-67682-2013 line against a contractual fire-as-force-majeure clause, plus the counterpoint above. Carry the qualification into the summary bullet.",
+      "from_iteration": 2,
+      "origin": "loop",
+      "status": "unresolved",
+      "disposition_note": "Undisclosed assumption that the unread offer's force-majeure clause tracks the statutory standard; fixable by stating the assumption and its consequence, covered by the second s-5-1 issue above."
+    },
+    {
+      "id": "om-5",
+      "class": "counterarguments",
+      "reviewer": "counterarguments",
+      "section_id": "s-5-1",
+      "category": "thin_exclusion_not_addressed",
+      "issue_category": null,
+      "issue": "Constitutional Court rulings № 14-П (2023) and № 34-П (2024) on the meaning of п. 1-3 ст. 428 were excluded in the statutes layer only as 'belonging to the case_law layer'. The case_law layer never took them up. That reason does not reach the merits. Both the 5.1 route of challenging the offer's limits and the 5.2 weak-party argument rest on ст. 428, and the Constitutional Court ranks above the Plenum rulings the draft uses. Constitutional Court rulings bind all courts, so the other side can cite them first. The draft does not mention them, and the reader cannot tell they were identified.",
+      "issue_client": null,
+      "suggestion": "Add to the limitations and to 5.1 that Constitutional Court rulings on the meaning of ст. 428 were identified but not reviewed, so the п. 2 ст. 428 route stays unresolved until they are read. Do not describe their content. In 4.3 or the limitations, also note that the 9th and 10th Arbitration Appeal Court acts on lost marketplace goods named in the garant.ru consultation (А40-115539/2025, А40-234982/2025, А41-52298/2025, А41-96328/2025) were identified but could not be retrieved.",
+      "from_iteration": 2,
+      "origin": "loop",
+      "status": "unresolved",
+      "disposition_note": "Undisclosed research gap (unreviewed Constitutional Court rulings and unretrieved appellate acts) bearing on the ст. 428 route; fixable by adding disclosure without new legal content, covered by the s-3 blocker issue above."
+    }
+  ]
+}

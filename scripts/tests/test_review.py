@@ -18,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import i18n, limits, modes, review, schema, state_io, stepctx, task  # noqa: E402
+from memoforge import i18n, limits, modes, review, revision, schema, state_io, stepctx, task  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 DRAFT_SHA = "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e"
@@ -845,6 +845,88 @@ class TargetedMediatorTest(unittest.TestCase):
         self.assertEqual(self.v2["draft_sha"], document["draft_sha"])
 
 
+class SourceEvidenceMediatorTest(unittest.TestCase):
+    """D-239: the saved passage a reviewer's finding rests on reaches the writer through the CLI mediator."""
+
+    RUN_79 = "v2-citations-source-evidence"
+    """`reviews/v2-citations.json` of the 2026-09-23 run (run 79): the s-6 blocker carries `source_evidence`."""
+
+    def aggregated(self, tmp: str) -> dict:
+        document = fixture(self.RUN_79)
+        work_dir = new_task(Path(tmp), reviewers=["citations"], iteration=2)
+        state_io.write_state(
+            work_dir, lambda state: state.update({"language": "ru", "current_draft_sha": document["draft_sha"]})
+        )
+        put_review(work_dir, 2, "citations", self.RUN_79)
+        result = review.run_aggregate(aggregate_args(work_dir, iteration=2))
+        self.assertTrue(result["aggregated"], result)
+        return review.iteration_record(state_io.read_state(work_dir), 2)
+
+    def test_the_run_79_targeted_instruction_ends_with_the_saved_passage(self):
+        evidence = next(row for row in fixture(self.RUN_79)["issues"] if row["section_id"] == "s-6")
+        evidence = evidence["source_evidence"]
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self.aggregated(tmp)
+        targeted = revision.targeted_blockers(record)
+        self.assertEqual(["s-6"], [row["section_id"] for row in targeted])
+        self.assertEqual(evidence, targeted[0]["source_evidence"])
+
+        document = review.build_mediator(record, only=targeted)
+        self.assertEqual([], schema.validate(document, "mediator"))
+        self.assertEqual(["s-6"], [row["section_id"] for row in document["instructions"]])
+        instruction = document["instructions"][0]["instruction"]
+        suffix = f" Source text ({evidence['source_id']}): «{evidence['passage']}»"
+        self.assertTrue(instruction.endswith(suffix), instruction)
+        self.assertEqual(f"{targeted[0]['issue']} {targeted[0]['suggestion']}{suffix}", instruction)
+
+    def test_an_issue_without_evidence_keeps_today_s_instruction(self):
+        issue = {
+            "severity": "blocker",
+            "category": "untokened_rule",
+            "section_id": "s-2",
+            "issue": "A rule with no token.",
+            "suggestion": "Add the token.",
+            "issue_category": "unsupported_claim",
+        }
+        row = review._normalize_issue(issue, "citations")
+        self.assertNotIn("source_evidence", row)
+        document = review.build_mediator({"iteration": 2, "issues": [row]})
+        self.assertEqual("A rule with no token. Add the token.", document["instructions"][0]["instruction"])
+
+    def test_a_legacy_aggregate_gives_the_instruction_the_old_build_published(self):
+        # A run resumed from a build before D-239 has `iterations[].issues[]` without `source_evidence`.
+        v2 = run_74_json("state-iterations.json")[1]
+        self.assertFalse(any("source_evidence" in row for row in v2["issues"]))
+        self.assertEqual(run_74_json("v2-mediator.json"), review.build_mediator(v2))
+        blocker = next(row for row in v2["issues"] if row["severity"] == "blocker")
+        self.assertEqual(
+            run_74_json("v2-mediator.json")["instructions"][:1],
+            review.build_mediator(v2, only=[blocker])["instructions"],
+        )
+
+    def test_a_merged_duplicate_keeps_the_survivor_s_evidence_or_takes_the_other_s(self):
+        def row(evidence: dict | None) -> dict:
+            issue = {
+                "severity": "blocker",
+                "category": "exception_limb_omitted",
+                "section_id": "s-6",
+                "issue": "Section 6 drops the limb of the rule on the nature of the relationship.",
+                "suggestion": "Quote the limb.",
+            }
+            if evidence:
+                issue["source_evidence"] = evidence
+            return review._normalize_issue(issue, "citations")
+
+        first = {"source_id": "zozpp-st-12", "status": "contradicted", "passage": "first passage"}
+        second = {"source_id": "zozpp-st-12", "status": "contradicted", "passage": "second passage"}
+        taken = review.deduplicate([row(None), row(second)])
+        self.assertEqual(1, len(taken))
+        self.assertEqual(second, taken[0]["source_evidence"])
+        kept = review.deduplicate([row(first), row(second)])
+        self.assertEqual(1, len(kept))
+        self.assertEqual(first, kept[0]["source_evidence"])
+
+
 class FixtureShapeTest(unittest.TestCase):
     def test_every_review_fixture_is_schema_valid(self):
         for path in sorted(FIXTURES.glob("*.json")):
@@ -862,7 +944,32 @@ class FixtureShapeTest(unittest.TestCase):
                 self.assertTrue(all(row["tier"] in ("substance", "form") for row in items))
 
 
-RUN_20260921 = Path(__file__).resolve().parent / "fixtures" / "run-20260921"
+class MoneyAndRequiredStepsTest(unittest.TestCase):
+    """D-240: money and required steps are conclusions; LOG-06/LOG-10 grow, the ids stay, so resume stays valid."""
+
+    def items(self) -> dict:
+        return {row["id"]: row["text"] for row in review.load_checklist("logic")}
+
+    def test_the_logic_ids_are_unchanged(self):
+        self.assertEqual([f"LOG-{n:02d}" for n in range(1, 12)], list(self.items()))
+
+    def test_log_06_covers_overlapping_heads_and_a_figure_called_reliable(self):
+        text = self.items()["LOG-06"]
+        self.assertTrue(text.startswith("Conclusions on different issues are consistent with each other"), text)
+        for needle in ("one computation", "rates high-risk"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_log_10_asks_for_a_cited_rule_behind_a_required_step(self):
+        text = self.items()["LOG-10"]
+        self.assertTrue(text.startswith("Every recommendation traces back to a finding"), text)
+        # The plan's needle "presented as required" belongs to the writer rule; the LOG-10 wording is verbatim.
+        for needle in ("is told is required before another", "rest on a cited rule", "prudent practice"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+
+RUN_20260921 =Path(__file__).resolve().parent / "fixtures" / "run-20260921"
 """D-208: the saved reviews of the 2026-09-21 run (pre-plan-72 shape), kept out of `FIXTURES`."""
 
 
@@ -1180,6 +1287,64 @@ class OpenSubstanceMajorsTest(unittest.TestCase):
         )
         self.assertEqual([], self.rows(stored_record(1, *issues), version=1))
         self.assertEqual([], review.open_substance_majors({}, 1))
+
+    @staticmethod
+    def targeted_blocker(section_id: str) -> dict:
+        blocker = stored("citations", severity="blocker", section_id=section_id, category="exception_limb_omitted",
+                         text="A limb of the rule is left out.")
+        blocker["issue_category"] = "source_drift"
+        return blocker
+
+    def targeted(self, *records: dict, version: int, iteration: int) -> list[dict]:
+        state = {"iterations": list(records), "targeted_fix": {"iteration": iteration, "reviewers": ["citations"]}}
+        return review.open_substance_majors(state, version)
+
+    def run79_v2(self) -> dict:
+        return stored_record(
+            2,
+            self.targeted_blocker("s-6"),
+            stored("citations", section_id="s-4-4", category="authority_overstated",
+                   text="Purchase cost credited to the court."),
+            stored("counterarguments", section_id="s-4-4", category="overstated_recovery",
+                   text="390 600 called reliable."),
+            stored("logic", section_id="s-4-1", category="skipped_step",
+                   text="The obligation breached is never named."),
+        )
+
+    def test_a_targeted_pass_keeps_the_citations_major_of_a_section_it_did_not_rewrite(self):
+        clean = stored_record(3, stored("citations", severity="minor", section_id="s-6", category="qualifier_omitted"),
+                              reviewers=("citations",))
+        rows = self.targeted(self.run79_v2(), clean, version=3, iteration=3)
+        self.assertEqual(
+            [(2, "logic", "s-4-1", "skipped_step"), (2, "citations", "s-4-4", "authority_overstated"),
+             (2, "counterarguments", "s-4-4", "overstated_recovery")],
+            self.brief(rows),
+        )
+
+    def test_a_citations_major_in_the_rewritten_section_is_re_graded_by_the_targeted_pass(self):
+        v2 = self.run79_v2()
+        v2["issues"].append(stored("citations", section_id="s-6", category="pinpoint_mismatch",
+                                   text="Point 2.1 is cited to 2.2."))
+        rows = self.targeted(v2, stored_record(3, reviewers=("citations",)), version=3, iteration=3)
+        self.assertNotIn(("s-6", "pinpoint_mismatch"), [(row["section_id"], row["category"]) for row in rows])
+        self.assertIn((2, "citations", "s-4-4", "authority_overstated"), self.brief(rows))
+
+    def test_a_major_the_targeted_pass_raises_is_a_row(self):
+        new = stored("citations", section_id="s-5-1", category="weight_overstated",
+                     text="One appellate act is called practice.")
+        rows = self.targeted(self.run79_v2(), stored_record(3, new, reviewers=("citations",)), version=3, iteration=3)
+        self.assertIn((3, "citations", "s-5-1", "weight_overstated"), self.brief(rows))
+        self.assertEqual(4, len(rows))
+
+    def test_a_merged_issue_keeps_its_citations_class_across_a_targeted_pass(self):
+        merged = stored("counterarguments", section_id="s-4-4", also=("citations",))
+        rows = self.targeted(stored_record(2, self.targeted_blocker("s-6"), merged),
+                             stored_record(3, reviewers=("citations",)), version=3, iteration=3)
+        self.assertEqual([(2, "citations", "s-4-4", "narrow_trigger")], self.brief(rows))
+
+    def test_without_a_targeted_pass_a_narrow_record_still_supersedes(self):
+        rows = self.rows(self.run79_v2(), stored_record(3, reviewers=("citations",)), version=3)
+        self.assertNotIn("authority_overstated", [row["category"] for row in rows])
 
 
 class PolishRecheckReadTest(unittest.TestCase):

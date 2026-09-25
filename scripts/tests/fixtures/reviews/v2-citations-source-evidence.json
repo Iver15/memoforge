@@ -1,0 +1,322 @@
+{
+ "reasoning": "All statute rules checked against saved text are there. One blocker: section 6 gives the seller-liability rule of Article 12(2.1) of the Consumer Protection Law without its limb 'or unless it follows from the nature of their relationship'. Under FBO, Ozon holds and ships the goods, so that limb is engaged, and the section 6 conclusion and its summary bullet (AНО answers to buyers) rest on the shortened rule. One major: 4.4 says the Tenth Appellate Court 'proceeded from the same' purchase-cost measure. The saved fragment does not show that as the court's own conclusion, and the record says the court accepted the defendant's counter-calculation at average sale price. Every court statement I looked up (VS RF 309-ES14-4692, 66-KG18-9, 301-ES19-5994, 305-ES24-17374, 7-KG23-4, Plenum 7) matches the court's own reasoning. On Article 23.1(5) the draft follows the text and the finding does not.",
+ "reviewer": "citations",
+ "draft_sha": "c603673310e1bdb197ecb062a30df71927ba778708b0bcecc378324455f9e8db",
+ "iteration": 2,
+ "checklist": [
+  {
+   "id": "CIT-01",
+   "pass": true,
+   "evidence": "Every CIT-01 candidate read whole is in its source. 2: 'Профессиональный хранитель — коммерческая организация...' [[gk-rf-st-886 п. 2]] is in п. 2 ст. 886 ('коммерческая организация либо некоммерческая организация, осуществляющая хранение ... (профессиональный хранитель)'). 4.1: '...общему правилу для предпринимателей, которое допускает иное условие договора' [[gk-rf-st-401 п. 3]] is in п. 3 ('Если иное не предусмотрено законом или договором'). 6: 'деньги поступили на его счёт' and 'уведомление ... через сам агрегатор' [[ст. 12 п. 2.2]] are both in п. 2.2."
+  },
+  {
+   "id": "CIT-02",
+   "pass": false,
+   "evidence": "6: 'Ответственность за исполнение договора, заключённого через агрегатор, несёт продавец, если соглашение продавца с агрегатором не предусматривает иного' [[ст. 12 п. 2.1]]. The saved text reads 'Если иное не предусмотрено соглашением ... или не вытекает из существа отношений между ними'. The second limb is left out, and the FBO facts engage it."
+  },
+  {
+   "id": "CIT-03",
+   "pass": true,
+   "evidence": "The block quotes (ст. 907 п. 1, ст. 901 абз. 2 п. 1, ст. 162 п. 1, ст. 902 п. 1, ст. 401 п. 4, ст. 37 АПК, ст. 12 п. 2.2, ст. 23 289-ФЗ) each carry the proposition next to them. For example, the ст. 162 quote in 4.3 supports 'не лишает их права приводить письменные и другие доказательства'."
+  },
+  {
+   "id": "CIT-04",
+   "pass": true,
+   "evidence": "No pinpoint found that points away from the text holding the rule. 'п. 5 ст. 23.1 говорит лишь о требованиях из п. 2 этой статьи' (6) matches п. 5 ('Требования потребителя, установленные пунктом 2'). I could not see the paragraph numbers for Plenum 17 п. 48 or Plenum 7 п. 5, but the located wording is in those acts."
+  },
+  {
+   "id": "CIT-05",
+   "pass": true,
+   "evidence": "Persuasive VS RF and appellate acts are written as what a chamber or court said, never as binding rules. The non-binding marketpleis-eto is marked 4.1 'носит справочный характер и опорой вывода не служит'. The КонсультантПлюс 289-FZ review is attributed ('По обзору КонсультантПлюс'). Background ст. 996, ст. 64 АПК and ks-7-p-2026-excerpt only support other points."
+  },
+  {
+   "id": "CIT-06",
+   "pass": true,
+   "evidence": "Sources marked manual_check are qualified. 3: the aas10 acts are 'изученными по неполным фрагментам без резолютивной части (пп. 4.1, 4.3, 4.4, 5.1)'. 4.2 and 5.1: 3352/12 'подлинность не сверена'. 6: ст. 26.1 п. 4 'требует сверки с временным порядком' under КС 7-П."
+  },
+  {
+   "id": "CIT-07",
+   "pass": false,
+   "evidence": "4.4: 'Десятый арбитражный апелляционный суд исходил из того же и связал реальный ущерб продавца со стоимостью закупки или производства товара'. The saved fragment has the sentence 'необходимо установить размер реального ущерба (стоимость производства и/или закупки товара)', but not whose voice it is. The case_law record says the court 'признал арифметически верным контррасчёт ответчика по средней цене продажи из отчётов', and the fragment 'обрывается до итогового вывода'."
+  },
+  {
+   "id": "CIT-08",
+   "pass": true,
+   "evidence": "The draft's statements that no authority was found match the record. 5.2: 'Высшей судебной практики о применении этого разъяснения к оговорке о подсудности не найдено' (case_law I5, plenum-vas-16-2014). 4.1: the expedition reading is unresolved, 'позицию ВС РФ ... получить не удалось' (considered_excluded 305-ЭС25-11730, timeout). 3: no circuit practice on Ozon."
+  },
+  {
+   "id": "CIT-09",
+   "pass": true,
+   "evidence": "The assumptions (seller named in receipts, paid storage, the shoppers were unloaded) sit in section 3 and are flagged where they are used ('На допущенных фактах', 6; 'допущения о возмездном хранении', 4.4). None is written as a finding of a source."
+  },
+  {
+   "id": "CIT-10",
+   "pass": true,
+   "evidence": "Where the record has contrary authority, the draft cites it: aas10-a41-10565-2024 against the storage reading (4.1), vs-309-es14-4692 с. 7–9 and ст. 907 п. 2 against the shoppers claim (4.3), aas10-a41-60885-2024 and plenum-vs-7-2016 п. 6 against lost profit (4.4, 5.1), and ст. 2 against the ст. 310 argument (5.1)."
+  }
+ ],
+ "issues": [
+  {
+   "severity": "blocker",
+   "category": "exception_limb_omitted",
+   "section_id": "s-6",
+   "issue": "Section 6 gives the rule of Article 12(2.1) as 'the seller is liable unless the seller–aggregator agreement provides otherwise'. The article also shifts liability where this 'follows from the nature of their relationship'. Under FBO, Ozon stores and ships the goods itself, so that limb is engaged. The section 6 conclusion and the summary bullet that AНО, not Ozon, answers to the 60 buyers rest on the shortened rule.",
+   "suggestion": "Qualify the sentence and the section 6 conclusion (and the summary bullet) with the omitted limb quoted in source_evidence. State whether FBO fulfilment by Ozon could make responsibility 'follow from the nature of the relationship', or mark that as an unresolved point.",
+   "checklist_id": "CIT-02",
+   "issue_category": "source_drift",
+   "issue_client": "Прежде чем исходить из того, что перед покупателями отвечает только АНО, проверьте, не вытекает ли иное из существа отношений с Ozon по модели FBO: закон делает эту оговорку, а меморандум её опускает.",
+   "source_evidence": {
+    "source_id": "zakon-rf-ot-07-02-1992-no-2300-1-o-zashchite-prav-potrebitelei-st-12",
+    "status": "contradicted",
+    "passage": "Если иное не предусмотрено соглашением между владельцем агрегатора и продавцом (исполнителем) или не вытекает из существа отношений между ними, ответственность за исполнение договора, заключенного потребителем с продавцом (исполнителем) на основании предоставленной владельцем агрегатора информации о товаре (услуге) или продавце (исполнителе), а также за соблюдение прав потребителей, нарушенных в результате передачи потребителю товара (услуги) ненадлежащего качества и обмена непродовольственного товара надлежащего качества на аналогичный товар, несет продавец (исполнитель)."
+   }
+  },
+  {
+   "severity": "major",
+   "category": "authority_overstated",
+   "section_id": "s-4-4",
+   "issue": "4.4 says the Tenth Appellate Court 'исходил из того же и связал реальный ущерб продавца со стоимостью закупки или производства товара'. This is used to support purchase cost as the measure. The saved fragment has a purchase-cost sentence, but it does not show whether that is the court's own reasoning or the defendant's submission. The case_law record says the court accepted the defendant's counter-calculation at average sale price, and that the fragment breaks off before the final ruling. The fragment caveat comes only two paragraphs later. The same attribution recurs in 5.1: 'апелляционный суд в одном деле применил'.",
+   "suggestion": "Withdraw 'исходил из того же', or qualify it: this is a sentence in an incomplete fragment, whose author and final measure of damages are not established. Keep ст. 393 and ст. 15 as the authority for the purchase-cost floor.",
+   "checklist_id": "CIT-07",
+   "issue_category": "source_drift",
+   "issue_client": "Не опирайтесь на постановление по делу № А41-60885/2024 как на подтверждение расчёта по закупочной цене: из сохранённого фрагмента не видно, что так решил сам суд, а по данным исследования суд принял расчёт ответчика по средней цене продажи."
+  },
+  {
+   "severity": "minor",
+   "category": "condition_omitted",
+   "section_id": "s-4-3",
+   "issue": "4.3 says 'Электронные документы и сведения из интернета допускаются как письменные доказательства' [[apk-rf-st-75 ч. 3]]. Part 3 admits them 'в случаях и порядке, которые предусмотрены настоящим Кодексом, другими федеральными законами, иными нормативными правовыми актами или договором', and the court may require originals.",
+   "suggestion": "Keep the condition in the sentence ('в случаях и порядке, предусмотренных законом или договором'). Note that the court may require originals.",
+   "issue_category": "source_drift"
+  },
+  {
+   "severity": "minor",
+   "category": "untokened_rule",
+   "section_id": "s-2",
+   "issue": "The definition 'Такой хранитель отвечает за утрату вещей и без вины' states a rule with no token. The token after it, п. 2 ст. 886, defines the professional custodian but not this liability standard.",
+   "suggestion": "Add the ст. 901 абз. 2 п. 1 token already used in 4.2, or refer to 4.2.",
+   "issue_category": "unsupported_claim"
+  },
+  {
+   "severity": "minor",
+   "category": "exception_limb_narrowed",
+   "section_id": "s-6",
+   "issue": "The carve-out in ст. 13 п. 7 is written as 'кроме случая неразумного выбора контрагента'. The text reads 'действовал недобросовестно или неразумно при выборе такого контрагента'.",
+   "suggestion": "Write 'недобросовестно или неразумно' as the text does.",
+   "issue_category": "source_drift"
+  }
+ ],
+ "text_checks": [
+  {
+   "source_id": "gk-rf-st-886",
+   "section_id": "s-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 2 defines the professional custodian. The finding records only п. 1."
+  },
+  {
+   "source_id": "gk-rf-st-886",
+   "section_id": "s-4-1",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "П. 1 (duty tied to a thing handed over) and п. 2 (professional custodian) are both in the text."
+  },
+  {
+   "source_id": "gk-rf-st-886",
+   "section_id": "s-4-3",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "П. 2: 'может быть предусмотрена обязанность хранителя принять на хранение вещь ... в предусмотренный договором срок'."
+  },
+  {
+   "source_id": "gk-rf-st-15",
+   "section_id": "s-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 2 defines real damage and lost profit."
+  },
+  {
+   "source_id": "gk-rf-st-15",
+   "section_id": "s-6",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "П. 2 includes expenses the person 'произвело или должно будет произвести'. Treating penalties paid to buyers as such losses is an application of that definition, and the draft qualifies it by the offer's limits."
+  },
+  {
+   "source_id": "gk-rf-st-1005",
+   "section_id": "s-4-1",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 1 covers both models, own name and principal's name."
+  },
+  {
+   "source_id": "gk-rf-st-1011",
+   "section_id": "s-4-1",
+   "status": "confirmed",
+   "finding_disagrees": true,
+   "note": "Read whole. The text makes ch. 49 or ch. 51 apply depending on whose name the agent acts in, and the draft keeps that condition. The I1 finding assumes Ozon acts in its own name. The I2 finding says ст. 1011 fixes the same liability standard in both constructions, which the article does not say."
+  },
+  {
+   "source_id": "gk-rf-st-401",
+   "section_id": "s-4-1",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 3 opens 'Если иное не предусмотрено законом или договором'. П. 4 holds only the rule on intentional breach."
+  },
+  {
+   "source_id": "gk-rf-st-401",
+   "section_id": "s-6",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "П. 3: 'нарушение обязанностей со стороны контрагентов должника' is excluded from force majeure. The same point supports the definition in section 2."
+  },
+  {
+   "source_id": "apk-rf-st-75",
+   "section_id": "s-4-3",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. Ч. 3 admits electronic documents 'в случаях и порядке, которые предусмотрены ... или договором'. The draft drops that condition (minor issue). The finding records it."
+  },
+  {
+   "source_id": "zakon-rf-ot-07-02-1992-no-2300-1-o-zashchite-prav-potrebitelei-st-12",
+   "section_id": "s-6",
+   "status": "contradicted",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 2.1 carries the limb 'или не вытекает из существа отношений между ними', which the draft omits (blocker). The п. 2.2 conditions (prepayment to the aggregator's bank account, a confirmed notice, notice sent via the aggregator unless the user agreement provides otherwise) match the draft."
+  },
+  {
+   "source_id": "zakon-rf-o-zashchite-prav-potrebitelei-st-23-1",
+   "section_id": "s-6",
+   "status": "confirmed",
+   "finding_disagrees": true,
+   "note": "Read whole. П. 3 (0.5% a day, capped at the prepayment, runs until delivery or refund) matches the draft. П. 5 applies to 'Требования потребителя, установленные пунктом 2', as the draft says. The finding reads п. 5 as governing the п. 3 penalty."
+  },
+  {
+   "source_id": "zakon-rf-o-zashchite-prav-potrebitelei-st-13",
+   "section_id": "s-6",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Read whole. П. 4 (force majeure or other statutory grounds), п. 6 (50% fine) and п. 7 abz. 2 (the counterparty's breach 'по поставке товаров (выполнению работ, оказанию услуг)') match the draft. The draft narrows the bad-faith carve-out (minor issue)."
+  },
+  {
+   "source_id": "vs-301-es19-5994",
+   "section_id": "s-4-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Court: 'это обязательство направлено на достижение конечного результата - выдачу имущества поклажедателю в надлежащем состоянии'."
+  },
+  {
+   "source_id": "vs-309-es14-4692",
+   "section_id": "s-4-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Court: 'Судебная коллегия считает необоснованным вывод судов о том, что убытки истцу причинены действием непреодолимой силы. В данном случае произошедший пожар не вызван каким-либо чрезвычайным событием, а связан с причинами, находящимися в сфере контроля войсковой части.'"
+  },
+  {
+   "source_id": "vs-66-kg18-9",
+   "section_id": "s-4-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Court: 'поскольку факт нахождения автомобиля истца в момент пожара в здании ответчика установлен, обязанность доказать то, что обязательства исполнялись надлежащим образом ... лежит на исполнителе'."
+  },
+  {
+   "source_id": "plenum-vs-7-2016",
+   "section_id": "s-4-2",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Located 'бремя доказывания обстоятельств, являющихся основанием для освобождения от такой ответственности'. The paragraph number was not visible in the passage."
+  },
+  {
+   "source_id": "vs-305-es24-17374",
+   "section_id": "s-5-1",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Court: 'при ссылке заинтересованного лица на обременительность отдельных условий договора не имеет правового значения добровольное присоединение этого лица к договору'."
+  },
+  {
+   "source_id": "vs-305-es16-20255",
+   "section_id": "s-5-2",
+   "status": "inconclusive",
+   "finding_disagrees": false,
+   "note": "Located the court's reasoning that the parties may change territorial jurisdiction but not subject-matter or exclusive jurisdiction. The operative reversal of the transfer to the defendant's seat was not located, and the act was not read whole."
+  },
+  {
+   "source_id": "plenum-vs-17-2012",
+   "section_id": "s-6",
+   "status": "inconclusive",
+   "finding_disagrees": false,
+   "note": "Located 'размер ответственности посредника ограничивается величиной агентского вознаграждения'. Neither the limb 'the seller is liable regardless of agents' nor the paragraph number (п. 48) was located."
+  },
+  {
+   "source_id": "vs-7-kg23-4",
+   "section_id": "s-6",
+   "status": "confirmed",
+   "finding_disagrees": false,
+   "note": "Court: 'возврат продавцом уплаченных по публичному договору денежных средств без законных на то оснований не влечёт юридических последствий'."
+  },
+  {
+   "source_id": "aas10-a41-60885-2024",
+   "section_id": "s-4-4",
+   "status": "inconclusive",
+   "finding_disagrees": false,
+   "note": "Located 'необходимо установить размер реального ущерба (стоимость производства и/или закупки товара)', but not whose voice it is, court or defendant. The excerpt was not read whole. The finding records that the court accepted the defendant's average-sale-price counter-calculation."
+  },
+  {
+   "source_id": "aas10-a41-60885-2024",
+   "section_id": "s-4-3",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking the claim about the unfiled return request and refusal of damages."
+  },
+  {
+   "source_id": "aas10-a41-10565-2024",
+   "section_id": "s-4-1",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking the agency characterisation."
+  },
+  {
+   "source_id": "vs-66-kg18-9",
+   "section_id": "s-4-3",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking с. 4–5 on the missing written form."
+  },
+  {
+   "source_id": "vs-309-es14-4692",
+   "section_id": "s-4-3",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking с. 7–9 on unproven transfer."
+  },
+  {
+   "source_id": "as-mo-a41-67682-2013",
+   "section_id": "s-4-2",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking the cassation reversal on the contractual force-majeure list."
+  },
+  {
+   "source_id": "vs-rf-opredelenie-skes-no-305-es21-24470-ot-26-05-2022",
+   "section_id": "s-4-4",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking the 'минимальной заботливости' statement."
+  },
+  {
+   "source_id": "plenum-vas-16-2014",
+   "section_id": "s-5-1",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking п. 9 and п. 10 (the factors for weak-party assessment)."
+  },
+  {
+   "source_id": "plenum-vs-18-2021",
+   "section_id": "s-5-2",
+   "status": "not_reached",
+   "finding_disagrees": false,
+   "note": "Budget spent before checking пп. 2, 8, 20."
+  }
+ ],
+ "verdict": "needs_revision"
+}
