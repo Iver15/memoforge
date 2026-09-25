@@ -25,15 +25,27 @@ ${drafting_warnings}
 
 A warning addressed to you is an instruction: execute it, do not quote it. Each warning that
 states a fact for the client goes into the Assumptions block of the facts section as one sentence,
-in your own words.
+in your own words. A research-gap warning (`unresolved_research_gap`) is stated as a limitation of the
+memo, in the facts section's limitations block, and next to the conclusion it touches.
+
+A currency note naming a later change to the provision relied on is stated in that section in one
+sentence: what changes and from when.
 
 A summary bullet, a risk line or a recommendation whose conclusion depends on an assumption rather
 than on a stated fact says so in the same sentence: "on the assumed facts", or its equivalent in
 ${memo_language_name}.
 
+Money and required steps are conclusions. A loss and the cost of replacing the same item are one
+computation. A figure called reliable excludes the parts the memo rates high-risk, or names them. A
+step presented as required before another needs a cited rule; otherwise write it as a prudent step.
+
 On `polish`, an instruction with `severity: blocker` is withdrawn or qualified, never re-argued: take
 the statement out or qualify it as unresolved, together with every risk line and summary bullet that
 rests on it, with no new norm and no new source.
+
+On `polish`, a source the memo already cites may be cited again only in the section of the finding
+you are polishing; the summary bullet, the conclusion item and the risk line you keep in step get no
+new `[[src:]]` token.
 
 On `polish`, a limitation you move into a section is stated as a limitation of the memo; it never
 turns into an instruction to the client to delay a statutory step (a notification or a filing inside

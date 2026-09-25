@@ -2585,8 +2585,6 @@ def researcher_specs(work_dir: Path, state: dict, layers: list[str]) -> list[dic
                 layer,
                 [(f"research/{layer}.json", "research-findings")],
                 inputs=[gates.PLAN_PATH, gates.MCP_PROBE_PATH, preflight.PREFLIGHT_PATH],
-                # D-209: `case_law` on `opus`; None keeps the agent's own model for the other layers.
-                model=dispatch.RESEARCH_LAYER_MODELS.get(layer),
                 layer=layer,
                 issues=issues,
                 jurisdictions=jurisdictions,
@@ -2615,6 +2613,8 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
         agent = dispatch.REVIEWER_AGENTS[kind]
         # D-214: the next citations reviewer starts with the pairs no earlier text check reached.
         carry_over = _carry_over(work_dir, state, iteration, draft_path) if kind == "citations" else "none"
+        # D-238: what the sufficiency reviewer found on the saved texts goes to the reviewer who reads them.
+        checks = _sufficiency_checks(work_dir) if kind == "citations" else "none"
         specs.append(
             dispatch.spec(
                 kind,
@@ -2637,6 +2637,7 @@ def reviewer_specs(work_dir: Path, state: dict, kinds: list[str], iteration: int
                 # D-208: the units a reviewer may spend reading saved texts; 0 for logic and form.
                 lookup_budget=str(limits.REVIEWER_LOOKUP_BUDGET.get(kind, 0)),
                 carry_over=carry_over,
+                sufficiency_checks=checks,
                 research_files=research_files,
                 retry_errors="none",
             )
@@ -2650,6 +2651,29 @@ def _carry_over(work_dir: Path, state: dict, iteration: int, draft_path: str) ->
     text = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
     pairs = review.unchecked_pairs(work_dir, state, iteration, text)
     return "\n".join(f"{row['source_id']} · {row['section_id']} · {row['reason']}" for row in pairs) or "none"
+
+
+def _sufficiency_checks(work_dir: Path) -> str:
+    """D-238 `${sufficiency_checks}`: one `target · why_blocking` line per weak layer gap, or `none`.
+
+    D-215 keeps `why_blocking` out of the memo; where it records what a saved text says that a finding
+    left out, the citations reviewer is the one who can check the draft against that text. A `user`
+    gap says nothing about a saved text, so it never spends the reviewer's first budget item.
+    """
+    try:
+        document = state_io.read_json(work_dir / SUFFICIENCY_PATH)
+    except (OSError, ValueError):
+        return "none"
+    gaps = document.get("blocking_gaps") if isinstance(document, dict) else None
+    lines = [
+        f"{gap.get('target')} · {' '.join(str(gap.get('why_blocking') or '').split())}"
+        for gap in (gaps if isinstance(gaps, list) else [])
+        if isinstance(gap, dict)
+        and gap.get("target") in routing.LAYERS
+        and gap.get("status") == "weak"
+        and str(gap.get("why_blocking") or "").strip()
+    ]
+    return "\n".join(lines) or "none"
 
 
 def writer_spec(
@@ -3402,7 +3426,9 @@ def plan_currency_check(work_dir: Path, state: dict) -> dict:
             "currency-checker",
             "currency",
             [("research/currency.json", "currency")],
-            inputs=["research/sources.json"],
+            # D-241: the facts "the part relied on" and "governs the facts" are judged against; a run
+            # without `intake/user-facts.md` declares it all the same, and `inputs_map` hashes only a file.
+            inputs=["research/sources.json", gates.PLAN_PATH, gates.USER_FACTS_PATH],
             verify_report="`research/sources.json` carries `liveness` and `verification` per source",
             sources_list=listing,
             mcp_namespaces=_mcp_namespaces(work_dir),
@@ -3889,13 +3915,25 @@ CROSS_REFERENCE_KINDS: tuple[str, ...] = ("executive_summary", "conclusion", "re
 
 DISPOSITION_ACTIONS: dict[str, tuple[str, ...]] = {
     "citations": ("polish", "manual_review"),
-    "logic": ("polish", "leave"),
-    "counterarguments": ("polish", "leave"),
+    "logic": ("polish", "manual_review", "leave"),
+    "counterarguments": ("polish", "manual_review", "leave"),
 }
-"""D-211: what the readiness reviewer may decide for an open major, by the class of its row."""
+"""D-211: what the readiness reviewer may decide for an open major, by the class of its row.
 
-DISPOSITION_DEFAULTS: dict[str, str] = {"citations": "manual_review", "logic": "leave", "counterarguments": "leave"}
-"""D-211: a missing disposition, or one the class does not allow, counts as this."""
+D-237: a `logic` or `counterarguments` finding that no withdrawing, narrowing, qualifying or
+disclosing answers goes to a lawyer (`manual_review`) like a `citations` one.
+"""
+
+DISPOSITION_DEFAULTS: dict[str, str] = {
+    "citations": "manual_review",
+    "logic": "manual_review",
+    "counterarguments": "manual_review",
+}
+"""D-211: a missing disposition, or one the class does not allow, counts as this.
+
+D-237 (C2/F4): `manual_review` for every class — a disposition the machine cannot read shows the
+finding in the Status section instead of hiding it in `summary.md`. An explicit `leave` still leaves it.
+"""
 
 DISPOSITION_STATUS: dict[str, str] = {"manual_review": "manual_review", "leave": "left"}
 """D-211: the status pass 1 settles at once; a `polish` row stays `open` until the polish is re-checked."""
@@ -4014,7 +4052,7 @@ def _apply_dispositions(current: dict, document: dict) -> None:
     """D-211 pass 1: `manual_review` and `leave` settle a loop row at once; `polish` keeps it `open`.
 
     A missing disposition, a duplicated id, or an action outside the row's class (`leave` on
-    `citations`, `manual_review` on `logic`) counts as the class default.
+    `citations`) counts as the class default — `manual_review` for every class since D-237.
 
     D-216: the `note` of a disposition that is applied as given is kept on the row
     (`disposition_note`), so `summary.md` can say why the row stays; a default carries no note.
@@ -4082,16 +4120,31 @@ def _parse_pair(before: str, after: str, language: str) -> tuple[dict, dict]:
 
 
 def polish_scope_errors(
-    before: str, after: str, allowed: set[str] | None, *, language: str = i18n.DEFAULT
+    before: str,
+    after: str,
+    allowed: set[str] | None,
+    *,
+    language: str = i18n.DEFAULT,
+    graded: set[str] | None = None,
 ) -> list[str]:
     """D-211: what a polish changed outside its instructions, on non-overlapping section content.
 
     `allowed` — the section ids of the readiness issues — widens to their descendants and to the
     `executive_summary`/`conclusion`/`recommendations` sections the writer keeps in step; `None` (a
     `document` issue) lifts the section restriction. A changed section whose `[[src:]]` id set grew is
-    an error in every case: a polish withdraws or softens, it never brings a new authority.
+    an error: a polish withdraws or softens, it never brings a new authority. D-236: in the subtree of
+    a `graded` section (an open polish row's, which the citations re-check grades; `document` covers
+    every section) an id the baseline already cites elsewhere may be cited again.
     """
     old, new = _parse_pair(before, after, language)
+    cited = {str(token["id"]) for token in old["src_tokens"]}
+    reusable: set[str] = set()
+    if graded:
+        reusable = (
+            {section["section_id"] for document in (old, new) for section in document["sections"]}
+            if WHOLE_DOCUMENT in graded
+            else _subtree((old, new), {str(section_id) for section_id in graded})
+        )
     permitted: set[str] | None = None
     if allowed is not None:
         permitted = _subtree((old, new), {str(section_id) for section_id in allowed})
@@ -4105,9 +4158,11 @@ def polish_scope_errors(
     for section_id in _changed_sections(old, new):
         if permitted is not None and section_id not in permitted:
             errors.append(f"section_out_of_scope: {section_id}")
-        added = sorted(_source_ids(new, section_id) - _source_ids(old, section_id))
+        added = _source_ids(new, section_id) - _source_ids(old, section_id)
+        if section_id in reusable:
+            added -= cited  # D-236: an authority the memo cites, moved where the re-check grades it
         if added:
-            errors.append(f"new_source_token: {section_id}: {', '.join(added)}")
+            errors.append(f"new_source_token: {section_id}: {', '.join(sorted(added))}")
     return errors
 
 
@@ -4234,17 +4289,27 @@ def _check_polish_scope(work_dir: Path, state: dict, draft: str, version: int) -
     the lint-fix writer's included — never recomputes it; the lint fix edits lint positions only and
     stays outside the check by construction. A stored error leads to `_polish_out_of_scope`. A
     baseline or a draft that cannot be read as published is a failed check, never a skipped one.
+    D-236: the sections of the open polish rows are `graded`, where the re-check will grade a reused id.
     """
     if not _open_majors(state) or _polish_step(state) is None:
         return None
     check = state.get("polish_check")
     if not isinstance(check, dict):
         texts, missing = _polish_inputs(work_dir, state, draft, version)
+        graded = {
+            str(row.get("section_id") or WHOLE_DOCUMENT)
+            for row in _open_majors(state)
+            if row.get("origin") == "loop" and row.get("status") == "open"
+        }
         errors = (
             [str(missing)]
             if texts is None
             else polish_scope_errors(
-                texts[0], texts[1], _polish_allowed(work_dir, state), language=md_fallback.memo_language(state)
+                texts[0],
+                texts[1],
+                _polish_allowed(work_dir, state),
+                language=md_fallback.memo_language(state),
+                graded=graded,
             )
         )
         return _store_polish_check(work_dir, state, errors)
@@ -4535,19 +4600,8 @@ def _rows_after_polish(work_dir: Path, state: dict, draft: str, version: int) ->
 
 
 def _moved_finding(row: dict) -> dict:
-    """A settled `citations` row as a `remaining_blocking_issues[]` entry: `severity: major`, its client sentence."""
-    entry = {
-        "severity": "major",
-        "category": str(row.get("category") or ""),
-        "section_id": str(row.get("section_id") or WHOLE_DOCUMENT),
-        "issue": str(row.get("issue") or ""),
-        "suggestion": str(row.get("suggestion") or ""),
-        "source_reviewer": str(row.get("reviewer") or "citations"),
-    }
-    for field in ("issue_category", "issue_client"):
-        if row.get(field):
-            entry[field] = row[field]
-    return entry
+    """A settled loop row as a `remaining_blocking_issues[]` entry (`review.moved_finding`, D-237)."""
+    return review.moved_finding(row)
 
 
 def _settle_open_majors(
@@ -4556,17 +4610,18 @@ def _settle_open_majors(
     """D-211 step 7: the open majors at the transition to `export`, inside that very state write.
 
     A loop row still `open` had no completed polish with a usable re-check, so it is `unresolved`.
-    Every loop `citations` row left `manual_review` or `unresolved` joins `remaining_blocking_issues`
-    (reason `open_substance_majors`), and so does every re-check blocker as the reviewer wrote it
-    (reason `polish_recheck_blocker`). If anything joined, an approved, accepted or `client_ready`
-    status becomes `manual_review_required_on_v<its version>`; a forced exit or a manual review keeps
-    its label and only gains the reasons. `logic`/`counterarguments` rows and `origin: recheck` rows
-    stay for `summary.md` and never change the status. An empty list changes nothing.
+    Every loop row left `manual_review` or `unresolved` — `citations`, `logic` or `counterarguments`
+    since D-237 — joins `remaining_blocking_issues` (reason `open_substance_majors`), and so does every
+    re-check blocker as the reviewer wrote it (reason `polish_recheck_blocker`). If anything joined, an
+    approved, accepted or `client_ready` status becomes `manual_review_required_on_v<its version>`; a
+    forced exit or a manual review keeps its label and only gains the reasons. A `left` row and an
+    `origin: recheck` row stay for `summary.md` and never change the status. An empty list changes nothing.
 
     D-213: a blocker row (`blocker_of`) is never moved. Its blocker leaves `remaining_blocking_issues`
     only when its id is in `lifted` — the evidence `_lifted_blockers` read at this very transition;
     otherwise the blocker stays as it is and the row is `unresolved`. A lifted blocker recounts the
     blocker banner, and a forced exit whose only reason was that blocker becomes `approved_on_v<N>`.
+    D-237: a moved row recounts it too — the banner counts what the Status section lists.
     """
     rows = _open_majors(current)
     if not rows and not blockers:
@@ -4577,32 +4632,40 @@ def _settle_open_majors(
         if row.get("origin") == "loop" and row.get("status") == "open":
             row["status"] = "unresolved"
     reasons: list[str] = []
-    moved = [
-        _moved_finding(row)
-        for row in rows
-        if row.get("origin") == "loop"
-        and row.get("class") == "citations"
-        and row.get("status") in ("manual_review", "unresolved")
-        and not _is_blocker_row(row)
-    ]
-    for group, reason in ((moved, OPEN_MAJORS_REASON), ([dict(row) for row in blockers], RECHECK_BLOCKER_REASON)):
-        for entry in group:
-            if entry not in remaining:
-                remaining.append(entry)
+    moved = [_moved_finding(row) for row in rows if review.is_moved_row(row)]
+    # D-237: each row is matched one-to-one with the entry that already is it — an entry an earlier build
+    # moved gains the fields added since, and two rows of one finding keep two entries with their notes.
+    for entry, index in zip(moved, review.pair_moved_entries(moved, remaining)):
+        if index is None:
+            remaining.append(entry)
+        else:
+            for field, value in entry.items():
+                remaining[index].setdefault(field, value)
+    for entry in [dict(row) for row in blockers]:
+        if entry not in remaining:
+            remaining.append(entry)
+    for group, reason in ((moved, OPEN_MAJORS_REASON), (blockers, RECHECK_BLOCKER_REASON)):
         if group:
             reasons.append(reason)
-    if removed:
-        _recount_blocker_banner(current)  # after the moves: the count is what the Status section lists
+    if removed or moved:
+        _recount_blocker_banner(current)  # D-237: after the moves, the banner counts what the Status section lists
     family, number = md_fallback.status_family(str(current.get("final_status") or ""))
     left = list(current.get("final_status_reasons") or [])
-    if removed and not remaining:
-        if number and family == "forced_exit_with_remaining_issues" and left == [revision.REASON_UNRESOLVED_BLOCKERS]:
+    blocker_left = any(not isinstance(item, dict) or item.get("severity") == BLOCKER_MARK for item in remaining)
+    if removed and not blocker_left:
+        if (
+            not remaining
+            and number
+            and family == "forced_exit_with_remaining_issues"
+            and left == [revision.REASON_UNRESOLVED_BLOCKERS]
+        ):
             # D-213: the same label a clean branch-9 re-check gets from branch 4.
             current["final_status"] = f"approved_on_v{number}"
             current["final_status_reasons"] = []
         elif revision.REASON_UNRESOLVED_BLOCKERS in left:
             # D-213 fix round 1: no blocker is left, so the reason that says one is goes; the label and
-            # every other reason stay as the rules above decide.
+            # every other reason stay as the rules above decide. D-237 (final fix wave): a moved major
+            # that remains is no blocker, so it keeps only its own reason.
             current["final_status_reasons"] = [
                 reason for reason in left if reason != revision.REASON_UNRESOLVED_BLOCKERS
             ]
@@ -4957,6 +5020,32 @@ def known_blockers_text(state: dict, draft_sha: str) -> str:
     return "\n".join(lines)
 
 
+def currency_notes_text(work_dir: Path, state: dict, draft: str) -> str:
+    """D-241 `${currency_notes}`: one `source_id · status · note` line per noted source the draft cites, or `none`.
+
+    CRD-03 is graded on whether a later change to a provision the memo relies on is disclosed; only the
+    writer read `research/currency.json`, so nobody checked that its note reached the memo. The rows are
+    read as the published list, in file order: two rows of one source keep both notes (fix round 1).
+    """
+    try:
+        text = (work_dir / draft).read_text(encoding="utf-8-sig")
+        document = stepctx.read_published(work_dir, sources.CURRENCY_PATH, state=state)
+    except (OSError, ValueError, stepctx.OutputModifiedAfterPublish):
+        return "none"
+    rows = document.get("sources") if isinstance(document, dict) else None
+    parsed = lint.parse_draft(text, lint.grammar(md_fallback.memo_language(state)))
+    cited = {str(token["id"]) for token in parsed["src_tokens"]}
+    lines: list[str] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or str(row.get("source_id") or "") not in cited:
+            continue
+        note = " ".join(str(row.get("note") or "").split())
+        line = f"{row['source_id']} · {row.get('status') or 'unchecked'} · {note}"
+        if note and line not in lines:
+            lines.append(line)
+    return "\n".join(lines) or "none"
+
+
 def _dispatch_readiness(work_dir: Path, state: dict, draft: str, version: int) -> dict:
     """The readiness reviewer; D-211: with the open majors, and after the polish with their statuses.
 
@@ -4988,6 +5077,10 @@ def _dispatch_readiness(work_dir: Path, state: dict, draft: str, version: int) -
         draft_sha=draft_sha,
         polish_budget=str(max(int(config.get("max_client_polish") or 0) - used, 0)),
         known_blockers=known_blockers_text(state, draft_sha),
+        # D-238: CRD-03 is graded on the warnings the memo must disclose.
+        drafting_warnings=_warnings_text(state),
+        # D-241: CRD-03 is graded on the currency notes of the sources the draft cites, too.
+        currency_notes=currency_notes_text(work_dir, state, draft),
         retry_errors="none",
         **extra,
     )

@@ -132,6 +132,10 @@ EN: dict = {
             # and reaches the reader as «section 5.1», `general`/`document` as the whole memo.
             "section_word": "section",
             "whole_memo": "whole memo",
+            # D-237: the text of a blocker row without its client sentence in a memo that is not English.
+            "status_issue_without_client_text": (
+                "the reviewer's finding here is not confirmed as fixed; its text is in summary.md"
+            ),
             # The published `sources/source-pack.md`: the frozen pack, else the registry listing.
             "source_pack_heading": "Source pack (frozen)",
             "frozen_at": "Frozen at: {value}",
@@ -213,8 +217,8 @@ EN: dict = {
             "writer_failed": "the writer could not produce a revised draft",
             "no_checked_draft": "no draft version passed the automated checks",
             "export_reused_untouched": "an earlier export was delivered unchanged",
-            # D-211: the settlement of the open majors at the last reader.
-            "open_substance_majors": "a reviewer finding on the use of sources was not verifiably fixed",
+            # D-211: the settlement of the open majors at the last reader; D-237: of any substantive class.
+            "open_substance_majors": "a substantive reviewer finding was not verifiably fixed",
             "polish_out_of_scope": "the final polish went beyond its instructions, so the text before it is delivered",
             "polish_recheck_blocker": "the check of the final polish found a blocking problem",
         },

@@ -72,10 +72,12 @@ One file at the path the prompt names, schema `review`, branch `reviewer: "count
 - What a court did — held, applied, followed, measured by — is confirmed only by the court's own sentence; a clause or a party's position the act recites supports only words attributed to the offer or the party, and without the court's own sentence the suggestion withdraws or qualifies the attribution. The `source_evidence` passage is copied exactly as `mf quote locate` returned it: no ellipses, no joined fragments.
 - `section_id` is the anchor of the section the finding sits in (`s-4`, `s-4-1`). Use `document` for something that belongs to no section.
 - Where the draft discloses a weakness responsibly, that is the memo doing its job. Do not flag the same weakness back at it.
-- A suggestion that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
+- A suggestion that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call. Before you argue that a conclusion rests on one source — an unverified fragment, a single appellate act — check the other pack sources the draft cites on the same point; a verified source that states the same rule defeats the premise (run 79: А41-67682 states the rule the draft also rested on the unverified 3352/12).
 - Grade `unknown` only when the draft or the record does not let you decide; on a `hard_fail` item that costs the approval.
 - Every `pass: false` on a `hard_fail` item has an issue with `severity: "blocker"` and its `checklist_id`.
+- When the memo is not in English, every `blocker` and every `major` issue carries `issue_client`.
 - `approved` is a normal outcome and means zero blockers. Keep major issues to about five, ranked by how much each would cost if the other side raised it first.
+- An understated exposure that changes what the client pays or must do — a fine, a penalty, a sum called safe, a step called optional — is `major`, not `minor`.
 - Wording is not your subject. Say something about it only where the phrasing itself overstates the legal position.
 
 ## Failure modes

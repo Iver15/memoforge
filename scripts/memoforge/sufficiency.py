@@ -90,17 +90,19 @@ def _warnings(document: dict, gaps: list[dict]) -> list[dict]:
     D-113 (addendum to D34-17): the reviewer states the same limitation twice — once as
     `blocking_gaps[].gap`, once as a `drafting_warnings[]` line written for the client. Where the
     first sentence is the same text, only the client-facing line survives.
+
+    D-238 (fix round 1): the surviving line is still that research gap, so it keeps the gap's code
+    `unresolved_research_gap` — the writer states it as a limitation, not as an assumption.
     """
     reviewer = [str(text) for text in document.get("drafting_warnings", [])]
     already_said = {_first_sentence(text) for text in reviewer}
-    rows = [
-        row for row in (_warning(gap) for gap in gaps)
-        if _first_sentence(row["message"]) not in already_said
-    ]
+    generated = [_warning(gap) for gap in gaps]
+    gap_keys = {_first_sentence(row["message"]) for row in generated}
+    rows = [row for row in generated if _first_sentence(row["message"]) not in already_said]
     for text in reviewer:
         rows.append(
             {
-                "code": "sufficiency_warning",
+                "code": "unresolved_research_gap" if _first_sentence(text) in gap_keys else "sufficiency_warning",
                 "message": text,
                 "phase": "research_sufficiency",
                 "at": events.utc_now(),
@@ -173,7 +175,10 @@ def route(
     research_left = research_followup_used < limits.MAX_SUFFICIENCY_RESEARCH_FOLLOWUP
 
     if verdict == "sufficient":
-        return _decision(NEXT_CURRENCY, [], user=False, research=False, warn=[], parts=parts)
+        # D-238: a gap the reviewer leaves on a sufficient verdict is a limitation of the memo.
+        return _decision(
+            NEXT_CURRENCY, [], user=False, research=False, warn=parts["subset_u"] + parts["subset_r"], parts=parts
+        )
     if verdict == "insufficient":
         return _decision(NEXT_INSUFFICIENT, [], user=False, research=False, warn=[], parts=parts)
 
@@ -283,9 +288,13 @@ def run_route(args: argparse.Namespace) -> dict:
         state.get("language"),
     )
     warnings += out_of_scope
-    unresolved_user_gaps = any(gap.get("target") == "user" for gap in decision["warn_gaps"])
+    # D-238: a `sufficient` verdict asked nothing, so its user gap is a caveat, not an unanswered question.
+    unresolved_user_gaps = document["overall_verdict"] != "sufficient" and any(
+        gap.get("target") == "user" for gap in decision["warn_gaps"]
+    )
 
-    questions = _questions(decision["subset_u"])
+    # D-238: only the gate asks; a question stored on any other route would be asked by nobody.
+    questions = _questions(decision["subset_u"]) if decision["next"] == NEXT_GATE else []
     status = {
         NEXT_GATE: "pending",
         NEXT_RESEARCH: "research_subset",

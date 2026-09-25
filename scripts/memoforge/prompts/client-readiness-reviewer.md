@@ -17,6 +17,8 @@ First action (Bash, before any other tool call):
 - style profile (authoritative when set): `${prose_style_path}`
 - polish rounds still available: `${polish_budget}`
 - already known blockers: ${known_blockers}
+- warnings the memo must disclose: ${drafting_warnings}
+- currency notes of the sources the memo cites: ${currency_notes}
 - previous attempt errors to fix: ${retry_errors}
 
 `verdict` is `client_ready`, `needs_final_polish` or `manual_review_required`. Every issue carries a
@@ -32,6 +34,9 @@ the draft's own conditions stays allowed.
 A limitation moved into a section is stated as a limitation of the memo; it never turns into an
 instruction to the client to delay a statutory step (a notification or a filing inside its deadline).
 Raise no blocker for a limitation the memo already discloses and that changes no conclusion.
+CRD-03 fails for a warning that touches a conclusion and that the memo does not disclose; the issue
+names the warning. A note that names a later change to a provision the memo relies on is disclosed in
+the section that relies on it; CRD-03 fails otherwise, and the issue names the source.
 
 The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo
@@ -53,19 +58,31 @@ Every finding of the review loop gets one row in `dispositions`:
 `{"id": "om-<n>", "action": "polish" | "manual_review" | "leave", "note": "<one sentence why>"}`.
 
 - A `citations` finding allows `polish` or `manual_review`. A `logic` or `counterarguments` finding
-  allows `polish` or `leave`. A missing row, or an action the finding's class does not allow,
-  counts as `manual_review` for `citations` and `leave` for the others.
+  allows `polish`, `manual_review` or `leave`. A missing row, or an action the finding's class does
+  not allow, counts as `manual_review`.
+- Decide by the repair you choose. Withdrawing, narrowing, qualifying or disclosing, with the words
+  and sources already in the memo, is `polish`; when a suggestion offers such a repair among
+  alternatives ("name the obligation … or narrow the claim"), choose it. A finding that no such
+  repair answers — it needs a new reasoning step, an argument stated in its strong form and
+  answered, or a rule the memo does not state — is `manual_review`, whatever its class; its `note`
+  is the question the lawyer must answer, in one sentence. `leave` is for a finding that does not
+  change what the client is told or does.
 - `polish`, for any class, means one issue of yours in `issues[]` for that finding's section, telling
   the writer to withdraw or soften the flagged statement,
-  with no new statement of law and no new authority.
+  with no new statement of law and no new authority; a polish issue may ask for an authority the
+  memo already cites only in the finding's own section.
   For a CIT-04 finding (the pinpoint points elsewhere), removing the pinpoint from the token and
   keeping the source id is a softening. A polish needs the polish pass, so the verdict is then
   `needs_final_polish` unless something else makes it `manual_review_required`.
 - A `blocker` finding allows `polish` or `manual_review`, like any `citations` finding. Its `polish`
   is one issue with `severity: blocker` on that finding's section: "withdraw or qualify the statement
   and every risk line or summary bullet that rests on it; no new norm, no new source".
-- `manual_review` hands a `citations` finding to a lawyer: the memo is delivered under manual review
-  and the finding is printed in its Status section.
+  `severity: blocker` on an issue of yours is used only for a finding the list marks `blocker`.
+- `manual_review` hands the finding to a lawyer, whatever its class: the memo is delivered under
+  manual review and the finding is printed in its Status section.
+  A `manual_review` disposition does not by itself make the verdict `manual_review_required`: when any
+  open finding is `polish`, or any issue of yours can be fixed by a polish, the verdict is
+  `needs_final_polish`, and the `manual_review` findings reach the Status section anyway.
 - `leave` keeps a `logic` or `counterarguments` finding as it is: it is listed in `summary.md` and does
   not change the run's status.
 

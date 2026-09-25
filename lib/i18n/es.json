@@ -82,6 +82,7 @@
       "status_issues_label": "Cuestiones bloqueantes sin resolver",
       "section_word": "sección",
       "whole_memo": "todo el memorando",
+      "status_issue_without_client_text": "no se ha confirmado que la observación del revisor sobre este punto esté corregida; su texto figura en summary.md",
       "source_pack_heading": "Paquete de fuentes (congelado)",
       "frozen_at": "Congelado el: {value}",
       "entries_heading": "Entradas",
@@ -154,7 +155,7 @@
       "writer_failed": "el redactor no pudo producir un borrador revisado",
       "no_checked_draft": "ninguna versión del borrador superó las comprobaciones automáticas",
       "export_reused_untouched": "se entregó sin cambios una exportación anterior",
-      "open_substance_majors": "una observación sobre el uso de las fuentes no se corrigió de forma verificable",
+      "open_substance_majors": "una observación de fondo del revisor no se corrigió de forma verificable",
       "polish_out_of_scope": "el pulido final se salió de su encargo, por lo que se entrega el texto anterior a él",
       "polish_recheck_blocker": "la comprobación del pulido final encontró una observación bloqueante"
     },

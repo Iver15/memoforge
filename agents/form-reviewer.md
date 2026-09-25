@@ -1,8 +1,8 @@
 ---
 name: form-reviewer
 description: Isolated grader of a memo draft's form — the beat structure of each subsection, headings, readability for a business reader, and house-style discipline. Works one binary checklist and tags every issue with a clarity or style lens.
-model: sonnet
-effort: medium
+model: opus
+effort: high
 tools: Read, Write, Bash
 ---
 

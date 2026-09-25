@@ -15,28 +15,21 @@ SUBAGENT_PREFIX = "memoforge:"
 AGENT_MODELS: dict[str, dict] = {
     # Duplicated literally from `lib/models.md`; test_dispatch.py asserts the two agree (§4.1, M11).
     "fact-assumption-analyst": {"model": "opus", "effort": "high"},
-    "legal-researcher": {"model": "sonnet", "effort": "high"},
+    "legal-researcher": {"model": "opus", "effort": "high"},
     "research-sufficiency-reviewer": {"model": "opus", "effort": "high"},
-    "currency-checker": {"model": "sonnet", "effort": "medium"},
+    "currency-checker": {"model": "opus", "effort": "high"},
     "memo-writer": {"model": "opus", "effort": "high"},
     "logic-reviewer": {"model": "opus", "effort": "high"},
-    "form-reviewer": {"model": "sonnet", "effort": "medium"},
+    "form-reviewer": {"model": "opus", "effort": "high"},
     "citation-auditor": {"model": "opus", "effort": "high"},
     "counterargument-reviewer": {"model": "opus", "effort": "high"},
-    "revision-mediator": {"model": "sonnet", "effort": "medium"},
-    "client-readiness-reviewer": {"model": "sonnet", "effort": "medium"},
+    "revision-mediator": {"model": "opus", "effort": "high"},
+    "client-readiness-reviewer": {"model": "opus", "effort": "high"},
     "style-extractor": {"model": "opus", "effort": "high"},
     # D-223: the two agents of `/memoforge:brief`, dispatched by the brief driver, not by `machine.py`.
     "brief-writer": {"model": "opus", "effort": "high"},
     "brief-fidelity-reviewer": {"model": "opus", "effort": "high"},
 }
-
-RESEARCH_LAYER_MODELS: dict[str, str] = {"case_law": "opus"}
-"""D-209: the model of a `legal-researcher` slot whose layer departs from the agent's row above.
-
-Since plan 68 the `case_law` researcher reads whole court acts and states their holdings, which is
-interpretation; `statutes` and `doctrine` keep `sonnet`. `lib/models.md` names the override in its row.
-"""
 
 REVIEWER_AGENTS: dict[str, str] = {
     "logic": "logic-reviewer",
@@ -253,7 +246,9 @@ _DEFAULT_EXTRAS: dict[str, str] = {
     "research_files": "`research/`",
     "lookup_budget": "0",  # D-208: only the citations and counterarguments reviewers read saved texts
     "carry_over": "none",  # D-214: filled in only for the citations review of iteration 2 and later
+    "sufficiency_checks": "none",  # D-238: filled in only for the citations review, from the weak gaps
     "drafting_warnings": "none",
+    "currency_notes": "none",  # D-241: filled in only for the readiness review, from `research/currency.json`
     "verify_report": "`research/sources.json`",
     "sources_list": "see `research/sources.json`",
     "writer_task": "draft",

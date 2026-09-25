@@ -82,6 +82,7 @@
       "status_issues_label": "Points bloquants non résolus",
       "section_word": "section",
       "whole_memo": "l'ensemble de la note",
+      "status_issue_without_client_text": "la correction de l'observation du relecteur sur ce point n'est pas confirmée ; son texte figure dans summary.md",
       "source_pack_heading": "Dossier de sources (figé)",
       "frozen_at": "Figé le : {value}",
       "entries_heading": "Entrées",
@@ -154,7 +155,7 @@
       "writer_failed": "le rédacteur n'a pas pu produire de projet révisé",
       "no_checked_draft": "aucune version du projet n'a passé les contrôles automatiques",
       "export_reused_untouched": "un export antérieur a été remis sans modification",
-      "open_substance_majors": "une observation sur l'usage des sources n'a pas été corrigée de façon vérifiable",
+      "open_substance_majors": "une observation de fond du relecteur n'a pas été corrigée de façon vérifiable",
       "polish_out_of_scope": "la relecture finale est sortie de son périmètre, le texte antérieur à celle-ci est donc remis",
       "polish_recheck_blocker": "le contrôle de la relecture finale a relevé une observation bloquante"
     },

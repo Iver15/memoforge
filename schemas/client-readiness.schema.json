@@ -36,7 +36,7 @@
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "disposition": {
-      "description": "D-211: `polish` asks the polish pass to withdraw or soften the flagged statement (any class); `manual_review` hands a `citations` finding to a lawyer; `leave` keeps a `logic` or `counterarguments` finding for `summary.md`. An action the row's class does not allow counts as the class default.",
+      "description": "D-211, D-237: `polish` asks the polish pass to withdraw or soften the flagged statement (any class); `manual_review` hands the finding to a lawyer and lists it in the memo's Status section; `leave` (logic, counterarguments) keeps it for `summary.md`. An action the row's class does not allow counts as the class default.",
       "type": "object",
       "required": ["id", "action", "note"],
       "additionalProperties": false,

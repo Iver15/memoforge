@@ -66,6 +66,7 @@ The draft under review is written in the memo language named in your dispatch pr
 - `section_id` is the anchor of the section the finding sits in — `s-4` for a `##` section, `s-4-1` for a `###` subsection — as inserted by `mf draft anchor`. Use `document` only for something that belongs to no section.
 - Grade `unknown` only when the draft does not let you decide. On an item marked `hard_fail` that costs the approval, so use it for genuine indeterminacy rather than for effort saved.
 - Every `pass: false` on a `hard_fail` item has an issue with `severity: "blocker"` and its `checklist_id`.
+- When the memo is not in English, every `blocker` and every `major` issue carries `issue_client`.
 - `approved` is a normal outcome and means zero blockers. A grader that has to find something is a grader that invents something. A verdict of `needs_revision` with only major and minor issues is also normal.
 - Keep major issues to about five. Beyond that the writer cannot act on them in one pass, and the marginal finding costs more than it buys.
 - Every issue names a specific place and a suggestion someone could carry out. "Tighten the reasoning" is not one.

@@ -14,7 +14,7 @@ import os
 import shutil
 from pathlib import Path
 
-from . import events, fallbacks, hooks_common, i18n, limits, phases, render, sources, state_io, stepctx
+from . import events, fallbacks, hooks_common, i18n, limits, phases, render, review, sources, state_io, stepctx
 from .docx import fallback as md_fallback
 from .docx import (
     exported_pinpoints,
@@ -476,17 +476,33 @@ OPEN_FINDING_STATUSES: tuple[str, ...] = ("open", "left", "unresolved")
 """D-210: the `open_substance_majors` statuses `summary.md` still lists as open findings."""
 
 
-def lists_open_finding(row: object) -> bool:
-    """D-210: does one `open_substance_majors` row belong in the «Open reviewer findings» section?
+def open_findings(rows: object, remaining: object = ()) -> list[dict]:
+    """D-210: the `open_substance_majors` rows the «Open reviewer findings» section lists, in order.
 
-    Decided by the row alone: a `citations` row of the loop left `unresolved` is the one the
-    readiness step moves into `remaining_blocking_issues`, so it is printed there and not twice.
+    A loop row left `unresolved` is the one the readiness step moves into `remaining_blocking_issues`
+    (a `citations` row since D-211, a `logic` or `counterarguments` one since D-237), so it is printed
+    there and not twice — but only when its moved entry is really in `remaining` (the state's list).
+    The rows are paired with the entries one-to-one, as the settlement pairs them
+    (`review.pair_moved_entries`): two rows of one finding claim two entries, and a row no entry is
+    left for stays here — a state an earlier build settled moved no `logic` or `counterarguments` row,
+    and `finalize` does not settle again (D-237 fix round 1, final fix wave). A `left` row stays here.
     D-213: a blocker row (`blocker_of`) never is — its lifted blocker is gone, and one not lifted stays
     under «Remaining blocking issues».
     """
-    if not isinstance(row, dict) or row.get("status") not in OPEN_FINDING_STATUSES or row.get("blocker_of"):
-        return False
-    return not (row.get("class") == "citations" and row.get("origin") == "loop" and row.get("status") == "unresolved")
+    items = [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+    movable = [row for row in items if review.is_moved_row(row)]
+    pairs = review.pair_moved_entries([review.moved_finding(row) for row in movable], remaining)
+    printed = {id(row) for row, index in zip(movable, pairs) if index is not None}
+    return [
+        row
+        for row in items
+        if row.get("status") in OPEN_FINDING_STATUSES and not row.get("blocker_of") and id(row) not in printed
+    ]
+
+
+def lists_open_finding(row: object, remaining: object = ()) -> bool:
+    """D-210: does one `open_substance_majors` row, on its own, belong in «Open reviewer findings»?"""
+    return bool(open_findings([row], remaining))
 
 
 def open_finding_line(row: dict) -> str:
@@ -498,6 +514,18 @@ def open_finding_line(row: dict) -> str:
     fields = ("class", "origin", "status", "section_id", "category", "issue", "disposition_note")
     parts = [" ".join(str(row.get(field) or "").split()) for field in fields]
     return md_fallback.STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
+
+
+def summary_blocking_line(issue: object) -> str:
+    """One `summary.md` row of `remaining_blocking_issues`: raw ids, then `· <note>` when the row has one.
+
+    D-237 (F3): a row the readiness step moved carries the `note` of its `manual_review` disposition —
+    the question the lawyer must answer. Only this record prints it; the deliverable does not, because
+    the note is English.
+    """
+    line = md_fallback.blocking_issue_line(issue)
+    note = " ".join(str(issue.get("disposition_note") or "").split()) if isinstance(issue, dict) else ""
+    return md_fallback.STATUS_ISSUE_SEPARATOR.join(part for part in (line, note) if part)
 
 
 def build_summary(
@@ -558,7 +586,7 @@ def build_summary(
     # D34-11: the deliverable prints at most `STATUS_ISSUE_LIMIT` of these and points here for the
     # rest, so this list is the complete one.
     blockers = [
-        md_fallback.blocking_issue_line(issue)
+        summary_blocking_line(issue)
         for issue in (state.get("remaining_blocking_issues") or [])
     ]
     lines.append(md_fallback_summary("remaining_blocking_issues", language))
@@ -567,9 +595,8 @@ def build_summary(
     lines.append("")
 
     # D-210: the substantive majors the review loop left open on the delivered version.
-    findings = [
-        open_finding_line(row) for row in (state.get("open_substance_majors") or []) if lists_open_finding(row)
-    ]
+    listed = open_findings(state.get("open_substance_majors") or [], state.get("remaining_blocking_issues") or [])
+    findings = [open_finding_line(row) for row in listed]
     lines.append(md_fallback_summary("open_reviewer_findings", language))
     lines.append("")
     lines.extend([f"- {row}" for row in findings if row] or [md_fallback_summary("none", language)])

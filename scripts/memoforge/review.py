@@ -334,6 +334,9 @@ def deduplicate(issues: list[dict]) -> list[dict]:
             if issue.get("issue_client") and not target.get("issue_client"):
                 # D-173a: the survivor keeps its own client sentence, or takes the other's.
                 target["issue_client"] = issue["issue_client"]
+            if issue.get("source_evidence") and not target.get("source_evidence"):
+                # D-239: likewise the saved passage the finding rests on.
+                target["source_evidence"] = issue["source_evidence"]
             continue
         row = dict(issue)
         row["_tokens"] = tokens
@@ -366,6 +369,9 @@ def _normalize_issue(issue: dict, source: str) -> dict:
     if issue.get("issue_client"):
         # D-173a: the client-facing sentence of a blocker travels with its finding.
         row["issue_client"] = issue["issue_client"]
+    if issue.get("source_evidence"):
+        # D-239: the passage reaches the writer through the CLI mediator (`build_mediator`).
+        row["source_evidence"] = issue["source_evidence"]
     row["grounded"] = is_grounded(row, source)
     return row
 
@@ -707,11 +713,20 @@ TARGETED_DROP_REASON = "targeted pass: only the named blockers are fixed"
 """D-212: why a branch-9 mediator drops every issue it does not name."""
 
 
+def _evidence_text(issue: dict) -> str:
+    """D-239: the saved passage of `source_evidence`, for a writer who never reads the raw texts; else ''."""
+    evidence = issue.get("source_evidence")
+    if not isinstance(evidence, dict) or not evidence.get("passage"):
+        return ""
+    return f" Source text ({evidence.get('source_id')}): «{evidence['passage']}»"
+
+
 def build_mediator(record: dict, *, only: list[dict] | None = None) -> dict:
     """Assemble `reviews/v<N>-mediator.json` from aggregated issues: substance first, minors dropped.
 
     D-212: with `only` (branch 9), the instructions are exactly those issues and every other issue of
-    the record, major or minor, is dropped with `TARGETED_DROP_REASON`.
+    the record, major or minor, is dropped with `TARGETED_DROP_REASON`. D-239: an issue that carries a
+    `source_evidence` passage ends its instruction with it.
     """
     instructions: list[dict] = []
     dropped: list[dict] = []
@@ -747,7 +762,8 @@ def build_mediator(record: dict, *, only: list[dict] | None = None) -> dict:
             "source_reviewer": issue["source_reviewer"],
             "category": issue["category"],
             "severity": issue["severity"],
-            "instruction": " ".join(part for part in (issue.get("issue"), issue.get("suggestion")) if part),
+            "instruction": " ".join(part for part in (issue.get("issue"), issue.get("suggestion")) if part)
+            + _evidence_text(issue),
         }
         if issue.get("conflict"):
             instruction["resolution"] = (
@@ -805,6 +821,89 @@ OPEN_MAJOR_CLASSES: tuple[str, ...] = ("logic", "citations", "counterarguments")
 """D-210: the substance reviewers whose open majors reach the last reader; `form` is not one of them."""
 
 
+MOVED_STATUSES: tuple[str, ...] = ("manual_review", "unresolved")
+"""D-211/D-237: the statuses of the loop rows the readiness settlement moves into `remaining_blocking_issues`."""
+
+
+def is_moved_row(row: object) -> bool:
+    """D-237: a loop row of `OPEN_MAJOR_CLASSES` the settlement moves: `manual_review`/`unresolved`, no blocker row."""
+    return (
+        isinstance(row, dict)
+        and row.get("origin") == "loop"
+        and row.get("class") in OPEN_MAJOR_CLASSES
+        and row.get("status") in MOVED_STATUSES
+        and not isinstance(row.get("blocker_of"), dict)
+    )
+
+
+def moved_finding(row: dict) -> dict:
+    """A settled loop row as a `remaining_blocking_issues[]` entry: `severity: major`, its client sentence.
+
+    D-237: any class of `OPEN_MAJOR_CLASSES` moves, and `source_reviewer` names it. The
+    `disposition_note` of a `manual_review` row — the question the lawyer must answer — comes along
+    for `summary.md`; the deliverable does not print it, because it is English.
+    """
+    entry = {
+        "severity": "major",
+        "category": str(row.get("category") or ""),
+        "section_id": str(row.get("section_id") or UNVERIFIED_SECTION_ID),
+        "issue": str(row.get("issue") or ""),
+        "suggestion": str(row.get("suggestion") or ""),
+        "source_reviewer": str(row.get("reviewer") or row.get("class") or "citations"),
+    }
+    for field in ("issue_category", "issue_client", "disposition_note"):
+        if row.get(field):
+            entry[field] = row[field]
+    return entry
+
+
+def moved_finding_key(item: object) -> tuple[str, str, str] | None:
+    """D-237: `(section_id, category, issue)` — what a moved `remaining_blocking_issues[]` entry keeps of its row.
+
+    The identity of a moved open major whatever build moved it: an entry an earlier build wrote lacks the
+    fields added since (`disposition_note`), so a whole-dict comparison cannot recognise it.
+    """
+    if not isinstance(item, dict):
+        return None
+    return (
+        str(item.get("section_id") or UNVERIFIED_SECTION_ID),
+        str(item.get("category") or ""),
+        str(item.get("issue") or ""),
+    )
+
+
+def _stands_for(item: object, entry: dict) -> bool:
+    """`item` of the list can be `entry`'s: the same key, and every field both carry agrees."""
+    return (
+        isinstance(item, dict)
+        and moved_finding_key(item) == moved_finding_key(entry)
+        and all(entry[field] == value for field, value in item.items() if field in entry)
+    )
+
+
+def pair_moved_entries(entries: list[dict], remaining: object) -> list[int | None]:
+    """D-237: for each moved entry, the index of the `remaining_blocking_issues[]` item that already is it, or None.
+
+    One-to-one (final fix wave): an item is claimed by at most one entry, so two rows of one finding (a major
+    the targeted pass repeated, D-235) keep two entries with their own notes. An item equal to the entry is
+    claimed first; then an item that agrees on every field it carries — an entry an earlier build moved,
+    without the fields added since, is claimed and enriched instead of duplicated.
+    """
+    items = remaining if isinstance(remaining, list) else []
+    pairs: list[int | None] = [None] * len(entries)
+    claimed: set[int] = set()
+    for exact in (True, False):
+        for position, entry in enumerate(entries):
+            if pairs[position] is not None:
+                continue
+            for index, item in enumerate(items):
+                if index not in claimed and (item == entry if exact else _stands_for(item, entry)):
+                    pairs[position] = index
+                    claimed.add(index)
+                    break
+    return pairs
+
+
 def _section_order(section_id: object) -> list:
     """Document order of section ids: their numbers compare as numbers, so `s-9` comes before `s-10-3`."""
     parts = re.split(r"(\d+)", str(section_id or ""))
@@ -819,9 +918,15 @@ def open_substance_majors(state: dict, version: int) -> list[dict]:
     re-run, keeps the majors it raised last: absence from a review is not closure. A row's `class` is
     a participant this record supersedes for, the first by `SOURCE_PRECEDENCE` (`citations` when it
     holds); `reviewer` is the stored `source_reviewer`. Rows run by `from_iteration`, section, position.
+    D-235: the targeted pass (`state.targeted_fix.iteration`) supersedes the earlier majors of the
+    classes it covers only in the sections of the blockers it targeted, which its writer rewrote and
+    its reviewer re-read; every other major stays a row, so a major it repeats in an untouched section
+    gives two rows, and a merged issue there keeps its `citations` class.
     """
     from . import revision  # noqa: PLC0415 - `revision` imports this module
 
+    fix = state.get("targeted_fix")
+    targeted = int(fix.get("iteration") or 0) if isinstance(fix, dict) else 0
     records = sorted(
         (
             row
@@ -830,22 +935,37 @@ def open_substance_majors(state: dict, version: int) -> list[dict]:
         ),
         key=lambda row: int(row["iteration"]),
     )
+    rewritten: set[str] = set()
+    covered_by_targeted: set[str] = set()
+    for record in records:
+        if int(record["iteration"]) == targeted:
+            covered_by_targeted = set(OPEN_MAJOR_CLASSES) & set(record.get("coverage") or [])
+            earlier = [item for item in records if int(item["iteration"]) < targeted]
+            if earlier:
+                rewritten = {str(issue.get("section_id") or "") for issue in revision.targeted_blockers(earlier[-1])}
     superseding: dict[str, dict] = {}
     for record in records:
+        if int(record["iteration"]) == targeted:
+            continue  # D-235: the targeted pass supersedes only in the sections it rewrote (below)
         for kind in OPEN_MAJOR_CLASSES:
             if kind in (record.get("coverage") or []):
                 superseding[kind] = record
 
     found: list[tuple[tuple, dict]] = []
     for record in records:
-        owned = {kind for kind, latest in superseding.items() if latest is record}
+        iteration = int(record["iteration"])
+        if iteration == targeted:
+            owned = covered_by_targeted
+        else:
+            owned = {kind for kind, latest in superseding.items() if latest is record}
         if not owned:
             continue
-        iteration = int(record["iteration"])
         for position, issue in enumerate(record.get("issues") or []):
             if not isinstance(issue, dict) or issue.get("severity") != "major" or issue.get("tier") != "substance":
                 continue
             live = revision._participants(issue) & owned  # noqa: SLF001 - the loop's own participant rule
+            if iteration != targeted and str(issue.get("section_id") or "") in rewritten:
+                live -= covered_by_targeted  # D-235: re-graded by the targeted pass
             if not live:
                 continue
             row = {

@@ -341,6 +341,9 @@ def blocking_issue_line(issue: object, language: str | None = None) -> str:
     D-197: with a `language` the severity and the section anchor are printed in words — that is the
     row the deliverable carries. Without one the raw ids stand, which is what `summary.md` keeps:
     the technical record of the run has to stay greppable against `state.json`.
+
+    D-237: in a memo that is not English, a row without its client sentence prints the pack's
+    `status_issue_without_client_text` instead of the English `issue`, whose text stays in `summary.md`.
     """
     if not isinstance(issue, dict):
         return re.sub(r"\s+", " ", str(issue or "")).strip()
@@ -350,6 +353,8 @@ def blocking_issue_line(issue: object, language: str | None = None) -> str:
     if language is not None:
         severity = severity_name(severity, language)
         section_id = section_label(section_id, language)
+        if not issue.get("issue_client") and (i18n.normalize(language) or i18n.DEFAULT) != i18n.DEFAULT:
+            text = label("status_issue_without_client_text", language)
     parts = [severity, section_id, re.sub(r"\s+", " ", text).strip()]
     return STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
 

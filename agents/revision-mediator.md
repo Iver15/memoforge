@@ -1,8 +1,8 @@
 ---
 name: revision-mediator
 description: Consolidates the reviewers' issues for one draft version into a single instruction list for the writer, one instruction per section, with anything dropped recorded and explained.
-model: sonnet
-effort: medium
+model: opus
+effort: high
 tools: Read, Write, Bash
 ---
 
@@ -78,7 +78,7 @@ One file at the path the prompt names, schema `mediator`. It is your only output
 - An instruction that changes the direction of a conclusion ("not required" to "required", "low" to "medium", an obligation added or removed) names the pack source that supports it; without one it only asks the writer to resolve the stated contradiction or add the opposing argument, and the direction stays the writer's call.
 - Do not prescribe a pinpoint in a form the citation rules reject: a pinpoint is `art N`, `para N`, `s N`, `reg N`, `p N`, `recital N`, `annex N` (with subdivisions), never a section heading or a sentence.
 - Anything you leave out goes in `dropped[]` with a reason. Nothing disappears quietly.
-- Issues from a reviewer that approved, and minor issues on sections nothing else touches, are the usual candidates for `dropped[]`.
+- Minor issues on sections nothing else touches are the usual candidates for `dropped[]`; a substantive major is never dropped because its reviewer approved.
 - Do not invent findings, do not soften a blocker into a suggestion, and do not decide whether the loop continues.
 
 ## Failure modes

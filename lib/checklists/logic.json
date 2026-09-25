@@ -31,7 +31,7 @@
   },
   {
     "id": "LOG-06",
-    "text": "Conclusions on different issues are consistent with each other; no conclusion assumes a position another conclusion rejects. Evidence: quote the two conclusions in tension, or state which pair you compared.",
+    "text": "Conclusions on different issues are consistent with each other; no conclusion assumes a position another conclusion rejects. Evidence: quote the two conclusions in tension, or state which pair you compared. This covers money: heads of damage do not overlap (a lost item and its replacement are one computation, not two), and a figure the memo calls reliable or recoverable excludes any part the memo itself rates high-risk or conditional, or names it.",
     "tier": "substance",
     "hard_fail": false
   },
@@ -55,7 +55,7 @@
   },
   {
     "id": "LOG-10",
-    "text": "Every recommendation traces back to a finding in an analytical subsection, and no subsection finding that calls for action is left without one. Evidence: name the orphan recommendation or the finding with no action.",
+    "text": "Every recommendation traces back to a finding in an analytical subsection, and no subsection finding that calls for action is left without one. Evidence: name the orphan recommendation or the finding with no action. A step the client is told is required before another (\"before the claim, file …\"), and an exclusion from a sanction, rest on a cited rule; otherwise the memo presents them as prudent practice.",
     "tier": "substance",
     "hard_fail": false
   },

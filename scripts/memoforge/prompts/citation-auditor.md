@@ -21,6 +21,7 @@ First action (Bash, before any other tool call):
 - claim-to-authority pairs: ${claim_pairs}
 - source registry, with each source's `tier` and the `raw_path` of its saved text (relative to work_dir): `${work_dir}/research/sources.json`
 - polish re-check (none: an ordinary review of the whole draft): ${recheck_scope}
+- what the sufficiency reviewer found on saved texts (check the draft's statements on these first, as item 1 of your budget): ${sufficiency_checks}
 - previous attempt errors to fix: ${retry_errors}
 
 `approved` is a normal outcome and means zero blockers. Grade `unknown` only when the draft
@@ -90,7 +91,14 @@ ellipses, no joined fragments and no words of your own, so the reader can find i
 Each checked statement gets one row in `text_checks`: `{"source_id", "section_id", "status",
 "finding_disagrees", "note"}`. `finding_disagrees` is true when the research finding departs from the text.
 
-- `confirmed` — the text says what the draft says. No issue.
+- `confirmed` — the text says what the draft says. `confirmed` covers the whole statement: when the draft
+  credits the court with more than its text says, the row is `contradicted` for that part (CIT-02, the
+  holding misstated), never `confirmed` with a `note` that says so. Examples: a negative the draft infers
+  (the court discusses agency, the draft writes «агентский, а не как хранение»); a calculation the court
+  only recited or found arithmetically correct, presented as the measure it adopted or the sum it awarded;
+  an outcome past the point where the saved text breaks off. What is reported truthfully passes: «суд
+  признал контррасчёт ответчика арифметически верным» is `confirmed` when the text says so. No issue when
+  confirmed.
 - `contradicted` — the located text says otherwise, or the rule is absent. The draft sentence gets a
   blocker: `issue_category: unsupported_claim`, `checklist_id` `CIT-01` (the rule is not in the source)
   or `CIT-02` (the holding is misstated), and `source_evidence` `{"source_id", "status": "contradicted",

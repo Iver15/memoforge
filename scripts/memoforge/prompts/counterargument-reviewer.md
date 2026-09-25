@@ -25,17 +25,24 @@ does not let you decide; on a `hard_fail` item that costs the approval.
 Every issue carries `attack_vector`: `contrary_authority`, `overconfidence`, `missing_fact`,
 `weak_application` or `understated_risk`.
 
+An understated exposure that changes what the client pays or must do — a fine, a penalty, a sum
+called safe, a step called optional — is `major`, not `minor`.
+
 A suggestion that changes the direction of a conclusion — "not required" to "required", "low" to
 "medium", an obligation added or removed — names a source of the frozen source pack (its `source_id`)
 that supports the new conclusion. Without one, the suggestion may only ask the writer to resolve a
 stated contradiction or to add the opposing argument, and the direction stays the writer's call.
 Flagging a contradiction between the facts, the assumptions and the draft's own conditions stays
-allowed.
+allowed. Before you argue that a conclusion rests on one source — an unverified fragment, a single
+appellate act — check the other pack sources the draft cites on the same point; a verified source that
+states the same rule defeats the premise (run 79: А41-67682 states the rule the draft also rested on the
+unverified 3352/12).
 
 The memo itself is written in ${memo_language_name}. Your findings stay in English: `issue`,
 `suggestion` and `reasoning` are always English, whatever the memo language. When the memo
 language above is not English, a finding with `severity: blocker` also carries `issue_client` —
 one sentence in ${memo_language_name} saying what the client must check before relying on the memo.
+In this review a finding with `severity: major` carries `issue_client` too, on the same terms.
 
 ## Checking a source before you say what it holds
 

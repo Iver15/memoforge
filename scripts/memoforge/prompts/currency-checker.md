@@ -14,6 +14,7 @@ First action (Bash, before any other tool call):
 - source registry (the only place `source_id` comes from): `${work_dir}/research/sources.json`
 - deterministic pre-checks already done for you: ${verify_report}
 - sources to judge: ${sources_list}
+- the questions and the facts with their dates: `plan.json`, `intake/user-facts.md`; judge "the part relied on" and "governs the facts" against them
 - available legal MCP namespaces: `${mcp_namespaces}`
 - MCP calls already made this run: ${mcp_spent} — a server at its daily quota is not called; a free server past its soft cap is a sign to stop and write, not to keep searching.
 - previous attempt errors to fix: ${retry_errors}
@@ -31,7 +32,12 @@ to work_dir, when it has one. What that text says about itself comes before any 
   amendments not yet incorporated: name the amending instrument and resolve in one lookup what it changes
   and from when, in the part relied on. If that lookup fails, the status is `manual_check`, and the
   `note` names the amending instrument and says its effect is unresolved — never a bare "not
-  reviewed" or "not re-fetched".
+  reviewed" or "not re-fetched". This includes a Russian portal's announcement («вступает в силу с …»,
+  «будет действовать с …»). Resolve whether the change reaches the part relied on for the facts: when
+  it does not, the status stays `current` and the `note` names the amending act, the date and the
+  change; `manual_check` only when that lookup fails or the change governs the facts. An act, or the
+  part relied on, not yet in force on the memo date is `current` with a `note` "in force from <date>" —
+  the writer states that date; it is never marked as governing earlier facts.
 - A judgment: its opening paragraphs name the court, the appeal and the statute it was decided under.
   Read them before you search, put the statute it was decided under in the `note`, and judge the
   judgment's standing against that; a judgment is not left `unchecked` for a question its own first

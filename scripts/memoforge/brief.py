@@ -71,9 +71,6 @@ BRIEF_ROLE = (
 )
 """`${brief_role}` of the form reviewer; it ends an existing prompt line, hence the leading space (D-223)."""
 
-FORM_MODEL = "opus"
-"""D-228: the brief's form reviewer runs on Opus; the memo pipeline keeps `AGENT_MODELS["form-reviewer"]`."""
-
 FULL_REVIEW = ("none", "all")
 """`(previous_review_path, changed_blocks)` of a fidelity review that traces the whole brief (D-228)."""
 
@@ -167,7 +164,7 @@ def classify_status(state: dict) -> dict:
 
     Clean = an approved status family, no remaining blocking issue and no `open_substance_majors`
     row still open. The open points are the blockers (`ob-N`) and the majors `summary.md` lists (their
-    own `om-N` ids) — a `citations` row the readiness step moved among the blockers is listed once.
+    own `om-N` ids) — a row the readiness step moved among the blockers is listed once (D-237).
     """
     final_status = state.get("final_status")
     blocking = list(state.get("remaining_blocking_issues") or [])
@@ -189,17 +186,16 @@ def classify_status(state: dict) -> dict:
                 "text": _text_of(row),
             }
         )
-    for row in majors:
-        if finalize.lists_open_finding(row):
-            open_issues.append(
-                {
-                    "id": str(row["id"]),
-                    "section_id": str(row.get("section_id") or brief_lint.DOCUMENT_ID),
-                    "class": str(row.get("class") or ""),
-                    "severity": str(row.get("severity") or "major"),
-                    "text": _text_of(row),
-                }
-            )
+    for row in finalize.open_findings(majors, blocking):
+        open_issues.append(
+            {
+                "id": str(row["id"]),
+                "section_id": str(row.get("section_id") or brief_lint.DOCUMENT_ID),
+                "class": str(row.get("class") or ""),
+                "severity": str(row.get("severity") or "major"),
+                "text": _text_of(row),
+            }
+        )
     return {"clean": bool(clean), "status": final_status, "open_issues": open_issues}
 
 
@@ -416,7 +412,6 @@ def _review_specs(work_dir: Path, run: dict, state: dict, slots: list[str], retr
                 "form-reviewer",
                 f"brief form r{round_}",
                 [(f"{BRIEF_DIR}/reviews/r{round_}-form.json", SLOT_SCHEMAS["form"])],
-                model=FORM_MODEL,
                 checklist="brief-form",
                 draft_path=path,
                 draft_sha=sha,

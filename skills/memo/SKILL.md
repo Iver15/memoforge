@@ -58,7 +58,7 @@ Never execute a step that did not come from `mf next`. Never re-run a step "to b
 
 ```jsonc
 {"step_id":"s-017","kind":"dispatch","parallel":true,"phase":"research","attempt":1,"reason":"initial",
- "agents":[{"slot":"statutes","subagent_type":"memoforge:legal-researcher","model":"sonnet",
+ "agents":[{"slot":"statutes","subagent_type":"memoforge:legal-researcher","model":"opus",
             "description":"P5/13 · legal-researcher · statutes","prompt":"<full text — pass through unchanged>",
             "expected_outputs":[{"canonical":"research/statutes.json","work_path":"steps/s-017/a1/statutes/statutes.json"}]}],
  "chat_line":"Phase 5/13 — research: 3 researchers dispatched (statutes, case_law, doctrine)"}
