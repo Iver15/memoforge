@@ -344,6 +344,11 @@ def blocking_issue_line(issue: object, language: str | None = None) -> str:
 
     D-237: in a memo that is not English, a row without its client sentence prints the pack's
     `status_issue_without_client_text` instead of the English `issue`, whose text stays in `summary.md`.
+
+    D-252: in an English memo, a row moved as `disposition: manual_review` without its client sentence
+    prints its `disposition_note` — the question the lawyer must answer — instead of the reviewer's
+    critique. An `unresolved` row, or one an earlier build moved without `disposition`, keeps its `issue`:
+    its note may describe the planned polish, not an open question.
     """
     if not isinstance(issue, dict):
         return re.sub(r"\s+", " ", str(issue or "")).strip()
@@ -353,8 +358,13 @@ def blocking_issue_line(issue: object, language: str | None = None) -> str:
     if language is not None:
         severity = severity_name(severity, language)
         section_id = section_label(section_id, language)
-        if not issue.get("issue_client") and (i18n.normalize(language) or i18n.DEFAULT) != i18n.DEFAULT:
+        english = (i18n.normalize(language) or i18n.DEFAULT) == i18n.DEFAULT
+        question = issue.get("disposition") == "manual_review" and issue.get("disposition_note")
+        if not issue.get("issue_client") and not english:
             text = label("status_issue_without_client_text", language)
+        elif not issue.get("issue_client") and question:
+            # D-252: the question the lawyer must answer, in the readiness reviewer's words.
+            text = str(issue["disposition_note"])
     parts = [severity, section_id, re.sub(r"\s+", " ", text).strip()]
     return STATUS_ISSUE_SEPARATOR.join(part for part in parts if part)
 

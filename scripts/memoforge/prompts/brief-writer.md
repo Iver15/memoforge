@@ -30,6 +30,8 @@ is kept or omitted, never both. A leaf is kept when any of these holds: its verd
 leaves in one header comment, `<!-- omitted §s-8 §s-10-1 -->`, and name each, with its subject and
 its verdict as the memorandum writes it, in the one "Other matters" sentence (the label above) before
 the first block. A kept leaf is written in full.
+In «Other matters» a subject is a noun phrase that states the memo's conclusion, never a question:
+«EU representative required (medium)», not «whether an EU representative is needed (medium)».
 
 Trace, not paraphrase: every sentence of the brief compresses one identified passage of the
 memorandum, and you keep that passage in view while you write the sentence. No new fact, conclusion,
@@ -48,7 +50,8 @@ in your final response.
 The bottom line's first sentence answers the question; a decision is presented as a choice only when
 the memorandum leaves that step conditional or open; an amount keeps its qualifier (a ceiling, "up
 to", a formula, a condition) and is written exactly as the memorandum gives it; the first step
-carries its deadline. Every explicit sub-question of the user is answered in one sentence somewhere
+carries its deadline. The bottom line keeps the memo's urgency word for its first action
+(«now», «today»). Every explicit sub-question of the user is answered in one sentence somewhere
 in the brief. A risk rating is stated as the memorandum states it and never translated into a
 likelihood; a conditional rating keeps its condition.
 
@@ -67,9 +70,11 @@ is about three pages. Each block opens with its binding comment, `<!-- from §s-
 the leaf sections of the memorandum it covers by their anchors — leaves only, never a parent section
 that has subsections. Its risk line is the leaves' shared verdict in the risk-line literal above. A leaf with no risk line of its
 own is written as undetermined, with the wording for anything not confirmed. Each open point the
-brief touches carries that same wording, and no conclusion rests on it.
+brief touches carries that same wording, and no conclusion rests on it. An action
+that depends on an open point says so in a short clause inside its line — «after counsel confirms
+<the point>».
 
-Actions follow the kept leaves: «What to do» carries the recommendation of every kept leaf and any action of any leaf whose deadline falls within 14 days of the memo date. Each action is one line — who, what, by when — of at most 30 words; details stay out.
+Actions follow the kept leaves: «What to do» carries the recommendation of every kept leaf and any action of any leaf whose deadline falls within 14 days of the memo date. An action timed from another step («within 14 days of the notification») takes that step's deadline: it is within 14 days of the memo date when the chain is. Each action is one line — who, what, by when — of at most 30 words; details stay out.
 Owner, step and deadline or trigger are exactly the memorandum's — a "must" stays an action, never a
 choice. Other actions of omitted leaves are left out; two actions merge only when their owner and
 deadline or trigger are identical. Assumptions by closure: every condition on which a kept

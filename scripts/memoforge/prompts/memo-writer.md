@@ -49,6 +49,10 @@ to «суд установил» or «суд исходил».
 Money and required steps are conclusions. A loss and the cost of replacing the same item are one
 computation. A figure called reliable excludes the parts the memo rates high-risk, or names them. A
 step presented as required before another needs a cited rule; otherwise write it as a prudent step.
+A provision that sets a time limit is stated with every limb the facts engage — the general period
+and any special trigger (UK GDPR art 14(3): within one month at the latest, and at the latest at the
+first communication); the earlier one governs, and a limit already passed on the facts is said to
+have passed.
 
 On `polish`, an instruction with `severity: blocker` is withdrawn or qualified, never re-argued: take
 the statement out or qualify it as unresolved, together with every risk line and summary bullet that

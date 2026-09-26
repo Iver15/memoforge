@@ -92,7 +92,16 @@ sha256 of the page it came from. Comparing them marked 64 of 70 sources `changed
 
 UNCHECKED_HTTP_CODES: frozenset = frozenset({202, 403, 429, 503})
 """D34-08: queue / anti-bot / throttle answers. The link is not dead, it was simply not served, so
-the body is neither read nor hashed and the verdict is `unchecked`."""
+the body is neither read nor hashed and the verdict is `unchecked` — and the Russian resolver's
+challenge codes (`sudact_refusal`)."""
+
+GATEWAY_HTTP_CODES: frozenset = frozenset({502, 504})
+"""D-249: a gateway's bad answer or timeout. Liveness treats it as «not served» (`unchecked`), not as «gone»
+(run 84: EDPB answered 502 and the appendix said «link dead»). It is deliberately not a challenge code: to the
+Russian resolver a 502 stays a broken request (`ChannelUnavailable`), and the channel stays open."""
+
+NOT_SERVED_HTTP_CODES: frozenset = UNCHECKED_HTTP_CODES | GATEWAY_HTTP_CODES
+"""What liveness and the answer classifier read as `unchecked`."""
 
 LIVENESS_USER_AGENT = "memoforge/2 liveness (+https://github.com/gregmos/memoforge)"
 """D-146: the honest agent of D34-08 plus a contact url, the standard courtesy for an automated
@@ -248,14 +257,11 @@ PINPOINT_RE = re.compile(
 """`Art 88`, `art. 88`, `-art88`, `Annex III` — the provision a citation_form or a source_id names."""
 
 ARTICLE_HEADING_PREFIX = (
-    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*"
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*(?:\[F\d+)?"
     r"(?:Article|Art\.|Section|Sec\.|§|Статья|Ст\.)[ \t]*"
 )
-ANY_ARTICLE_HEADING_RE = re.compile(
-    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*"
-    r"(?:Article|Art\.|Section|Sec\.|§|Статья|Ст\.)[ \t]*\d+",
-    re.MULTILINE | re.IGNORECASE,
-)
+"""An article or section heading; `[F18` is legislation.gov.uk's amendment marker glued to an inserted unit (D-251)."""
+ANY_ARTICLE_HEADING_RE = re.compile(ARTICLE_HEADING_PREFIX + r"\d+", re.MULTILINE | re.IGNORECASE)
 ARTICLE_HEADING_NUMBER_RE = re.compile(ARTICLE_HEADING_PREFIX + r"(\d+)", re.MULTILINE | re.IGNORECASE)
 """Same headings as `ANY_ARTICLE_HEADING_RE`, capturing the number (duplicate contradiction, D34-04)."""
 
@@ -2199,7 +2205,7 @@ def probe_url(
     except Exception:  # noqa: BLE001 - liveness never fails the pipeline; the GET below decides
         code = None
 
-    if code in UNCHECKED_HTTP_CODES:
+    if code in NOT_SERVED_HTTP_CODES:
         return _unchecked_http(code, headers, hops)
 
     if code is not None and code >= 400 and not want_body:
@@ -2217,7 +2223,7 @@ def probe_url(
             code = getattr(response, "status", None) or response.getcode()
             final_url = response.geturl()
             headers = response.headers
-            if code in UNCHECKED_HTTP_CODES:
+            if code in NOT_SERVED_HTTP_CODES:
                 return _unchecked_http(code, headers, hops)
             payload = response.read(limits.LIVENESS_MAX_BODY_BYTES)
             # Measured on the bytes as they arrived, before `_inflate`, exactly as `fetch_body` does.
@@ -2228,7 +2234,7 @@ def probe_url(
             payload = payload[: limits.LIVENESS_MAX_BODY_BYTES]
             content_type = header_value(headers, "Content-Type")
     except urllib.error.HTTPError as exc:
-        if exc.code in UNCHECKED_HTTP_CODES:
+        if exc.code in NOT_SERVED_HTTP_CODES:
             return _unchecked_http(exc.code, exc.headers, hops)
         return {"status": "dead", "code": exc.code, "sha256": None, "error": f"http_{exc.code}", "redirects": hops}
     except RedirectRefused as exc:
@@ -2693,7 +2699,7 @@ def _fetch_answer(
     content_type = header_value(headers, "Content-Type")
     interstitial = is_interstitial(payload, content_type)
     error = challenge_error(code, headers)
-    if error is None and code in UNCHECKED_HTTP_CODES:
+    if error is None and code in NOT_SERVED_HTTP_CODES:
         error = f"http_{code}"
     if error is not None:
         status = "unchecked"
@@ -3298,7 +3304,8 @@ order `sudact_refusal` already judges them (task 7, round 3):
   WAF and Cloudflare headers among them (`unchecked`), a redirect hop off the allowlist
   (`host_not_allowed`: at admission the address itself has already passed it). They close the host
   **whatever the body's length**: a 202 with `x-amzn-waf-action` cut short of its `Content-Length`
-  is a challenge all the same.
+  is a challenge all the same. D-249: a gateway's `502`/`504` (`GATEWAY_HTTP_CODES`) is refused as
+  `unchecked` too, but it is a broken request and closes nothing, exactly as in `sudact_refusal`.
 - `SUDACT_SAVE_BODY_CHALLENGES` are judged **on the body** (`interstitial`, `access_stub`), and a
   body cut short of its `Content-Length` proves nothing about a challenge — Task 4's admission still
   refuses it, but it closes nothing.
@@ -4254,7 +4261,10 @@ def run_save(args: argparse.Namespace, *, resolved: bool = False) -> dict:
     admission = save_admission(answer, payload)
     if admission is not None:
         reason, detail = admission
-        named_without_the_body = reason in SUDACT_SAVE_CHALLENGES
+        # D-249: a gateway's own 502/504 is «not served» (`unchecked`) but a broken request, never a
+        # challenge — as in `sudact_refusal`. One that a challenge header names keeps its name as error.
+        gateway = answer["code"] in GATEWAY_HTTP_CODES and answer["error"] == f"http_{answer['code']}"
+        named_without_the_body = reason in SUDACT_SAVE_CHALLENGES and not gateway
         judged_on_a_whole_body = reason in SUDACT_SAVE_BODY_CHALLENGES and not answer["truncated"]
         if on_sudact and (named_without_the_body or judged_on_a_whole_body):
             # D-202: the wall is the host's, whoever meets it first — the resolver or a plain `--url`.

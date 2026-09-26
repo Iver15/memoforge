@@ -155,7 +155,7 @@
       "writer_failed": "le rédacteur n'a pas pu produire de projet révisé",
       "no_checked_draft": "aucune version du projet n'a passé les contrôles automatiques",
       "export_reused_untouched": "un export antérieur a été remis sans modification",
-      "open_substance_majors": "une observation de fond du relecteur n'a pas été corrigée de façon vérifiable",
+      "open_substance_majors": "une observation de fond du relecteur est laissée à la décision d'un juriste ou n'a pas été corrigée de façon vérifiable",
       "polish_out_of_scope": "la relecture finale est sortie de son périmètre, le texte antérieur à celle-ci est donc remis",
       "polish_recheck_blocker": "le contrôle de la relecture finale a relevé une observation bloquante"
     },

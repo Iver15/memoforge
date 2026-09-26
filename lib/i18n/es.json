@@ -155,7 +155,7 @@
       "writer_failed": "el redactor no pudo producir un borrador revisado",
       "no_checked_draft": "ninguna versión del borrador superó las comprobaciones automáticas",
       "export_reused_untouched": "se entregó sin cambios una exportación anterior",
-      "open_substance_majors": "una observación de fondo del revisor no se corrigió de forma verificable",
+      "open_substance_majors": "una observación de fondo del revisor queda para la decisión de un abogado o no se corrigió de forma verificable",
       "polish_out_of_scope": "el pulido final se salió de su encargo, por lo que se entrega el texto anterior a él",
       "polish_recheck_blocker": "la comprobación del pulido final encontró una observación bloqueante"
     },

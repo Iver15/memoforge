@@ -458,6 +458,12 @@ def banner(condition_key: str, **params: object) -> dict | None:
     return rendered
 
 
+def same_banner(rows: list | None, banner: dict) -> bool:
+    """D-248: a banner is recorded once — a row is the same banner when it differs only in `at`."""
+    wanted = dict(banner, at=None)
+    return any(isinstance(row, dict) and dict(row, at=None) == wanted for row in rows or ())
+
+
 def banner_text_for(row: object, language: str) -> str:
     """The banner text the deliverable prints: the memo language's, or the stored one (D-175).
 

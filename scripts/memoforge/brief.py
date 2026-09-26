@@ -156,6 +156,10 @@ def step_id(run_id: str, n: int) -> str:
 
 
 def _text_of(row: dict) -> str:
+    """The open point for the brief writer: the client sentence, the lawyer's question, else the issue (D-252)."""
+    manual = row.get("status") == "manual_review" or row.get("disposition") == "manual_review"
+    if not row.get("issue_client") and manual and row.get("disposition_note"):
+        return str(row["disposition_note"])
     return str(row.get("issue_client") or row.get("issue") or "")
 
 

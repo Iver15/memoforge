@@ -440,13 +440,13 @@ def publish_result(work_dir: Path, args: argparse.Namespace, canonical: str, pay
 
 
 def record_banner(state: dict, condition_key: str, **params: object) -> dict | None:
-    """Append the banner of one `fallbacks.py` row to `state.fallback_banners` (§2.1)."""
+    """Append the banner of one `fallbacks.py` row to `state.fallback_banners` (§2.1), once (D-248)."""
     banner = fallbacks.banner(condition_key, **params)
     if banner is None:
         return None
     row = dict(banner, at=events.utc_now())
-    if row not in state.setdefault("fallback_banners", []):
-        state["fallback_banners"].append(row)
+    if not fallbacks.same_banner(state.get("fallback_banners"), row):
+        state.setdefault("fallback_banners", []).append(row)
     return row
 
 
@@ -841,7 +841,8 @@ def moved_finding(row: dict) -> dict:
 
     D-237: any class of `OPEN_MAJOR_CLASSES` moves, and `source_reviewer` names it. The
     `disposition_note` of a `manual_review` row — the question the lawyer must answer — comes along
-    for `summary.md`; the deliverable does not print it, because it is English.
+    for `summary.md`; an English deliverable prints it for a `manual_review` row (D-252); another
+    language keeps its localized line.
     """
     entry = {
         "severity": "major",
@@ -854,6 +855,9 @@ def moved_finding(row: dict) -> dict:
     for field in ("issue_category", "issue_client", "disposition_note"):
         if row.get(field):
             entry[field] = row[field]
+    if row.get("status") in MOVED_STATUSES:
+        # D-252: which disposition moved it; the deliverable prints the note only of a `manual_review` row.
+        entry["disposition"] = str(row["status"])
     return entry
 
 
@@ -1055,8 +1059,9 @@ def unchecked_pairs(work_dir: Path, state: dict, iteration: int, draft_text: str
 
     A pair is the `(source_id, section_id)` of a `[[src:]]` token. `not_reached`: its latest `text_checks`
     row across the counted citations reviews of iterations before `iteration` says so; `never_checked`:
-    no counted review has a row for it. `not_reached` first, then `never_checked`, each in section order
-    and then by source id, at most `limits.CARRY_OVER_MAX`. Iteration 1 carries nothing.
+    no counted review has a row for it. `not_reached` first, then `never_checked`, each with critical sources
+    first, then in section order and by source id (D-253), at most `limits.CARRY_OVER_MAX`. Iteration 1
+    carries nothing.
     """
     if int(iteration) <= 1:
         return []
@@ -1079,10 +1084,16 @@ def unchecked_pairs(work_dir: Path, state: dict, iteration: int, draft_text: str
         for row in counted.get("text_checks") or []:
             if isinstance(row, dict):
                 latest[(str(row.get("source_id") or ""), str(row.get("section_id") or ""))] = str(row.get("status"))
+
+    def order(pair: tuple[str, str]) -> tuple:
+        # D-253: a critical source before a supporting one, then section order and source id (D-214).
+        tier = (registry.get(pair[0]) or {}).get("tier")
+        return (0 if tier == "critical" else 1, _section_order(pair[1]), pair[0])
+
     rows = [
         {"source_id": source_id, "section_id": section_id, "reason": reason}
         for reason in ("not_reached", "never_checked")
-        for source_id, section_id in sorted(cited, key=lambda pair: (_section_order(pair[1]), pair[0]))
+        for source_id, section_id in sorted(cited, key=order)
         if (latest.get((source_id, section_id)) or "never_checked") == reason
     ]
     return rows[: limits.CARRY_OVER_MAX]

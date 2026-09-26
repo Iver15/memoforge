@@ -161,7 +161,7 @@
       "writer_failed": "der Verfasser konnte keinen überarbeiteten Entwurf liefern",
       "no_checked_draft": "keine Entwurfsfassung hat die automatischen Prüfungen bestanden",
       "export_reused_untouched": "ein früherer Export wurde unverändert ausgeliefert",
-      "open_substance_majors": "ein inhaltlicher Prüfhinweis wurde nicht nachweislich behoben",
+      "open_substance_majors": "ein inhaltlicher Prüfhinweis bleibt einer anwaltlichen Entscheidung überlassen oder wurde nicht nachweislich behoben",
       "polish_out_of_scope": "die abschließende Überarbeitung ging über ihren Auftrag hinaus, daher wird der Text vor ihr ausgeliefert",
       "polish_recheck_blocker": "die Prüfung der abschließenden Überarbeitung fand eine blockierende Anmerkung"
     },

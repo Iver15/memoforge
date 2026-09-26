@@ -29,19 +29,28 @@ FULL_TEXT_MIN_CHARS_DOCTRINE = 2500
 ARTICLE_BODY_MIN_CHARS = 200
 
 ARTICLE_HEADING_PREFIX = (
-    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*"
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*(?:\[F\d+)?"
     r"(?:Article|Art\.|Section|Sec\.|§|Статья|Ст\.)[ \t]*"
 )
-"""The source string of `sources.ARTICLE_HEADING_PREFIX` — copied, never forked (a test pins them equal)."""
+"""The source string of `sources.ARTICLE_HEADING_PREFIX` — copied, never forked (a test pins them equal).
+
+A heading may open with markdown (`#`, `**`, `__`) and with legislation.gov.uk's amendment marker `[F18`, glued
+to the word of an inserted unit: `[F18Article 12A.U.K.Meaning of …` is the heading of art 12A (D-251)."""
 
 ANY_ARTICLE_HEADING_RE = re.compile(ARTICLE_HEADING_PREFIX + r"\d+", re.MULTILINE | re.IGNORECASE)
 
-_HEADING_LEAD = r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*"
-_LABELLED_UNIT_RE = re.compile(r"^(reg(?:ulation)?|sch(?:edule)?|rule)\.?\s*(\S+)$", re.IGNORECASE)
-_LABEL_HEADINGS = {"reg": r"(?:Regulation|Reg)\.?", "sch": r"(?:Schedule|Sch)\.?", "rul": r"Rule\.?"}
-"""A unit that is not an article or a section is asked for with its label (`reg 22`, `Sch 1`, `Rule 23`)
-and found only under a heading of its own kind (D-219). A bare number keeps the article grammar alone, so
-`5` never finds `Regulation 5`, `Part 5` or `Chapter 5`."""
+_HEADING_LEAD = r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*(?:\[F\d+)?"
+_LABELLED_UNIT_RE = re.compile(r"^(reg(?:ulation)?|sch(?:edule)?|rule|para(?:graph)?)\.?\s*(\S+)$", re.IGNORECASE)
+_LABEL_HEADINGS = {
+    "reg": r"(?:Regulation|Reg)\.?",
+    "sch": r"(?:Schedule|Sch)\.?",
+    "rul": r"Rule\.?",
+    "par": r"(?:Paragraph|Para)\.?",
+}
+"""A unit that is not an article or a section is asked for with its label (`reg 22`, `Sch 1`, `Rule 23`,
+`para 23`) and found only under a heading of its own kind (D-219; `para` for a Schedule paragraph, D-251). A bare
+number keeps the article grammar alone, so `5` never finds `Regulation 5`, `Paragraph 5`, `Part 5` or
+`Chapter 5`."""
 
 _ACT_TYPES = ("определение", "постановление", "решение", "приговор")
 _IMENEM = "именем российской федерации"
@@ -437,8 +446,9 @@ def is_complete_plenum(text: str) -> bool:
     return any(signature.search(body) is not None for signature in _PLENUM_SIGNATURE_RES)
 
 
-_UNIT_CONTINUES = r"(?![^\W_])(?![./\-][^\W_])"
-"""What may not follow a requested unit: a letter or a digit, or `.`/`-`/`/` before one (D-219)."""
+_UNIT_CONTINUES = r"(?:(?=\.?U\.K\.)|(?![^\W_])(?![./\-][^\W_]))"
+"""What may not follow a requested unit: a letter or a digit, or `.`/`-`/`/` before one (D-219) — except
+legislation.gov.uk's extent tag `U.K.`, glued to the unit with or without a dot (D-251)."""
 
 
 def article_body_chars(text: str, article: str) -> int:
@@ -447,9 +457,11 @@ def article_body_chars(text: str, article: str) -> int:
     The heading is matched as a whole token with the same alternation `sources.py` uses, so `152` never finds
     `152.1`, and a table of contents («Статья 36 / Статья 37») yields a body far under `ARTICLE_BODY_MIN_CHARS`.
     A unit never finds one that goes on past it — a letter or a digit, or `.`/`-`/`/` before one: `12` is not
-    `Article 12A`, `reg 5A` is not `Regulation 5AB`, `Sch I` is not `SCHEDULE II` (D-219).
-    A labelled unit (`reg 22`, `Sch 1`, `Rule 23`) is looked for under headings of its own kind only, and its
-    body also ends at the next heading of that kind (`_heading_prefix`).
+    `Article 12A`, `reg 5A` is not `Regulation 5AB`, `Sch I` is not `SCHEDULE II` (D-219). The one exception is
+    legislation.gov.uk's extent tag: `Article 12U.K.Transparent …` and `[F18Article 12A.U.K.Meaning …` are the
+    headings of art 12 and art 12A, and `12` still never finds the second (D-251).
+    A labelled unit (`reg 22`, `Sch 1`, `Rule 23`, `para 23`) is looked for under headings of its own kind only,
+    and its body also ends at the next heading of that kind (`_heading_prefix`).
     """
     prefix, wanted = _heading_prefix(article.strip())
     if not wanted:

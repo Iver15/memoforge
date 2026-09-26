@@ -11,7 +11,7 @@
 # trackers the research layers actually cite. Law-firm blogs and commentary publishers are
 # deliberately absent — a user grants those in `~/.claude/settings.json`.
 #
-# 108 hosts active + 3 in the `optional` group (off by default) = 111: the v1 `hooks.json` list, the
+# 111 hosts active + 3 in the `optional` group (off by default) = 114: the v1 `hooks.json` list, the
 # LegalViz reader of D-105 and the `legislature` group (plus the Austrian DPA) of D34-02, as
 # corrected by the reachability sweep of D-145 and extended by the `legislature-api` group of D-148.
 
@@ -29,6 +29,7 @@ legalviz.eu
 # researcher to: the EU/EEA states of `routing.MEMBER_STATES`, the two German mirrors a sufficiency
 # reviewer names when gesetze-im-internet.de refuses a section, and the two UK portals of D-105
 # (routed since then, but never allow-listed). EU law itself is covered by `europa.eu` above.
+# D-249: the judiciary's judgment PDFs and the CPR pages (run 84: Farley and CPR Part 25 were refused).
 boe.es
 buzer.de
 caselaw.nationalarchives.gov.uk
@@ -38,6 +39,8 @@ data.bka.gv.at
 dejure.org
 gesetze-im-internet.de
 irishstatutebook.ie
+judiciary.uk
+justice.gov.uk
 legifrance.gouv.fr
 legislation.gov.uk
 normattiva.it

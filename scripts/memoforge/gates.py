@@ -1099,7 +1099,7 @@ def _record_answer(
             current["cancel_requested"] = True
         if parsed["defaults_applied"] or parsed.get("budget_exhausted"):
             banner = fallbacks.banner("gate_defaults_applied", gate=gate)
-            if banner and dict(banner, at=None) not in current.get("fallback_banners", []):
+            if banner and not fallbacks.same_banner(current.get("fallback_banners"), banner):
                 current.setdefault("fallback_banners", []).append(dict(banner, at=events.utc_now()))
         if gate == "intake":
             intake = dict(current.get("intake") or {})

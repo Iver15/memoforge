@@ -218,7 +218,9 @@ EN: dict = {
             "no_checked_draft": "no draft version passed the automated checks",
             "export_reused_untouched": "an earlier export was delivered unchanged",
             # D-211: the settlement of the open majors at the last reader; D-237: of any substantive class.
-            "open_substance_majors": "a substantive reviewer finding was not verifiably fixed",
+            "open_substance_majors": (
+                "a substantive reviewer finding is left for a lawyer's decision or was not verifiably fixed"
+            ),
             "polish_out_of_scope": "the final polish went beyond its instructions, so the text before it is delivered",
             "polish_recheck_blocker": "the check of the final polish found a blocking problem",
         },

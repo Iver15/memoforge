@@ -334,7 +334,8 @@ def source_class(view: dict) -> str:
     if QUOTED_TITLE_RE.search(text) and YEAR_RE.search(text):
         # An author, a quoted title and a year: a journal article, whatever its `layer` says.
         return CLASS_DOCTRINE
-    if layer == "statutes" or USC_RE.search(text) or ACT_RE.search(text):
+    # D-250: a guide page whose title names an Act («… Act 2025: what does it mean …») is not the Act.
+    if layer == "statutes" or USC_RE.search(text) or (layer != "doctrine" and ACT_RE.search(text)):
         return CLASS_LEGISLATION
     return CLASS_SOFT_LAW
 
@@ -705,10 +706,29 @@ def _eu_legislation(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> 
     return _join(instrument, pinpoint)
 
 
+def _head_before_comma(cite: str) -> str:
+    """The act of a citation: up to its first comma outside brackets (D-250).
+
+    `Trade Secrets (Enforcement, etc.) Regulations 2018, reg 2` → `Trade Secrets (Enforcement, etc.) Regulations
+    2018`. Brackets that never close — a form a tool cut short — fall back to the first comma, as before.
+    """
+    depth = 0
+    for index, char in enumerate(cite):
+        if char in "([":
+            depth += 1
+        elif char in ")]" and depth:
+            depth -= 1
+        elif char == "," and depth == 0:
+            return cite[:index].strip()
+    if depth:
+        return cite.split(",")[0].strip()
+    return cite.strip()
+
+
 def _legislation(view: dict, pinpoint: str, language: str = i18n.DEFAULT) -> str:
     """`Data Protection Act 2018, s 2(1)`, `15 USC § 45` — national legislation (D-150)."""
     cite = _strip_noise(view.get("citation_form") or "")
-    head = cite.split(",")[0].strip() if cite else ""
+    head = _head_before_comma(cite) if cite else ""
     if not head:
         head = _strip_noise(view.get("title") or "").split(" - ")[0].strip()
     return _join(head, pinpoint)
