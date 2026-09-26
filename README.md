@@ -136,7 +136,7 @@ mf config unset writer_model
 A plugin cannot ship permission rules, so research prompts for approval unless you allow the hosts yourself. Paste the block below into `~/.claude/settings.json`; it is generated from the plugin allowlist by `mf docs render permissions`, and [`docs/permissions.md`](docs/permissions.md) is the canonical copy. Replace `${CLAUDE_PLUGIN_ROOT}` with your install path. `Agent(memoforge:*)` is deliberately absent: globs for `Agent` are not confirmed.
 
 <details>
-<summary><b>Permission block — 229 rules</b></summary>
+<summary><b>Permission block — 233 rules</b></summary>
 
 ```json
 {"permissions": {"allow": [
@@ -146,7 +146,9 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
   "WebFetch(domain:*.buzer.de)", "WebFetch(domain:caselaw.nationalarchives.gov.uk)", "WebFetch(domain:*.caselaw.nationalarchives.gov.uk)",
   "WebFetch(domain:data.bka.gv.at)", "WebFetch(domain:*.data.bka.gv.at)", "WebFetch(domain:dejure.org)", "WebFetch(domain:*.dejure.org)",
   "WebFetch(domain:gesetze-im-internet.de)", "WebFetch(domain:*.gesetze-im-internet.de)", "WebFetch(domain:irishstatutebook.ie)",
-  "WebFetch(domain:*.irishstatutebook.ie)", "WebFetch(domain:legifrance.gouv.fr)", "WebFetch(domain:*.legifrance.gouv.fr)",
+  "WebFetch(domain:*.irishstatutebook.ie)", "WebFetch(domain:judiciary.uk)", "WebFetch(domain:*.judiciary.uk)",
+  "WebFetch(domain:justice.gov.uk)", "WebFetch(domain:*.justice.gov.uk)", "WebFetch(domain:legifrance.gouv.fr)",
+  "WebFetch(domain:*.legifrance.gouv.fr)",
   "WebFetch(domain:legislation.gov.uk)", "WebFetch(domain:*.legislation.gov.uk)", "WebFetch(domain:normattiva.it)",
   "WebFetch(domain:*.normattiva.it)", "WebFetch(domain:ris.bka.gv.at)", "WebFetch(domain:*.ris.bka.gv.at)", "WebFetch(domain:wetten.overheid.nl)",
   "WebFetch(domain:*.wetten.overheid.nl)", "WebFetch(domain:api.normattiva.it)", "WebFetch(domain:*.api.normattiva.it)",
