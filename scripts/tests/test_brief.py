@@ -1304,19 +1304,6 @@ class ScopedReviewTest(FlowCase):
         )
         self.assertEqual("unverified", done["outcome"])
 
-    def test_a_changed_conclusions_preamble_asks_for_a_full_review(self):
-        """Fix round 1 (Sol): a claim added above the first block is covered by no block id."""
-        finished = self.task()
-        added = CLEAN_BRIEF.replace("## Conclusions\n\n", "## Conclusions\n\nThe tax carve-out covers invoices.\n\n")
-        texts = iter([CLEAN_BRIEF, added, added])
-        _, trail = self.drive(finished, texts=lambda step: next(texts),
-                              reviews=lambda run, slot: bf02(run) if slot == "fidelity" else approve(run, slot))
-        reviews = [row for row in trail if row["step"] == "review"]
-        self.assertEqual(
-            [("none", "all"), ("brief/reviews/r0-fidelity.json", "all"), ("brief/reviews/r1-fidelity.json", "none")],
-            [fidelity_extras(finished, row) for row in reviews],
-        )
-
     def test_a_changed_omitted_list_asks_for_a_full_review(self):
         """D-229: the omitted list decides what the brief leaves out; its change is covered by no block id."""
         finished = self.task()
@@ -1335,8 +1322,9 @@ class ScopedReviewTest(FlowCase):
         block = CLEAN_BRIEF[CLEAN_BRIEF.index("### Retention period"):CLEAN_BRIEF.index("## What to do")]
         action = "1. Counsel confirms the tax basis for the seven-year period before the next audit."
         omitted = (CLEAN_BRIEF.replace(question, question + "\n<!-- omitted §s-3 -->\n")
-                   .replace(block, "Other matters: retention period (risk medium).\n\n")
-                   .replace(action, "1. Counsel files the retention schedule."))
+                   .replace(block, "")
+                   .replace(action, "1. Counsel files the retention schedule.")
+                   + "\n## Other points assessed\n\n- Records may not be kept beyond their purpose (medium).\n")
         restored = CLEAN_BRIEF.replace(question, question + "\n<!-- omitted -->\n")
         self.assertEqual(["s-3"], brief_lint.parse_brief(omitted, "en")["omitted"])
 
@@ -1533,6 +1521,7 @@ class PublishTest(FlowCase):
         self.assertFalse(done["present"])
         self.assertEqual(str(finished.W / "brief" / "brief.docx"), done["path"])
         self.assertEqual(done["text"], done["chat_line"])
+        self.assertEqual("", done["folder_copy"])
         self.assertEqual([], finished.run()["published"])
 
     def test_publish_never_creates_a_missing_outputs_root(self):
@@ -1555,6 +1544,7 @@ class PublishTest(FlowCase):
         inner, outer = root / "memoforge" / "test" / "brief.docx", root / "memo-test.brief.docx"
         self.assertEqual(str(outer), done["path"])
         self.assertTrue(done["present"])
+        self.assertEqual(str(inner), done["folder_copy"])
         payload = (finished.W / "brief" / "brief.docx").read_bytes()
         self.assertEqual(payload, inner.read_bytes())
         self.assertEqual(payload, outer.read_bytes())
@@ -1592,6 +1582,7 @@ class PublishTest(FlowCase):
         self.assertEqual([], run["published"])
         self.assertFalse(done["present"])
         self.assertEqual(local, done["path"])
+        self.assertEqual("", done["folder_copy"])
         first, second = done["text"].split("\n")
         self.assertEqual(i18n.t("en", "ui.brief.done", path=local), first)
         self.assertTrue(second.startswith(i18n.t("en", "ui.brief.copy_failed", path=local, error="")[:-1]))

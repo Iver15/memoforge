@@ -28,23 +28,19 @@ Part headings, in this order (each an H2, written exactly as here):
 - `## Conclusions`
 - `## What to do`
 - `## What the answer depends on` (only when there are assumptions that change the answer)
+- `## Other points assessed` (last; only when leaves are omitted)
 Header lines under the title:
 - `**Date:** YYYY-MM-DD`
 - `**Jurisdictions:** …`
 - `**Question:** …`
 The leaves you omit, in one comment under the header lines, above the first part: `<!-- omitted §s-8 §s-10-1 -->` (`<!-- omitted -->` when every leaf is kept).
-The omitted leaves in one sentence of the conclusions part, before its first `###`: `Other matters: <subject> (<risk as the memorandum states it>); <subject> (…).`
-Word budgets, at most (body words; citation tokens and comments are not counted): «Bottom line» 80; each conclusion block 100; the Other matters sentence 60; each action 30; «What the answer depends on» one paragraph, no list, 60.
+The omitted leaves in «Other points assessed», the last part: one list item per omitted leaf, `- <the memorandum's conclusion on it, as a statement> (<risk as the memorandum states it>)`, no other text. «Conclusions» holds only its `###` blocks.
+Word budgets, at most (body words; citation tokens and comments are not counted): «Bottom line» 80; each conclusion block 100; «Other points assessed» 60 in all; each action 30; «What the answer depends on» one paragraph, no list, 60.
 Risk line of every conclusion block: `Risk: <high|medium|low|undetermined>.` followed by one sentence.
 Wording for anything not confirmed: «not confirmed; a lawyer has to check this before anyone relies on it»
 
 The brief gives only the main points — by omission, not compression. Every leaf of the memorandum
-is kept or omitted, never both. A leaf is kept when any of these holds: its verdict is `high`; its executive-summary bullet names an amount or a sanction; it answers an explicit sub-question of the user's question (the main question's parts included); its verdict is `undetermined`, or an open issue touches it and a kept conclusion depends on it. Every other leaf is omitted. A date or a deadline alone does not keep a leaf: deadlines travel with the actions. List the omitted
-leaves in one header comment, `<!-- omitted §s-8 §s-10-1 -->`, and name each, with its subject and
-its verdict as the memorandum writes it, in the one "Other matters" sentence (the label above) before
-the first block. A kept leaf is written in full.
-In «Other matters» a subject is a noun phrase that states the memo's conclusion, never a question:
-«EU representative required (medium)», not «whether an EU representative is needed (medium)».
+is kept or omitted, never both. A leaf is kept when any of these holds: its verdict is `high`; its executive-summary bullet names an amount or a sanction; it answers an explicit sub-question of the user's question (the main question's parts included); its verdict is `undetermined`, or an open issue touches it and a kept conclusion depends on it. Every other leaf is omitted. A date or a deadline alone does not keep a leaf: deadlines travel with the actions. List the omitted leaves in one header comment, `<!-- omitted §s-8 §s-10-1 -->`, and name each as one list item of the last part (its heading is above): the memorandum's conclusion on that leaf as one short statement, never a question, and its verdict as the memorandum writes it in brackets — «EU representative required (medium)», not «whether an EU representative is needed (medium)». Nothing stands in «Conclusions» before its first block. A kept leaf is written in full.
 
 Trace, not paraphrase: every sentence of the brief compresses one identified passage of the
 memorandum, and you keep that passage in view while you write the sentence. No new fact, conclusion,
@@ -98,7 +94,7 @@ Keep each part within the word budgets above.
 On `lint_fix`, fix exactly the findings of the report and nothing else. On `revise`, change only
 the blocks the instructions name; a length instruction is met by omission, as on `shorten`.
 Partition fix: when an issue concerns the partition — BF-05, or B-03, B-04 or B-05 on an omitted
-leaf — you may change together the omitted comment, the "Other matters" sentence, the conclusion
+leaf — you may change together the omitted comment, the «Other points assessed» items, the conclusion
 block of that leaf (added or removed), its actions, its assumptions and the bottom line; every other
 block stays as it is. On `shorten`, bring it to about three pages by omission: move further leaves that meet no keep criterion
 to the omitted list and drop their assumptions and those of their actions the actions rule does not

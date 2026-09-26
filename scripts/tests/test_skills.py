@@ -476,7 +476,7 @@ class BriefSkillTest(unittest.TestCase):
         self.assertEqual("[<task_id>]", fields.get("argument-hint"))
         self.assertEqual("true", fields.get("disable-model-invocation"))
         tools = [item.strip() for item in fields.get("allowed-tools", "").split(",")]
-        self.assertEqual(["Read", "Bash", "Agent", "AskUserQuestion"], tools)
+        self.assertEqual(["Read", "Bash", "Agent", "AskUserQuestion", "mcp__*"], tools)  # D-256: `Artifact`
 
     def test_it_acts_on_every_kind_the_driver_emits(self):
         text = self.text()

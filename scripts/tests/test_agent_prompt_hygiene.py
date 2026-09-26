@@ -853,11 +853,11 @@ class Run84LinesTest(unittest.TestCase):
             self.checklist_text("client-readiness", "CRD-05"),
         )
 
-    def test_fidelity_bf_03_holds_the_other_matters_sentence_to_the_memo_s_certainty(self):
-        """J15: run 84's brief turned a firm conclusion into «whether …» in «Other matters»."""
+    def test_fidelity_bf_03_holds_the_other_points_to_the_memo_s_certainty(self):
+        """J15, D-255: run 84's brief turned a firm conclusion into «whether …» among the omitted leaves."""
         self.assertIn(
-            "The «Other matters» sentence is held to the same rule: a conclusion the memo states firmly is written "
-            "as that conclusion, never as a question.",
+            "The items of «Other points assessed» are held to the same rule: a conclusion the memo states firmly is "
+            "written as that conclusion, never as a question.",
             self.checklist_text("brief-fidelity", "BF-03"),
         )
 
@@ -871,16 +871,22 @@ class Run84LinesTest(unittest.TestCase):
                     text,
                 )
 
-    def test_the_brief_names_other_matters_by_their_conclusion_and_keeps_the_urgency_word(self):
-        """J15: run 84's «Other matters» asked questions and its bottom line lost the memo's «now»."""
+    def test_the_brief_names_other_points_by_their_conclusion_and_keeps_the_urgency_word(self):
+        """J15, D-255: run 84's «Other matters» asked questions and its bottom line lost the memo's «now»."""
         for where, text in self.brief_files():
             for needle in (
-                "In «Other matters» a subject is a noun phrase that states the memo's conclusion, never a question: "
-                "«EU representative required (medium)», not «whether an EU representative is needed (medium)».",
+                "conclusion on that leaf as one short statement, never a question"
+                if where != "template" else "conclusion on that point as one short statement, never a question",
                 "The bottom line keeps the memo's urgency word for its first action («now», «today»).",
             ):
                 with self.subTest(where=where, needle=needle[:30]):
                     self.assertIn(needle, text)
+        self.assert_in_both(
+            "brief-writer",
+            "its verdict as the memorandum writes it in brackets — «EU representative required (medium)», not "
+            "«whether an EU representative is needed (medium)». Nothing stands in «Conclusions» before its first "
+            "block.",
+        )
 
     def test_the_brief_times_a_chained_action_by_the_step_it_follows(self):
         """J15: run 84's brief dropped an action due «within 14 days of the notification» of a step due now."""
@@ -907,6 +913,24 @@ class PlaceholderTest(unittest.TestCase):
             with self.subTest(prompt=path.name):
                 for name in ("${paths_agent_core}", "${mf}", "${work_dir}"):
                     self.assertIn(name, text, path.name)
+
+
+class BriefDeliveryTest(unittest.TestCase):
+    """D-257: the brief lands where the memo run left the memo, in the user's connected folder."""
+
+    SKILL = (PLUGIN_ROOT / "skills" / "brief" / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_done_saves_the_brief_where_the_memo_is(self):
+        for needle in (
+            "copy the file at `folder_copy` into `<connected folder>/memoforge/<slug>/`",
+            "save the file at `path` beside the memo's copy `memo-<slug>.<ext>`",
+            "the same way you save any file for the user",
+            "only when that folder already exists",
+        ):
+            self.assertIn(needle, self.SKILL)
+
+    def test_the_brief_skill_may_use_the_host_tools(self):
+        self.assertIn("allowed-tools: Read, Bash, Agent, AskUserQuestion, mcp__*", self.SKILL)
 
 
 if __name__ == "__main__":

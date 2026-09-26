@@ -191,6 +191,7 @@ def labels(language: str) -> dict:
         "conclusions": i18n.t(language, "memo.brief.sections.conclusions"),
         "actions": i18n.t(language, "memo.brief.sections.actions"),
         "assumptions": i18n.t(language, "memo.brief.sections.assumptions"),
+        "other": i18n.t(language, "memo.brief.sections.other"),
         "date": i18n.t(language, "memo.brief.date_label"),
         "jurisdictions": i18n.t(language, "memo.brief.jurisdictions_label"),
         "question": i18n.t(language, "memo.brief.question_label"),
@@ -231,7 +232,7 @@ def make_brief(
     main_extra: str = "",
     header_gap: bool = False,
     omitted=None,
-    other: str = "",
+    other_items: list[str] | None = None,
     actions: str | None = None,
     assumptions: str | None = None,
 ) -> str:
@@ -253,8 +254,6 @@ def make_brief(
             if main_extra:
                 lines += [main_extra, ""]
         elif part == "conclusions":
-            if other:
-                lines += [other, ""]
             for row in blocks:
                 lines.append(f"### {row['title']}")
                 if row["ids"]:
@@ -266,6 +265,8 @@ def make_brief(
             lines += [text["actions"] if actions is None else actions, ""]
         elif part == "assumptions":
             lines += [text["assumptions"] if assumptions is None else assumptions, ""]
+    if other_items is not None:  # D-255: the omitted leaves, the last part, one item each
+        lines += [f"## {names['other']}", ""] + [f"- {item}" for item in other_items] + [""]
     return "\n".join(lines)
 
 
@@ -387,7 +388,7 @@ class BindingTest(unittest.TestCase):
 class PartitionTest(unittest.TestCase):
     """D-229: every leaf of the memo is kept (bound to a block) or omitted (listed in the header comment)."""
 
-    OTHER = "Other matters: retention of the mailing list (risk medium)."
+    OTHER_ITEMS = ["The mailing list may be kept for two years (medium)."]
 
     def lint(self, blocks, omitted=None, memo=MEMO_NESTED, **options) -> list[dict]:
         return brief_lint.lint_brief(make_brief(blocks, omitted=omitted, **options), memo, language="en")
@@ -397,7 +398,7 @@ class PartitionTest(unittest.TestCase):
         self.assertEqual([], self.lint(nested_blocks(), omitted=[]))
 
     def test_a_medium_leaf_omitted_is_clean(self):
-        self.assertEqual([], self.lint(nested_blocks(**{"s-5": None}), omitted=["s-5"], other=self.OTHER))
+        self.assertEqual([], self.lint(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=self.OTHER_ITEMS))
         parsed = brief_lint.parse_brief(make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"]), "en")
         self.assertEqual(["s-5"], parsed["omitted"])
         self.assertEqual([], brief_lint.parse_brief(make_brief(nested_blocks()), "en")["omitted"])
@@ -405,7 +406,9 @@ class PartitionTest(unittest.TestCase):
     def test_several_ids_in_one_comment(self):
         memo = MEMO_NESTED.replace("Risk: high. The box is ticked by default today.",
                                    "Risk: medium. The box is ticked by default today.")
-        text = make_brief([nested_blocks()[0]], omitted=["s-4-2", "s-5"])
+        text = make_brief([nested_blocks()[0]], omitted=["s-4-2", "s-5"],
+                          other_items=["Existing customers may be contacted on a soft opt-in (low).",
+                                       *self.OTHER_ITEMS])
         self.assertEqual(["s-4-2", "s-5"], brief_lint.parse_brief(text, "en")["omitted"])
         self.assertEqual([], brief_lint.lint_brief(text.replace("Risk: high.", "Risk: medium."), memo, language="en"))
 
@@ -415,7 +418,8 @@ class PartitionTest(unittest.TestCase):
         self.assertEqual(["B-04"], rules(brief_lint.lint_brief(text, MEMO_NESTED, language="en")))
 
     def test_a_leaf_neither_bound_nor_omitted_is_b04(self):
-        findings = self.lint(nested_blocks(**{"s-4-2": None, "s-5": None}), omitted=["s-4-2"])
+        findings = self.lint(nested_blocks(**{"s-4-2": None, "s-5": None}), omitted=["s-4-2"],
+                             other_items=["Existing customers may be contacted on a soft opt-in (low)."])
         self.assertEqual(["B-04"], rules(findings))
         b04 = of_rule(findings, "B-04")
         self.assertEqual(1, len(b04), findings)
@@ -424,7 +428,8 @@ class PartitionTest(unittest.TestCase):
         self.assertEqual("major", b04[0]["severity"])
 
     def test_an_omitted_high_leaf_is_a_b05_blocker(self):
-        findings = self.lint(nested_blocks(**{"s-4-1": None}), omitted=["s-4-1"])
+        findings = self.lint(nested_blocks(**{"s-4-1": None}), omitted=["s-4-1"],
+                             other_items=["The pre-ticked box does not give valid consent (high)."])
         self.assertEqual(["B-05"], rules(findings))
         self.assertEqual(("blocker", "s-header"), (findings[0]["severity"], findings[0]["section_id"]))
         self.assertIn("s-4-1", findings[0]["hint"])
@@ -433,29 +438,106 @@ class PartitionTest(unittest.TestCase):
     def test_an_omitted_id_that_is_not_a_leaf_is_b03(self):
         for sid in ("s-4", "s-9", "s-2"):
             with self.subTest(sid=sid):
-                findings = self.lint(nested_blocks(), omitted=[sid])
+                findings = self.lint(nested_blocks(), omitted=[sid], other_items=self.OTHER_ITEMS)
                 self.assertEqual(["B-03"], rules(findings))
                 self.assertEqual(("major", "s-header"), (findings[0]["severity"], findings[0]["section_id"]))
                 self.assertIn(sid, findings[0]["hint"])
 
     def test_a_leaf_both_bound_and_omitted_is_b03(self):
-        findings = self.lint(nested_blocks(), omitted=["s-5"])
+        findings = self.lint(nested_blocks(), omitted=["s-5"], other_items=self.OTHER_ITEMS)
         self.assertEqual(["B-03"], rules(findings))
         self.assertIn("s-5", findings[0]["hint"])
         self.assertEqual("major", findings[0]["severity"])
 
-    def test_the_other_matters_line_is_no_block(self):
-        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other=self.OTHER)
+    def test_the_other_part_is_no_conclusion_block(self):
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=self.OTHER_ITEMS)
         parsed = brief_lint.parse_brief(text, "en")
         self.assertEqual(["s-b1", "s-b2"], [row["id"] for row in parsed["blocks"]])
+        self.assertIn("s-other", brief_lint.block_ids(parsed))
 
     def test_russian_partition(self):
         rows = RussianTest().ru_blocks(**{"s-4-2": None})
-        other = f"{i18n.t('ru', 'memo.brief.other_label')}: срок исковой давности (риск низкий)."
-        text = make_brief(rows, language="ru", omitted=["s-4-2"], other=other)
+        text = make_brief(rows, language="ru", omitted=["s-4-2"],
+                          other_items=["Срок исковой давности не истёк (низкий)."])
         self.assertEqual([], brief_lint.lint_brief(text, MEMO_RU, language="ru"))
-        high = make_brief(RussianTest().ru_blocks(**{"s-4-1": None}), language="ru", omitted=["s-4-1"])
+        high = make_brief(RussianTest().ru_blocks(**{"s-4-1": None}), language="ru", omitted=["s-4-1"],
+                          other_items=["Условие может быть оспорено (высокий)."])
         self.assertEqual(["B-05"], rules(brief_lint.lint_brief(high, MEMO_RU, language="ru")))
+
+
+class OtherPartTest(unittest.TestCase):
+    """D-255: the omitted leaves are the last part, one item each."""
+
+    ITEMS = ["The mailing list may be kept for two years (medium)."]
+
+    def lint(self, text: str, memo: str = MEMO_NESTED) -> list[dict]:
+        return brief_lint.lint_brief(text, memo, language="en")
+
+    def test_an_omitted_leaf_with_its_item_is_clean(self):
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=self.ITEMS)
+        self.assertEqual([], self.lint(text))
+        parsed = brief_lint.parse_brief(text, "en")
+        self.assertIsNotNone(parsed["parts"]["other"])
+        self.assertIn("s-other", brief_lint.block_ids(parsed))
+
+    def test_every_leaf_kept_needs_no_other_part(self):
+        self.assertEqual([], self.lint(make_brief(nested_blocks(), omitted=[])))
+
+    def test_omitted_leaves_without_the_part_is_b02(self):
+        findings = self.lint(make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"]))
+        self.assertEqual(["B-02"], rules(findings))
+        self.assertIn(i18n.t("en", "memo.brief.sections.other"), findings[0]["hint"])
+
+    def test_the_part_without_omitted_leaves_is_b02(self):
+        findings = self.lint(make_brief(nested_blocks(), omitted=[], other_items=self.ITEMS))
+        self.assertEqual(["B-02"], rules(findings))
+
+    def test_one_item_per_omitted_leaf(self):
+        memo = MEMO_NESTED.replace("Risk: high. The box is ticked by default today.",
+                                   "Risk: medium. The box is ticked by default today.")
+        rows = [row for row in nested_blocks() if row["ids"] == ["s-4-1"]]
+        rows[0]["risk"] = rows[0]["risk"].replace("Risk: high.", "Risk: medium.")
+        text = make_brief(rows, omitted=["s-4-2", "s-5"], other_items=self.ITEMS)
+        findings = self.lint(text, memo)
+        self.assertEqual(["B-02"], rules(findings))
+        self.assertIn("exactly 2 list item(s)", findings[0]["hint"])
+
+    def test_a_soft_wrapped_item_is_one_item(self):
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=self.ITEMS)
+        text = text.replace("- The mailing list may be kept", "- The mailing list may be kept\n  ")
+        self.assertEqual([], self.lint(text))
+
+    def test_prose_in_the_part_is_b02(self):
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=self.ITEMS)
+        text = text.replace("- The mailing list", "Also assessed:\n\n- The mailing list")
+        self.assertEqual(["B-02"], rules(self.lint(text)))
+
+    def test_old_other_matters_sentence_is_b02(self):
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"])
+        text = text.replace("## Conclusions\n\n", "## Conclusions\n\nOther matters: retention (medium).\n\n")
+        hints = " ".join(row["hint"] for row in of_rule(self.lint(text), "B-02"))
+        self.assertIn("before the first conclusion block", hints)
+        self.assertIn(i18n.t("en", "memo.brief.sections.other"), hints)
+
+    def test_the_part_must_be_last(self):
+        other = f"## {i18n.t('en', 'memo.brief.sections.other')}\n\n- {self.ITEMS[0]}\n\n"
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"])
+        moved = text.replace("## What to do", other + "## What to do")
+        self.assertIn("out of order", " ".join(row["hint"] for row in of_rule(self.lint(moved), "B-02")))
+
+    def test_the_part_over_its_budget_is_b12(self):
+        long_item = " ".join(["word"] * (limits.DECISION_BRIEF_OTHER_WORDS + 1)) + " (medium)."
+        text = make_brief(nested_blocks(**{"s-5": None}), omitted=["s-5"], other_items=[long_item])
+        findings = of_rule(self.lint(text), "B-12")
+        self.assertEqual(1, len(findings))
+        self.assertEqual("s-other", findings[0]["section_id"])
+
+    def test_russian_part(self):
+        rows = RussianTest().ru_blocks(**{"s-4-2": None})
+        text = make_brief(rows, language="ru", omitted=["s-4-2"],
+                          other_items=["Срок исковой давности не истёк (низкий)."])
+        self.assertEqual([], brief_lint.lint_brief(text, MEMO_RU, language="ru"))
+        self.assertIn(f"## {i18n.t('ru', 'memo.brief.sections.other')}", text)
 
 
 NBSP, NARROW_NBSP = chr(0x00A0), chr(0x202F)
@@ -584,6 +666,7 @@ class BudgetTest(unittest.TestCase):
             (80, 100, 60, 30, 60),
             (limits.DECISION_BRIEF_MAIN_WORDS, limits.DECISION_BRIEF_BLOCK_WORDS, limits.DECISION_BRIEF_OTHER_WORDS,
              limits.DECISION_BRIEF_ACTION_WORDS, limits.DECISION_BRIEF_ASSUMPTIONS_WORDS),
+            "bottom line, each block, the whole «Other points assessed» part (D-255), each action, assumptions",
         )
         self.assertEqual("major", brief_lint.SEVERITY["B-12"])
         self.assertEqual("a part is longer than its word budget", i18n.t("en", "memo.brief.checks.B-12"))
@@ -624,13 +707,31 @@ class BudgetTest(unittest.TestCase):
         self.assertEqual("s-b2", row["section_id"])
         self.assertIn("100", row["hint"])
 
-    def test_the_other_matters_sentence(self):
-        label = "Other matters:"
-        self.assertEqual([], self.lint(other=label + " " + words(58) + "."))
-        [row] = self.lint(other=label + " " + words(60) + ".")
-        self.assertEqual("document", row["section_id"])
+    def test_the_other_points_assessed_part(self):
+        """D-255: the 60 words cap the whole part, so more omitted leaves means shorter items."""
+        memo = MEMO_NESTED.replace("Risk: high. The box is ticked by default today.",
+                                   "Risk: medium. The box is ticked by default today.")
+        kept = [dict(nested_blocks()[0], risk="Risk: medium. The box is ticked by default today.")]
+
+        def lint_part(first: int, second: int) -> list[dict]:
+            items = [words(first) + " (low).", words(second) + " (medium)."]
+            text = make_brief(kept, parts=self.ALL_PARTS, omitted=["s-4-2", "s-5"], other_items=items)
+            return brief_lint.lint_brief(text, memo, language="en")
+
+        self.assertEqual([], lint_part(29, 29))
+        [row] = lint_part(29, 30)
+        self.assertEqual(("B-12", "s-other"), (row["rule"], row["section_id"]))
+        self.assertIn("61", row["hint"])
         self.assertIn("60", row["hint"])
-        self.assertIn("Other matters", row["hint"])
+        self.assertIn(i18n.t("en", "memo.brief.sections.other"), row["hint"])
+
+    def test_text_before_the_first_block_has_no_budget_of_its_own(self):
+        """D-255: that text is a B-02 defect now, never a B-12 part."""
+        heading = "## " + labels("en")["conclusions"] + "\n\n"
+        text = make_brief(FLAT_BLOCKS, parts=self.ALL_PARTS).replace(heading, heading + words(80) + ".\n\n")
+        findings = brief_lint.lint_brief(text, MEMO_FLAT, language="en")
+        self.assertEqual([], of_rule(findings, "B-12"))
+        self.assertEqual(["B-02"], rules(findings))
 
     def test_each_action(self):
         ok = "1. Product " + words(29)
@@ -654,7 +755,9 @@ class BudgetTest(unittest.TestCase):
     def test_the_writer_sees_the_budgets(self):
         text = brief_lint.writer_labels("en")
         self.assertIn("Word budgets", text)
-        for needle in ("«Bottom line» 80", "each conclusion block 100", "the Other matters sentence 60",
+        other = i18n.t("en", "memo.brief.sections.other")
+        for needle in ("«Bottom line» 80", "each conclusion block 100",
+                       f"«{other}» {limits.DECISION_BRIEF_OTHER_WORDS} in all",
                        "each action 30", "«What the answer depends on» one paragraph, no list, 60"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
@@ -844,7 +947,7 @@ class BlockListTest(unittest.TestCase):
     def test_parse_brief_shape(self):
         parsed = self.one_block()
         self.assertEqual({"document", "parts", "blocks", "block_ids", "omitted"}, set(parsed))
-        self.assertEqual({"main", "conclusions", "actions", "assumptions"}, set(parsed["parts"]))
+        self.assertEqual({"main", "conclusions", "actions", "assumptions", "other"}, set(parsed["parts"]))
         self.assertIsNone(parsed["parts"]["assumptions"])
         row = parsed["blocks"][0]
         self.assertEqual("s-b1", row["id"])
@@ -856,9 +959,11 @@ class BlockListTest(unittest.TestCase):
     def test_block_ids_constant(self):
         self.assertEqual(
             ("s-header", "s-main", "s-b1", "s-b2", "s-b3", "s-b4", "s-b5", "s-b6", "s-b7", "s-actions",
-             "s-assumptions"),
+             "s-assumptions", "s-other"),
             brief_lint.BLOCK_IDS,
         )
+        self.assertEqual(("main", "conclusions", "actions", "assumptions", "other"), brief_lint.PART_KINDS)
+        self.assertEqual("s-other", brief_lint.PART_BLOCK_IDS["other"])
         self.assertEqual("document", brief_lint.DOCUMENT_ID)
         self.assertEqual(limits.DECISION_BRIEF_MAX_BLOCKS, sum(1 for b in brief_lint.BLOCK_IDS if b.startswith("s-b")))
 
@@ -933,15 +1038,24 @@ class WriterLabelsTest(unittest.TestCase):
                 self.assertIn(lint.grammar(language).risk_literal, text)
                 self.assertIn(i18n.t(language, "memo.brief.unconfirmed"), text)
 
-    def test_labels_carry_the_omitted_comment_and_the_other_matters_label(self):
-        """D-229: the writer copies the omitted-comment syntax and the localized label of the omitted leaves."""
-        self.assertEqual("Other matters", i18n.t("en", "memo.brief.other_label"))
-        self.assertEqual("Прочие вопросы", i18n.t("ru", "memo.brief.other_label"))
+    def test_labels_carry_the_omitted_comment_and_the_other_part(self):
+        """D-229, D-255: the writer copies the omitted-comment syntax and the heading of the last part."""
+        self.assertEqual("Other points assessed", i18n.t("en", "memo.brief.sections.other"))
+        self.assertEqual("Другие рассмотренные вопросы", i18n.t("ru", "memo.brief.sections.other"))
         for language in ("en", "ru", "de", "fr", "es"):
             with self.subTest(language=language):
                 text = brief_lint.writer_labels(language)
+                other = i18n.t(language, "memo.brief.sections.other")
                 self.assertIn("`<!-- omitted §s-8 §s-10-1 -->`", text)
-                self.assertIn(f"`{i18n.t(language, 'memo.brief.other_label')}: ", text)
+                self.assertIn(f"- `## {other}` (last; only when leaves are omitted)", text)
+                self.assertIn(f"The omitted leaves in «{other}», the last part: one list item per omitted leaf", text)
+                conclusions = i18n.t(language, "memo.brief.sections.conclusions")
+                self.assertIn(f"«{conclusions}» holds only its `###` blocks.", text)
+                with self.assertRaises(KeyError):
+                    i18n.t(language, "memo.brief.other_label")
+        ru = brief_lint.writer_labels("ru")
+        self.assertIn("«Выводы» holds only its `###` blocks.", ru)
+        self.assertNotIn("«Conclusions»", ru)
 
 
 class LengthTest(unittest.TestCase):

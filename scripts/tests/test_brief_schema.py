@@ -333,7 +333,8 @@ class BriefOmissionWordingTest(unittest.TestCase):
     def test_the_fidelity_checklist_checks_the_partition_and_its_closure(self):
         needles = {
             "BF-03": ("clause by clause", "a ceiling written as a range", "written as a choice"),
-            "BF-05": ("partition", "keep criterion", "every high-risk leaf is kept", "other-matters sentence",
+            "BF-05": ("partition", "keep criterion", "every high-risk leaf is kept",
+                      "the last part, «Other points assessed», names every omitted leaf in one item",
                       "verdict as the memo states it", "executive-summary bullet names an amount or a sanction",
                       "a date or a deadline alone keeps no leaf"),
             "BF-07": ("every kept leaf's recommendation", "owner, its step and its deadline or trigger",
@@ -365,7 +366,7 @@ class BriefOmissionWordingTest(unittest.TestCase):
             for needle in (
                 KEEP_CRITERIA,
                 "<!-- omitted §s-8 §s-10-1 -->",
-                "Other matters",
+                "Other points assessed",
                 "never translated into a likelihood",
                 "never compress a kept sentence",
                 "actions of omitted leaves",
@@ -399,7 +400,7 @@ class BriefOmissionWordingTest(unittest.TestCase):
             text = flat(path)
             for needle in (
                 PARTITION_FIX,
-                "the omitted comment, the \"Other matters\" sentence, the conclusion block of that leaf (added or "
+                "the omitted comment, the «Other points assessed» items, the conclusion block of that leaf (added or "
                 "removed), its actions, its assumptions and the bottom line",
             ):
                 with self.subTest(file=path.name, folder=path.parent.name, needle=needle):
