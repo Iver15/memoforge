@@ -1059,5 +1059,50 @@ class ProvenanceLivenessTest(unittest.TestCase):
                 self.assertEqual("currency unchecked", rendered)
 
 
+TSR = {
+    "layer": "statutes",
+    "title": "The Trade Secrets (Enforcement, etc.) Regulations 2018, regulation 2",
+    "citation_form": "Trade Secrets (Enforcement, etc.) Regulations 2018, reg 2",
+    "url": "https://www.legislation.gov.uk/uksi/2018/597/regulation/2",
+}
+ICO_DUAA_PAGE = {
+    "layer": "doctrine",
+    "title": "The Data (Use and Access) Act 2025: what does it mean for organisations?",
+    "citation_form": "ICO, The Data (Use and Access) Act 2025: what does it mean for organisations?",
+    "url": "https://ico.org.uk/about-the-ico/what-we-do/legislation-we-cover/data-use-and-access-act-2025/"
+           "the-data-use-and-access-act-2025-what-does-it-mean-for-organisations/",
+}
+
+
+class RunEightyFourFormsTest(unittest.TestCase):
+    """D-250: the two citation forms run 84 printed broken (`01-memo-text.txt:147, :95`)."""
+
+    def test_a_comma_inside_brackets_does_not_end_the_act(self):
+        self.assertEqual(
+            "Trade Secrets (Enforcement, etc.) Regulations 2018, reg 2",
+            oscola.compact(view(TSR), "reg 2"),
+        )
+        self.assertEqual(
+            "legislation:trade secrets (enforcement, etc.) regulations 2018",
+            oscola.instrument_key(view(TSR)),
+        )
+
+    def test_an_unbalanced_bracket_falls_back_to_the_first_comma(self):
+        cut = dict(TSR, citation_form="Trade Secrets (Enforcement, reg 2")
+        self.assertEqual("Trade Secrets (Enforcement, reg 2", oscola.compact(view(cut), "reg 2"))  # today's form
+
+    def test_a_russian_act_without_brackets_is_unchanged(self):
+        ru = {"layer": "statutes", "citation_form": "Федеральный закон от 31.07.2025 № 289-ФЗ, ст. 23",
+              "title": "Федеральный закон от 31.07.2025 № 289-ФЗ"}
+        self.assertEqual("Федеральный закон от 31.07.2025 № 289-ФЗ, ст. 23", oscola.compact(view(ru), "ст. 23"))
+        self.assertEqual("legislation:федеральный закон от 31.07.2025 № 289-фз", oscola.instrument_key(view(ru)))
+
+    def test_a_guide_page_whose_title_names_an_act_is_not_legislation(self):
+        self.assertNotEqual(oscola.CLASS_LEGISLATION, oscola.source_class(view(ICO_DUAA_PAGE)))
+
+    def test_a_statute_record_whose_form_names_an_act_is_still_legislation(self):
+        self.assertEqual(oscola.CLASS_LEGISLATION, oscola.source_class(view(UK_LEGISLATION)))
+
+
 if __name__ == "__main__":
     unittest.main()

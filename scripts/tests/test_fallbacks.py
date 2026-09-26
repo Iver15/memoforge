@@ -243,5 +243,24 @@ class CoverageTest(unittest.TestCase):
             self.assertNotIn(identifier, blob)
 
 
+class SameBannerTest(unittest.TestCase):
+    """D-248: a banner is recorded once — a row is the same banner when it differs only in `at`."""
+
+    def test_a_row_that_differs_only_in_at_is_the_same_banner(self):
+        banner = fallbacks.banner("currency_blocking_issues", count=1)
+        rows = [dict(banner, at="2026-09-25T08:14:59.511Z")]
+        self.assertTrue(fallbacks.same_banner(rows, dict(banner, at="2026-09-25T08:30:45.764Z")))
+
+    def test_other_params_are_another_banner(self):
+        one = fallbacks.banner("currency_blocking_issues", count=1)
+        two = fallbacks.banner("currency_blocking_issues", count=2)
+        self.assertFalse(fallbacks.same_banner([dict(one, at="x")], two))
+
+    def test_no_rows_and_junk_rows_are_not_the_same(self):
+        banner = fallbacks.banner("currency_blocking_issues", count=1)
+        self.assertFalse(fallbacks.same_banner(None, banner))
+        self.assertFalse(fallbacks.same_banner(["text", None], banner))
+
+
 if __name__ == "__main__":
     unittest.main()

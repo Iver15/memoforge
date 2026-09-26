@@ -52,9 +52,11 @@ saved text holds the provision, so no new retrieval is needed — is `status: we
 drafting warning and no researcher is re-run. `missing` means a new text has to be fetched.
 `drafting_warnings[]` is addressed to the client and is printed in the memo: state the limitation
 as the client should read it, with no instruction to the writer and no protocol file name
-(`statutes.json` and the like). A gap that becomes a drafting warning carries `blocking_gaps[].gap`
-alone, so write `gap` the same way. `blocking_gaps[].why_blocking` is addressed to the researcher
-who closes the gap and stays in this file; it may stay technical, but it is written in
+(`statutes.json` and the like). A warning about missing authority says what the research found, not
+what exists: «no decision on … was found in the research», never «no court has interpreted …». A gap
+that becomes a drafting warning carries `blocking_gaps[].gap` alone, so write `gap` the same way.
+`blocking_gaps[].why_blocking` is addressed to the researcher who closes the gap and stays in this
+file; it may stay technical, but it is written in
 English too. Do not repeat a warning you already wrote as a gap: one of the two, not both.
 
 The memo itself is written in English. Your findings stay in English: `issue`,

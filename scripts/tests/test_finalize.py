@@ -2902,9 +2902,9 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
         self.assertIn("- logic · loop · unresolved · s-3 · narrow_trigger · The trigger is drawn too narrowly.\n",
                       summary.partition("## Open reviewer findings")[2])
 
-    def test_a_moved_row_prints_the_lawyer_s_question_in_the_summary_only(self):
-        # D-237 (F3): the `note` of the `manual_review` disposition follows the blocking line of `summary.md`;
-        # the deliverable keeps the client sentence, because the note is English.
+    def test_a_moved_row_prints_the_lawyer_s_question_in_the_summary_and_the_english_status(self):
+        # D-237 (F3): the `note` of the `manual_review` disposition follows the blocking line of `summary.md`.
+        # D-252: an English deliverable prints the note instead of the issue; another language keeps its line.
         row = dict(open_major(1, "counterarguments", "manual_review", section_id="s-3"),
                    disposition_note="Does the exemption cover shoppers?")
         settled = {
@@ -2919,7 +2919,9 @@ class OpenReviewerFindingsTest(_WorkDirMixin, unittest.TestCase):
                       summary)
         self.assertEqual(1, summary.count("Does the exemption cover shoppers?"))
         entry = settled["remaining_blocking_issues"][0]
-        self.assertNotIn("Does the exemption", md_fallback.blocking_issue_line(entry, "en"))
+        self.assertEqual("major · section 3 · Does the exemption cover shoppers?",
+                         md_fallback.blocking_issue_line(entry, "en"))
+        self.assertNotIn("Does the exemption", md_fallback.blocking_issue_line(entry, "ru"))
 
     def test_the_rows_the_readiness_step_settles_are_each_printed_once(self):
         # D-211: settlement moves a citations row into the blockers and leaves the rest to this section.

@@ -1,0 +1,700 @@
+Skip to main content
+
+Skip to navigation
+
+legislation.gov.uk
+https://www.nationalarchives.gov.uk
+
+Cymraeg
+
+Home
+
+Explore our collections
+
+Research tools
+
+Help and guidance
+
+What's new
+
+About us
+
+Search Legislation
+
+Search Legislation
+
+Title: (or keywords in the title)
+
+Year:
+
+Number:
+
+Type:All UK Legislation (excluding originating from the EU)--------------------------------------------All Legislation (including originating from EU)--------------------------------------------All Legislation originating from the EU that is amended by the UK--------------------------------------------All Primary Legislation    UK Public General Acts    UK Local Acts    UK Private and Personal Acts    Acts of the Scottish Parliament    Acts of Senedd Cymru    Acts of the National Assembly for Wales    Measures of the National Assembly for Wales    Church Measures    Acts of the Northern Ireland Assembly    Acts of the Old Scottish Parliament    Acts of the English Parliament    Acts of the Old Irish Parliament    Acts of the Parliament of Great Britain    Local Acts of the Parliament of Great Britain    Private and Personal Acts of the Parliament of Great Britain    Northern Ireland Orders in Council    Measures of the Northern Ireland Assembly    Acts of the Northern Ireland Parliament--------------------------------------------All Secondary Legislation    UK Statutory Instruments    Welsh Statutory Instruments    Scottish Statutory Instruments    Northern Ireland Statutory Rules    Church Instruments    UK Ministerial Directions    UK Ministerial Orders    UK Statutory Rules and Orders    Northern Ireland Statutory Rules and Orders--------------------------------------------All Legislation originating from the EU    Regulations originating from the EU    Regulations originating from the EU that are amended by the UK    Decisions originating from the EU    Decisions originating from the EU that are amended by the UK    Directives originating from the EU    European Union Treaties--------------------------------------------All Draft Legislation    UK Draft Statutory Instruments    Scottish Draft Statutory Instruments    Northern Ireland Draft Statutory Rules--------------------------------------------All Impact Assessments    UK Impact Assessments
+
+Search
+
+Advanced Search
+
+The Data (Use and Access) Act 2025 (Consequential Amendments and Transitional Provision) Regulations 2026
+
+You are here:
+
+UK Statutory Instruments
+
+2026 No. 386
+
+Schedule 2
+
+Part 1
+
+The Data Protection Act...
+
+Paragraph 23
+
+Table of Contents
+
+Content
+
+Explanatory Memorandum
+
+More Resources
+
+Previous:
+Paragraph
+
+Next:
+Paragraph
+
+Plain View
+
+Print Options
+
+What Version
+
+Latest available (Revised)
+
+Original (As made)
+
+Opening Options
+
+Open whole Instrument
+
+Open Instrument without Schedules
+
+Open Schedules only
+
+More Resources
+
+Original: King's Printer Version
+
+View more
+
+Status:
+
+This is the original version (as it was originally made). This item of legislation is currently only available in its original format.
+
+This section has no associated Explanatory Memorandum
+
+23.—(1) The Data Protection Act 2018(1) is amended as follows.
+
+(2) In each of the provisions listed in sub-paragraph (3)—
+
+(a)for “Commissioner”, in each place it occurs including in the term “Information Commissioner”, substitute “Commission”;
+
+(b)for “Commissioner’s”, in each place it occurs, substitute “Commission’s”.
+
+(3) The provisions are—
+
+(a)section 1(6);
+
+(b)section 17(1)(a), (2) and (3);
+
+(c)section 26(2)(c)(i), (e)(i) and (ii), (g)(i) and (h)(i);
+
+(d)section 26(2)(f)(ai), subject to regulation 1(4);
+
+(e)section 28(5);
+
+(f)section 42(3)(c);
+
+(g)section 44(1)(e), (5)(c) and (d) and (7)(b);
+
+(h)section 45(2)(f), (5)(c) and (d) and (7)(b);
+
+(i)section 45A(2)(c) and (d) and (4)(b);
+
+(j)section 48(1)(b)(ii) and (iii), (4)(c) and (6)(b);
+
+(k)section 51 (including the heading);
+
+(l)section 53(6)(b);
+
+(m)section 61(5);
+
+(n)section 62(5);
+
+(o)section 63 (including the heading);
+
+(p)in section 65—
+
+(i)the heading;
+
+(ii)subsections (2), (3), (4), (6) and (7);
+
+(q)in section 67—
+
+(i)the heading;
+
+(ii)subsections (1), (3) and (7);
+
+(r)section 68(6);
+
+(s)section 69(4);
+
+(t)section 71(1)(c) and (d);
+
+(u)section 71A(1), (2), (3)(b), (4)(f), (5) and (6);
+
+(v)section 75(2), (3)(b) and (8);
+
+(w)section 76(3)(b);
+
+(x)section 77(7)(b);
+
+(y)section 78A(2)(c)(i), (e)(ii) and (f)(i);
+
+(z)section 81(2)(b);
+
+(z1)section 82A(8);
+
+(z2)section 82D(1), (3), (4) and (5);
+
+(z3)section 93(1)(e);
+
+(z4)section 94(2)(f);
+
+(z5)section 102(b);
+
+(z6)section 108(1) and (2);
+
+(z7)section 110(2)(c), (d)(ii) and (e)(i);
+
+(z8)the heading of Part 5;
+
+(z9)in section 115—
+
+(i)subsection (2), other than the words after paragraph (b);
+
+(ii)subsections (3), (4), (5), (6), (7), (8), (9) and (10);
+
+(z10)in section 116—
+
+(i)subsections (A1) and (1);
+
+(ii)subsection (2), other than the words in brackets;
+
+(iii)subsection (3);
+
+(z11)section 117;
+
+(z12)section 118(5);
+
+(z13)section 119(1), (4) and (5);
+
+(z14)section 119A(1), (2), (4), (5)(a), (8) and (9);
+
+(z15)section 120(1), (2A), (3) and (4);
+
+(z16)section 120A;
+
+(z17)section 120B;
+
+(z18)section 120C(1), (2) and (3);
+
+(z19)section 120D(1) and (2);
+
+(z20)section 121(1), (2), (3) and (5);
+
+(z21)section 122(1), (2), (3) and (5);
+
+(z22)section 123(1), (2), (3), (4) and (7);
+
+(z23)section 124(1), (2), (3) and (5);
+
+(z24)section 124A(1), (3), (4) and (7);
+
+(z25)section 124B(2), (3), (4), (5), (6), (7), (8) and (9);
+
+(z26)section 124C(1);
+
+(z27)section 125(1)(a), (3), (4)(a) and (5);
+
+(z28)section 126(1), (2), (3) and (4);
+
+(z29)section 127(4);
+
+(z30)section 129(1) and (2);
+
+(z31)section 130(1), (2), (4), (5) and (6);
+
+(z32)the italic heading preceding section 131;
+
+(z33)in section 131—
+
+(i)the heading;
+
+(ii)subsection (1);
+
+(z34)section 132, apart from the words before paragraph (a) in subsection (1);
+
+(z35)section 133(1), (2), (3) and (4);
+
+(z36)section 134;
+
+(z37)section 135(A1), (1), (1A)(b), (3) and (5);
+
+(z38)section 136(1) and (2);
+
+(z39)in section 137—
+
+(i)the heading;
+
+(ii)subsections (1), (2), (4), (5), (6) and (8);
+
+(z40)section 138(2);
+
+(z41)section 139(1), (1A) and (3);
+
+(z42)section 139A(1) and (3);
+
+(z43)section 140 (including the heading);
+
+(z44)in section 141A—
+
+(i)the heading;
+
+(ii)subsections (1), (5)(c) and (6)(b);
+
+(z45)section 142(1), (2), (7) and (8);
+
+(z46)section 143(1), (2), (3), (4) and (6);
+
+(z47)section 145(1) and (2);
+
+(z48)section 146(1), (2)(k), (8), (9), (10), (11) and (11A);
+
+(z49)section 146A(2), (3), (4) and (5);
+
+(z50)section 147(5) and (6);
+
+(z51)section 148(1)(a);
+
+(z52)section 148A(1), (2), (8) and (9);
+
+(z53)section 148B(8) and (9);
+
+(z54)section 149(1), (2)(d), (6), (7) and (8);
+
+(z55)section 150(1)(b), (2), (3) and (8);
+
+(z56)section 151(2)(b), (3)(c), (4), (5)(b) and (7);
+
+(z57)section 152(1), (2)(a) and (4);
+
+(z58)section 153(1) and (2);
+
+(z59)section 155(1), (2), (3)(f) and (h), (5) and (6)(a);
+
+(z60)section 156(1), (2)(a), (3), (4), and (5);
+
+(z61)section 158(1), (2), (4), (5) and (6);
+
+(z62)section 160(1), (2), (3), (4)(ab), (b), (f) and (g), (5A)(b), (c) and (e), (6), (7), (8), (9) and (11);
+
+(z63)section 161(1)(a), (2) and (3)(a);
+
+(z64)section 161A(1), (2)(a) and (c), (3) and (5);
+
+(z65)section 163(3) and (6);
+
+(z66)in section 164B—
+
+(i)the heading;
+
+(ii)subsections (1), (2) and (3)(b),
+
+subject to regulation 1(5);
+
+(z67)in section 165—
+
+(i)the heading, subject to regulation 1(5);
+
+(ii)subsection (1), subject to regulation 1(4);
+
+(iii)subsections (2), (3) and (4);
+
+(z68)section 166—
+
+(i)the heading, subject to regulation 1(5);
+
+(ii)subsections (1), (2) and (3);
+
+(z69)section 172(3);
+
+(z70)section 174(3) and (4);
+
+(z71)section 175;
+
+(z72)section 176(3)(a);
+
+(z73)section 177(1), (4), (5)(a) and (e) and (6);
+
+(z74)section 178—
+
+(i)subsections (1) and (3);
+
+(ii)in subsection (4), apart from paragraph (a);
+
+(z75)section 182(2)(a);
+
+(z76)section 183(2)(d) and (e);
+
+(z77)section 187(2)(a), (b) and (d);
+
+(z78)section 189(5);
+
+(z79)section 191(5)(a);
+
+(z80)section 194(5);
+
+(z81)section 197(1)(a) and (2)(a);
+
+(z82)section 200;
+
+(z83)section 201(1)(b);
+
+(z84)section 207(4);
+
+(z85)paragraph 40(1)(c) of Schedule 1;
+
+(z86)in Schedule 2—
+
+(i)in paragraph 11, the first entry in column 1 of the Table;
+
+(ii)paragraph 26(9)(c)(ii);
+
+(z87)in Schedule 5—
+
+(i)paragraph 1(2);
+
+(ii)paragraph 4(3) and (4)(a)(ii);
+
+(z88)paragraph 1(c) of Schedule 11;
+
+(z89)in Schedule 13—
+
+(i)the heading;
+
+(ii)paragraph 1(1);
+
+(iii)paragraph 2;
+
+(z90)in Schedule 14—
+
+(i)the italic heading preceding paragraph 6;
+
+(ii)paragraph 6;
+
+(iii)paragraph 7;
+
+(iv)paragraph 8;
+
+(v)paragraph 9;
+
+(z91)in Schedule 15—
+
+(i)paragraph 1(2);
+
+(ii)paragraph 2(2);
+
+(iii)paragraph 4(1)(c), (2) and (4)(a);
+
+(iv)paragraph 5(3), other than the words before paragraph (a);
+
+(z92)in Schedule 16—
+
+(i)paragraph 2;
+
+(ii)paragraph 3(1), (3) and (5);
+
+(iii)paragraph 4(A1), (A2), (1) and (2);
+
+(iv)paragraph 5(1)(c), (d), (e) and (h);
+
+(v)paragraph 6(1);
+
+(vi)paragraph 7(1) and (4);
+
+(vii)paragraph 8;
+
+(viii)paragraph 9(1);
+
+(z93)in Schedule 17—
+
+(i)paragraph 1, apart from paragraph (a) of the definition of “relevant period”;
+
+(ii)paragraph 2;
+
+(iii)paragraph 3 (including in the quoted text in sub-paragraph (3) modifying section 147(5));
+
+(iv)paragraph 3A (including in the quoted text in sub-paragraph (3) modifying section 148B(8));
+
+(z94)in Schedule 21—
+
+(i)paragraph 9(5), (5C) and (6);
+
+(ii)the heading of Part 5.
+
+(4) In section 2(1)(c), for “Commissioner, giving the holder of that office” substitute “Commission, giving it”.
+
+(5) In section 115(2), for “the Commissioner's duty under section 2 and section 28(5)” substitute “sections 28(5), 120A and 120B”.
+
+(6) In section 116—
+
+(a)in subsection (1)(b), omit “to continue to be”;
+
+(b)in subsection (2), for “the Commissioner's duty under section 2” substitute “sections 120A and 120B”.
+
+(7) In section 132(1), in the words before paragraph (a), for “the Commissioner, or a member of the Commissioner’s staff or an agent of the Commissioner” substitute “a member of the Commission or a member of its staff, or an agent of the Commission”.
+
+(8) In section 146—
+
+(a)in subsection (2)—
+
+(i)in each of paragraphs (a) to (c), for “the Commissioner”, substitute “a member of the Commission or a member of its staff”;
+
+(ii)in paragraph (d)—
+
+(aa)in the words before sub-paragraph (i), for “the Commissioner”, substitute “a member of the Commission or a member of its staff”;
+
+(bb)in sub-paragraph (i), for “the Commissioner is directed”, substitute “that person is directed under paragraph (b)”;
+
+(cc)in sub-paragraph (ii), for “the Commissioner is assisted to view”, substitute “that person is assisted to view under paragraph (c)”;
+
+(iii)in paragraph (e), for “the Commissioner”, substitute “a member of the Commission or a member of its staff”;
+
+(iv)in paragraph (f)—
+
+(aa)for “the Commissioner” in the first place it occurs substitute “a member of the Commission or a member of its staff”;
+
+(bb)for “the Commissioner is directed or which the Commissioner is assisted to view” substitute “that person is directed under paragraph (b) or which that person is assisted to view under paragraph (c)”;
+
+(v)in each of paragraphs (g) to (i), for “the Commissioner” substitute “a member of the Commission or a member of its staff”;
+
+(b)omit subsection (3).
+
+(9) In section 148—
+
+(a)in subsection (1)(b)—
+
+(i)for “the Commissioner” in the first place it occurs, substitute “a member of the Commission or a member of its staff”;
+
+(ii)for “the Commissioner” in the second place it occurs, substitute “such a person”;
+
+(b)in subsection (2), for “the Commissioner” substitute “a member of the Commission or a member of its staff”.
+
+(10) In section 178(4)—
+
+(a)omit paragraph (a);
+
+(b)in paragraph (b), omit “in the case of each subsequent review,”.
+
+(11) In Schedule 5, for paragraph 4(6) substitute—
+
+“(6) No member of the Commission may be a member of an appeal panel to which a decision of the Commission is referred.”.
+
+(12) In Schedule 7—
+
+(a)after paragraph 51 insert—
+
+“51A.  The Information Commission.”;
+
+(b)omit paragraph 52.
+
+(13) In Schedule 15—
+
+(a)in paragraph 1(1), for “Commissioner” substitute “chair of the Commission or another person authorised by the chair of the Commission for that purpose”;
+
+(b)in paragraph 2(1), for “Commissioner” substitute “chair of the Commission or another person authorised by the chair of the Commission for that purpose”;
+
+(c)in paragraph 4(3)(b), for “Commissioner or the Commissioner’s officers or staff to” substitute “Commission or the Commission’s officers or staff that the Commission’s officers or staff”;
+
+(d)in paragraph 5(1), (2), (3) and (4), for “the Commissioner or any of the Commissioner’s”, in each place it occurs, substitute “any of the Commission’s”.
+
+(14) In Schedule 17, in paragraph 1, in the definition of “relevant period”—
+
+(a)omit paragraph (a);
+
+(b)in paragraph (b)—
+
+(i)omit “subsequent”;
+
+(ii)for “that section” substitute “section 178”.
+
+(15) In paragraph 9(7) of Schedule 21, in the definition of “binding corporate rules”, for “4(20)” substitute “4(1)(20)”.
+
+(1)
+
+2018 c. 12. Relevant amendments have been made by the Data (Use and Access) Act 2025 (“the 2025 Act”) and S.I. 2019/419. Sections 28(5), 119A, 120(2A) and Schedule 21 were inserted by S.I. 2019/419. Sections 17(1) and (3), 26(2)(c) and (e), 115 to 117, 123(7), 129(1), 136(1), 165(1), 166(1), 183(2), 187(2)(a), 207(4) were amended by S.I. 2019/419. Sections 26(2)(f)(ai), 45A, 53(6), 71A, 75(8), 78A, 82A, 82D, 120A to 120D, 124A to 124C, 135(A1) and (1A), 139(1A), 139A, 141A, 146(2)(k) and (11A), 148A, 148B, 161A, paragraph 4(A1) and (A2) of Schedule 16, and paragraph 3A of Schedule 17 were inserted by the 2025 Act (see sections 75(2)(c), 79(6), 84(6), 85, 88(2) and (7), 89(3), 91(3) and (4), 92(2), 93, 94(2), 95, 96(3), 98(2)(a) and (c), 100(2) and (12), 101(3)(a) and 102(4) of, and paragraph 18 of Schedule 9 to, the 2025 Act). Sections 51, 110(2)(c), 124(5), 125, 126(4) and 160 were amended by the 2025 Act (see sections 79(7), 88(9)(c), 92(3) and (4), 97(6), 98(5), 100(6), 101(4), and 108 of, and paragraphs 18 and 19 of Schedule 11 to, the 2025 Act). Section 164B is inserted by section 103(2) of the 2025 Act. Section 165 is amended by section 103(3) of the 2025 Act. Sections 26, 44, 45, 45A, 48, 93, 94, 149, 155, 166 and 187 are amended by Schedule 10 to the 2025 Act (see paragraphs 9 to 17, 20 and 21 of that Schedule).
+
+Previous:
+Paragraph
+
+Next:
+Paragraph
+
+Back to top
+
+Options/Help
+
+Print Options
+
+Official printed copies
+
+Order a copy of this legislationbuy now
+
+PrintThe Whole
+Instrument
+
+PDF The Whole
+Instrument
+
+Web page The Whole
+Instrument
+
+PrintThe Whole
+Schedule
+
+PDF The Whole
+Schedule
+
+Web page The Whole
+Schedule
+
+PrintThe Whole
+Part
+
+PDF The Whole
+Part
+
+Web page The Whole
+Part
+
+PrintThe Whole
+Cross Heading
+
+PDF The Whole
+Cross Heading
+
+Web page The Whole
+Cross Heading
+
+PrintThis
+Section
+
+only
+
+PDF This
+Section
+
+only
+
+Web page This
+Section
+
+only
+
+Legislation is available in different versions:
+
+Latest Available (revised):The latest available updated version of the legislation incorporating changes made by subsequent legislation and applied by our editorial team. Changes we have not yet applied to the text, can be found in the ‘Changes to Legislation’ area.
+
+Original (As Enacted or Made): The original version of the legislation as it stood when it was enacted or made. No changes have been applied to the text.
+
+Opening Options
+
+Different options to open legislation in order to view more content on screen at once
+
+Explanatory Memorandum
+
+Explanatory Memorandum sets out a brief statement of the purpose of a Statutory Instrument and provides information about its policy objective and policy implications. They aim to make the Statutory Instrument accessible to readers who are not legally qualified and accompany any Statutory Instrument or Draft Statutory Instrument laid before Parliament from June 2004 onwards.
+
+More Resources
+
+Access essential accompanying documents and information for this legislation item from this tab. Dependent on the legislation item being viewed this may include:
+
+the original print PDF of the as enacted version that was used for the print copy
+
+lists of changes made by and/or affecting this legislation item
+
+confers power and blanket amendment details
+
+all formats of all associated documents
+
+correction slips
+
+links to related legislation and further information resources
+
+More Resources
+
+Use this menu to access essential accompanying documents and information for this legislation item. Dependent on the legislation item being viewed this may include:
+
+the original print PDF of the as made version that was used for the print copy
+
+correction slips
+
+Click 'View More' or select 'More Resources' tab for additional information including:
+
+lists of changes made by and/or affecting this legislation item
+
+confers power and blanket amendment details
+
+all formats of all associated documents
+
+links to related legislation and further information resources
+
+The data on this page is available in the alternative data formats listed:
+
+HTML5 alternative version
+
+HTML snippet alternative version
+
+PDF alternative version
+
+XML alternative version
+
+Akoma Ntoso alternative version
+
+HTML RDFa alternative version
+
+RDF/XML alternative version
+
+New site design
+
+Help
+
+About us
+
+Site map
+
+Accessibility
+
+Contact us
+
+Privacy notice
+
+Cookies
+
+Fair use policy
+
+All content is available under the Open Government Licence v3.0 except where otherwise stated. This site additionally contains content derived from EUR-Lex, reused under the terms of the Commission Decision 2011/833/EU on the reuse of documents from the EU institutions. For more information see the EUR-Lex public statement on re-use.
+© Crown and database right

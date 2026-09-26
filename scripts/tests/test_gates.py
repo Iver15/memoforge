@@ -1004,6 +1004,27 @@ class ParseCommandTest(unittest.TestCase):
             any(row["banner_id"] == "gate_defaults" for row in state["fallback_banners"])
         )
 
+    def test_the_same_gate_answered_twice_with_defaults_records_one_banner(self):
+        # D-248: the old guard compared a row with `at=None` against rows that carry a time, so it
+        # never matched and a second defaulted answer of the same gate added a second banner.
+        driver = Driver(temp_root(self), slug="parse-budget-twice")
+        action = driver.run_until("intake_questions_pending")
+        for _ in range(limits.MAX_GATE_PARSE_ERRORS):
+            driver.parse_gate(action, "no idea")
+        questions = gates.printed_questions(driver.work_dir, driver.state(), "intake")
+        gates.commit(
+            driver.work_dir,
+            driver.state(),
+            "intake",
+            gates.apply_defaults("intake", questions),
+            generation=0,
+            raw="still no idea",
+            step_id=None,
+            attempt=action["attempt"],
+        )
+        rows = [row for row in driver.state()["fallback_banners"] if row["condition_key"] == "gate_defaults_applied"]
+        self.assertEqual(1, len(rows))
+
     def test_a_technical_error_does_not_spend_the_parse_budget(self):
         # D-72: `gate_parse_errors` counts misunderstood user replies only; a stale channel is a
         # technical error, answers without `reprompt` and leaves the budget untouched.

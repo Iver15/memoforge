@@ -822,5 +822,57 @@ class NonRussianNumberTest(unittest.TestCase):
         self.assertEqual(answer["error"], "requisites_mismatch")
 
 
+class RunEightyFourUkTest(unittest.TestCase):
+    """D-251: the complete UK texts run 84 saved and `verdict` called excerpts (`03-sources.md` N1).
+
+    Byte copies: the legislation.gov.uk page of UK GDPR Chapter III Section 1, whose art 12A heading carries
+    an amendment marker and a territorial tag (`[F18Article 12A.U.K.Meaning of …`), and two S.I. 2026/386
+    Schedule paragraphs, whose heading is `Paragraph 23` / `Paragraph 41`.
+    """
+
+    def test_the_lettered_article_under_an_amendment_marker_is_whole(self):
+        answer = source_text.verdict(saved("uk-gdpr-ch3-s1-art-12a.txt"), layer="statutes", expect_article="12A")
+        self.assertEqual("full_text", answer["outcome"])
+
+    def test_the_schedule_paragraphs_are_whole_on_their_label(self):
+        for name, unit in (("uk-si-2026-386-sch-2-para-23.txt", "para 23"),
+                           ("uk-si-2026-386-sch-3-para-41.txt", "paragraph 41")):
+            with self.subTest(page=name):
+                answer = source_text.verdict(saved(name), layer="statutes", expect_article=unit)
+                self.assertEqual("full_text", answer["outcome"])
+
+    def test_a_neighbouring_paragraph_and_a_bare_number_are_not_found(self):
+        for name, unit in (("uk-si-2026-386-sch-2-para-23.txt", "para 22"),
+                           ("uk-si-2026-386-sch-3-para-41.txt", "para 40"),
+                           ("uk-si-2026-386-sch-2-para-23.txt", "23")):
+            with self.subTest(page=name, unit=unit):
+                answer = source_text.verdict(saved(name), layer="statutes", expect_article=unit)
+                self.assertEqual("excerpt:article_not_found", answer["outcome"])
+
+
+class TerritorialTagTest(unittest.TestCase):
+    """D-251: `.U.K.` after a unit is legislation.gov.uk's extent tag, not a continuation of the unit."""
+
+    BODY = "\n\n" + "The controller shall provide the information in a concise and intelligible form. " * 4
+
+    def test_the_tag_does_not_hide_the_unit(self):
+        for heading, unit in (("[F18Article 12A.U.K.Meaning", "12A"), ("Article 12U.K.Transparent", "12"),
+                              ("Regulation 22U.K.Use of electronic mail", "reg 22")):
+            with self.subTest(heading=heading):
+                text = heading + self.BODY
+                self.assertEqual(len(text), source_text.article_body_chars(text, unit))
+
+    def test_the_tag_never_lets_a_shorter_unit_through(self):
+        for heading, unit in (("[F18Article 12A.U.K.Meaning", "12"), ("Article 12AU.K.", "12"),
+                              ("Paragraph 41", "para 4")):
+            with self.subTest(heading=heading, unit=unit):
+                self.assertEqual(0, source_text.article_body_chars(heading + self.BODY, unit))
+
+    def test_the_marker_is_not_a_russian_heading(self):
+        text = "Статья 12\n\n" + "Текст статьи о порядке предоставления информации. " * 6
+        self.assertEqual(len(text), source_text.article_body_chars(text, "12"))
+        self.assertEqual(0, source_text.article_body_chars(text, "12A"))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

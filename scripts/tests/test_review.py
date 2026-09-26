@@ -18,7 +18,7 @@ if str(PLUGIN_ROOT / "scripts") not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _i18n  # noqa: E402
-from memoforge import i18n, limits, modes, review, revision, schema, state_io, stepctx, task  # noqa: E402
+from memoforge import events, i18n, limits, modes, review, revision, schema, state_io, stepctx, task  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reviews"
 DRAFT_SHA = "9b31b63e286f3517c59962ed8716a3bf7421ed25d719eb7b438f005b7ca0542e"
@@ -1599,6 +1599,33 @@ class UncheckedPairsTest(unittest.TestCase):
         self.state["published"].append({"canonical_path": canonical, "sha256": state_io.sha256_file(path)})
         self.assertIn(("uk-gdpr-art-13", "s-2-2", "never_checked"), self.pairs())
 
+    def test_a_critical_pair_comes_before_earlier_sections_of_supporting_ones(self):
+        """D-253, run 84: ten slots in section order ran out at 4.2; art 14 (critical, 5.2) was never checked."""
+        registry = {"schema_version": 2, "sources": {
+            "ico-guide": {"layer": "statutes", "tier": "supporting"},
+            "uk-gdpr-art-14": {"layer": "statutes", "tier": "critical"},
+        }}
+        (self.work_dir / "research" / "sources.json").write_text(json.dumps(registry), encoding="utf-8")
+        sections = "\n".join(f"## {n}. Part {n}\n\nRule [[src:ico-guide]].\n" for n in range(1, 12))
+        draft = f"# Memo\n\n{sections}\n## 12. Last\n\nRule [[src:uk-gdpr-art-14]].\n"
+        pairs = self.pairs(draft=draft)
+        self.assertEqual(("uk-gdpr-art-14", "s-12", "never_checked"), pairs[0])
+        self.assertEqual(10, len(pairs))
+
+    def test_an_unreached_supporting_pair_still_precedes_a_new_critical_one(self):
+        # The `not_reached` rows of the last review stay first (D-214); the tier orders inside each reason.
+        tiers = {"dpa-2018-s168": "supporting", "uk-gdpr-art-13": "critical", "uk-gdpr-art-14": "supporting"}
+        registry = {"schema_version": 2, "sources": {
+            source_id: {"layer": layer, "tier": tiers.get(source_id, "supporting")}
+            for source_id, layer in CARRY_REGISTRY.items()
+        }}
+        (self.work_dir / "research" / "sources.json").write_text(json.dumps(registry), encoding="utf-8")
+        self.put(1, self.v1())
+        self.assertEqual(
+            [("dpa-2018-s168", "s-2-1", "not_reached"), ("uk-gdpr-art-13", "s-2-2", "never_checked")],
+            self.pairs(),
+        )
+
 
 class AdjacentLimbBlockerTest(unittest.TestCase):
     """D-214 (gate R1-5): a sibling limb left out is a CIT-02 fail, so its issue must be a `source_drift` blocker."""
@@ -1657,6 +1684,28 @@ class NoPreD40WrappersTest(unittest.TestCase):
         """Non-tautology: `stepctx` really carries the three primitives the wrappers hid."""
         for name in ("check_identity", "close_step", "publish_file"):
             self.assertTrue(callable(getattr(stepctx, name, None)), f"stepctx.{name} is missing")
+
+
+class RecordBannerOnceTest(unittest.TestCase):
+    """D-248, run 84: the regate and the exit both recorded `currency_blocking`, so the header printed it twice."""
+
+    # Two records of one run are minutes apart (run 84: 08:14:59 and 08:30:45); pinning the clock keeps
+    # two calls inside one millisecond from hiding the duplicate.
+    TIMES = ["2026-09-25T08:14:59.511Z", "2026-09-25T08:30:45.764Z"]
+
+    def test_the_same_banner_recorded_twice_is_one_row(self):
+        state = {}
+        with mock.patch.object(events, "utc_now", side_effect=self.TIMES):
+            review.record_banner(state, "currency_blocking_issues", count=1)
+            review.record_banner(state, "currency_blocking_issues", count=1)
+        self.assertEqual(1, len(state["fallback_banners"]))
+
+    def test_the_same_condition_with_other_params_is_kept(self):
+        state = {}
+        with mock.patch.object(events, "utc_now", side_effect=self.TIMES):
+            review.record_banner(state, "currency_blocking_issues", count=1)
+            review.record_banner(state, "currency_blocking_issues", count=2)
+        self.assertEqual(2, len(state["fallback_banners"]))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,399 @@
+Skip to main content
+
+Skip to navigation
+
+legislation.gov.uk
+https://www.nationalarchives.gov.uk
+
+Cymraeg
+
+Home
+
+Explore our collections
+
+Research tools
+
+Help and guidance
+
+What's new
+
+About us
+
+Search Legislation
+
+Search Legislation
+
+Title: (or keywords in the title)
+
+Year:
+
+Number:
+
+Type:All UK Legislation (excluding originating from the EU)--------------------------------------------All Legislation (including originating from EU)--------------------------------------------All Legislation originating from the EU that is amended by the UK--------------------------------------------All Primary Legislation    UK Public General Acts    UK Local Acts    UK Private and Personal Acts    Acts of the Scottish Parliament    Acts of Senedd Cymru    Acts of the National Assembly for Wales    Measures of the National Assembly for Wales    Church Measures    Acts of the Northern Ireland Assembly    Acts of the Old Scottish Parliament    Acts of the English Parliament    Acts of the Old Irish Parliament    Acts of the Parliament of Great Britain    Local Acts of the Parliament of Great Britain    Private and Personal Acts of the Parliament of Great Britain    Northern Ireland Orders in Council    Measures of the Northern Ireland Assembly    Acts of the Northern Ireland Parliament--------------------------------------------All Secondary Legislation    UK Statutory Instruments    Welsh Statutory Instruments    Scottish Statutory Instruments    Northern Ireland Statutory Rules    Church Instruments    UK Ministerial Directions    UK Ministerial Orders    UK Statutory Rules and Orders    Northern Ireland Statutory Rules and Orders--------------------------------------------All Legislation originating from the EU    Regulations originating from the EU    Regulations originating from the EU that are amended by the UK    Decisions originating from the EU    Decisions originating from the EU that are amended by the UK    Directives originating from the EU    European Union Treaties--------------------------------------------All Draft Legislation    UK Draft Statutory Instruments    Scottish Draft Statutory Instruments    Northern Ireland Draft Statutory Rules--------------------------------------------All Impact Assessments    UK Impact Assessments
+
+Search
+
+Advanced Search
+
+Regulation (EU) 2016/679 of the European Parliament and of the CouncilShow full title
+
+Regulation (EU) 2016/679 of the European Parliament and of the Council of 27 April 2016 on the protection of natural persons with regard to the processing of personal data and on the free movement of such data (United Kingdom General Data Protection Regulation) (Text with EEA relevance)
+
+You are here:
+
+Regulations originating from the EU
+
+2016 No. 679
+
+CHAPTER III
+
+Section 1
+
+Table of Contents
+
+Content
+
+More Resources
+
+Previous:
+Chapter
+
+Next:
+Section
+
+Plain View
+
+Print Options
+
+What Version
+
+Latest available (Revised)
+
+Original (As adopted by EU)
+
+Advanced Features
+
+Show Geographical Extent(e.g. England, Wales, Scotland and Northern Ireland)
+
+Show Timeline of Changes
+
+Opening Options
+
+Open whole Regulation
+
+Open Regulation without Annexes
+
+Open Annexes only
+
+More Resources
+
+EU Official Journal Version
+
+Corrigendum 23/05/2018
+
+Revised version PDFs
+
+Revised 04/05/20160.59 MB
+
+Legislation originating from the EU
+
+When the UK left the EU, legislation.gov.uk published EU legislation that had been published by the EU up to IP completion day (31 December 2020 11.00 p.m.). On legislation.gov.uk, these items of legislation are kept up-to-date with any amendments made by the UK since then.
+
+Find out more about legislation originating from the EU
+
+See the current EU version of this legislation on EUR-Lex
+
+This item of legislation originated from the EU
+
+Legislation.gov.uk publishes the UK version. EUR-Lex publishes the EU version. The EU Exit Web Archive holds a snapshot of EUR-Lex’s version from IP completion day (31 December 2020 11.00 p.m.).
+
+Changes over time for: Section 1
+
+Alternative versions:
+
+27/04/2016- Amendment
+
+Exit day: start of implementation period31/01/2020 11pm- Amendment
+
+End of implementation period31/12/2020- Amendment
+
+20/08/2025- Amendment
+
+05/02/2026- Amendment
+
+19/06/2026- Amendment
+
+Changes to legislation:
+
+Regulation (EU) 2016/679 of the European Parliament and of the Council, Section 1 is up to date with all changes known to be in force on or before 25 September 2026. There are changes that may be brought into force at a future date. Changes that have been made appear in the content and are referenced with annotations.
+
+Changes to Legislation
+
+Revised legislation carried on this site may not be fully up to date. Changes and effects are recorded by our editorial team in lists which can be found in the ‘Changes to Legislation’ area. Where those effects have yet to be applied to the text of the legislation by the editorial team they are also listed alongside the legislation in the affected provisions. Use the ‘more’ link to open the changes and effects relevant to the provision you are viewing.
+
+View outstanding changes
+
+Changes and effects yet to be applied to Chapter III Section 1:
+
+Art. 4(A2A) inserted by S.I. 2026/386 Sch. 3 para. 41(2)(a)
+
+Changes and effects yet to be applied to the whole legislation item and associated provisions
+
+Art. 4(A2A) inserted by S.I. 2026/386 Sch. 3 para. 41(2)(a)
+
+Section 1U.K.Transparency and modalities
+
+Article 12U.K.Transparent information, communication and modalities for the exercise of the rights of the data subject
+
+1.The controller shall take appropriate measures to provide any information referred to in Articles 13 and 14 and any communication [F1made under or by virtue of Articles 15 to 22D] and 34 relating to processing to the data subject in a concise, transparent, intelligible and easily accessible form, using clear and plain language, in particular for any information addressed specifically to a child. The information shall be provided in writing, or by other means, including, where appropriate, by electronic means. When requested by the data subject, the information may be provided orally, provided that the identity of the data subject is proven by other means.
+
+2.The controller shall facilitate the exercise of data subject rights [F2arising under or by virtue of Articles 15 to 22D]. In the cases referred to in Article 11(2), the controller shall not refuse to act on the request of the data subject for exercising [F3those rights], unless the controller demonstrates that it is not in a position to identify the data subject.
+
+3.The controller shall provide information on action taken on a request [F4made under or by virtue of Articles 15 to 22D] to the data subject without undue delay and in any event [F5before the end of the applicable time period (see Article 12A)]. F6... Where the data subject makes the request by electronic form means, the information shall be provided by electronic means where possible, unless otherwise requested by the data subject.
+
+4.If the controller does not take action on the request of the data subject, the controller shall inform the data subject [F7without undue delay, and in any event before the end of the applicable time period (see Article 12A),] of the reasons for not taking action and on the possibility of [F8making a complaint to the controller under section 164A of the 2018 Act, making a complaint to the Commissioner under section 165 of that Act] and seeking a judicial remedy.
+
+5.[F9Subject to Article 15(3),] information provided under Articles 13 and 14 and any communication and any actions taken [F10under or by virtue of Articles 15 to 22D] and 34 shall be provided free of charge. Where requests from a data subject are manifestly unfounded or excessive, in particular because of their repetitive character, the controller may either:
+
+(a)charge a reasonable fee taking into account the administrative costs of providing the information or communication or taking the action requested; or
+
+(b)refuse to act on the request.
+
+The controller shall bear the burden of demonstrating the manifestly unfounded or excessive character of the request.
+
+6.Without prejudice to Article 11, where the controller has reasonable doubts concerning the identity of the natural person making the request [F11made under or by virtue of Articles 15 to 22D], the controller may [F12—
+
+(a)]request the provision of additional information necessary to confirm the identity of the data subject [F13, and
+
+(b)delay dealing with the request until the identity is confirmed.]
+
+[F146A.The Commissioner may publish (and amend or withdraw)—
+
+(a)standardised icons for use in combination with information provided to data subjects under Articles 13 and 14;
+
+(b)a notice stating that other persons may publish (and amend or withdraw) such icons, provided that the icons satisfy requirements specified in the notice as to the information to be presented by the icons and the procedures for providing the icons.
+
+6B.The Commissioner must not publish icons or a notice under paragraph 6A unless satisfied (as appropriate) that the icons give a meaningful overview of the intended processing in an easily visible, intelligible and clearly legible manner or that the notice will result in icons that do so.]
+
+7.[F15If standardised icons are published as described in paragraph 6A (and not withdrawn), the information] to be provided to data subjects pursuant to Articles 13 and 14 may be provided in combination with [F16the icons]. Where the icons are presented electronically they shall be machine-readable.
+
+F178.. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+Textual Amendments
+
+F1Words in Art. 12(1) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(2); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F2Words in Art. 12(2) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(3)(a); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F3Words in Art. 12(2) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(3)(b); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F4Words in Art. 12(3) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(4); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F5Words in Art. 12(3) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), ss. 76(2)(a)(i), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+F6Words in Art. 12(3) omitted (5.2.2026) by virtue of Data (Use and Access) Act 2025 (c. 18), ss. 76(2)(a)(ii), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+F7Words in Art. 12(4) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), ss. 76(2)(b), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+F8Words in Art. 12(4) substituted (19.6.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 10 para. 2; S.I. 2026/82, reg. 3(b) (with reg. 7)
+
+F9Words in Art. 12(5) inserted (20.8.2025) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 11 para. 5; S.I. 2025/904, reg. 2(y)
+
+F10Words in Art. 12(5) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(5); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F11Words in Art. 12(6) substituted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), s. 142(1), Sch. 6 para. 2(6); S.I. 2026/82, reg. 2(z8) (with reg. 5)
+
+F12Words in Art. 12(6) renumbered as Art. 12(6)(a) (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), ss. 76(2)(c)(i), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+F13Art. 12(6)(b) and word inserted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), ss. 76(2)(c)(ii), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+F14Art. 12(6A)(6B) inserted (31.12.2020) by The Data Protection, Privacy and Electronic Communications (Amendments etc) (EU Exit) Regulations 2019 (S.I. 2019/419), reg. 1(2), Sch. 1 para. 11(3) (with reg. 5); 2020 c. 1, Sch. 5 para. 1(1)
+
+F15Words in Art. 12(7) substituted (31.12.2020) by The Data Protection, Privacy and Electronic Communications (Amendments etc) (EU Exit) Regulations 2019 (S.I. 2019/419), reg. 1(2), Sch. 1 para. 11(4)(a) (with reg. 5); 2020 c. 1, Sch. 5 para. 1(1)
+
+F16Words in Art. 12(7) substituted (31.12.2020) by The Data Protection, Privacy and Electronic Communications (Amendments etc) (EU Exit) Regulations 2019 (S.I. 2019/419), reg. 1(2), Sch. 1 para. 11(4)(b) (with reg. 5); 2020 c. 1, Sch. 5 para. 1(1)
+
+F17Art. 12(8) omitted (31.12.2020) by virtue of The Data Protection, Privacy and Electronic Communications (Amendments etc) (EU Exit) Regulations 2019 (S.I. 2019/419), reg. 1(2), Sch. 1 para. 11(5) (with reg. 5, Sch. 1 para. 80); 2020 c. 1, Sch. 5 para. 1(1)
+
+[F18Article 12A.U.K.Meaning of “applicable time period”
+
+1.In Article 12, “the applicable time period” means the period of one month beginning with the relevant time, subject to paragraph 3.
+
+2.“The relevant time” means the latest of the following—
+
+(a)when the controller receives the request in question;
+
+(b)when the controller receives the information (if any) requested in connection with a request under Article 12(6);
+
+(c)when the fee (if any) charged in connection with the request under Article 12(5) is paid.
+
+3.The controller may, by giving notice to the data subject, extend the applicable time period by two further months where that is necessary by reason of—
+
+(a)the complexity of requests made by the data subject, or
+
+(b)the number of such requests.
+
+4.A notice under paragraph 3 must—
+
+(a)be given before the end of the period of one month beginning with the relevant time, and
+
+(b)state the reasons for the delay.
+
+5.Where the controller reasonably requires further information in order to identify the information or processing activities to which a request under Article 15 relates—
+
+(a)the controller may ask the data subject to provide the further information, and
+
+(b)the period beginning with the day on which the controller makes the request and ending with the day on which the controller receives the information does not count towards—
+
+(i)the applicable time period, or
+
+(ii)the period described in paragraph 4(a).
+
+6.An example of a case in which a controller may reasonably require further information is where the controller processes a large amount of information concerning the data subject.]
+
+Textual Amendments
+
+F18Art. 12A inserted (5.2.2026) by Data (Use and Access) Act 2025 (c. 18), ss. 76(3), 142(1); S.I. 2026/82, reg. 2(h) (with reg. 4)
+
+Previous:
+Chapter
+
+Next:
+Section
+
+Back to top
+
+Options/Help
+
+Print Options
+
+PrintThe Whole
+Regulation
+
+PDF The Whole
+Regulation
+
+Web page The Whole
+Regulation
+
+PrintThe Whole
+
+Chapter
+
+PDF The Whole
+
+Chapter
+
+Web page The Whole
+
+Chapter
+
+PrintThis
+Section
+
+only
+
+PDF This
+Section
+
+only
+
+Web page This
+Section
+
+only
+
+Legislation is available in different versions:
+
+Latest Available (revised):The latest available updated version of the legislation incorporating changes made by subsequent legislation and applied by our editorial team. Changes we have not yet applied to the text, can be found in the ‘Changes to Legislation’ area.
+
+Original (As adopted by EU): The original version of the legislation as it stood when it was first adopted in the EU. No changes have been applied to the text.
+
+See additional information alongside the content
+
+Geographical Extent:
+Indicates the geographical area that this provision applies to. For further information see ‘Frequently Asked Questions’.
+
+Show Timeline of Changes:
+See how this legislation has or could change over time. Turning this feature on will show extra navigation options to go to these specific points in time. Return to the latest available version by using the controls above in the What Version box.
+
+Opening Options
+
+Different options to open legislation in order to view more content on screen at once
+
+More Resources
+
+Access essential accompanying documents and information for this legislation item from this tab. Dependent on the legislation item being viewed this may include:
+
+the original print PDF of the as adopted version that was used for the EU Official Journal
+
+lists of changes made by and/or affecting this legislation item
+
+all formats of all associated documents
+
+correction slips
+
+links to related legislation and further information resources
+
+Timeline of Changes
+
+This timeline shows the different versions taken from EUR-Lex before exit day and during the implementation period as well as any subsequent versions created after the implementation period as a result of changes made by UK legislation.
+
+The dates for the EU versions are taken from the document dates on EUR-Lex and may not always coincide with when the changes came into force for the document.
+
+For any versions created after the implementation period as a result of changes made by UK legislation the date will coincide with the earliest date on which the change (e.g an insertion, a repeal or a substitution) that was applied came into force. For further information see our guide to revised legislation on Understanding Legislation.
+
+More Resources
+
+Use this menu to access essential accompanying documents and information for this legislation item. Dependent on the legislation item being viewed this may include:
+
+the original print PDF of the as adopted version that was used for the print copy
+
+correction slips
+
+Click 'View More' or select 'More Resources' tab for additional information including:
+
+lists of changes made by and/or affecting this legislation item
+
+confers power and blanket amendment details
+
+all formats of all associated documents
+
+links to related legislation and further information resources
+
+The data on this page is available in the alternative data formats listed:
+
+HTML5 alternative version
+
+HTML snippet alternative version
+
+PDF alternative version
+
+XML alternative version
+
+Akoma Ntoso alternative version
+
+HTML RDFa alternative version
+
+RDF/XML alternative version
+
+New site design
+
+Help
+
+About us
+
+Site map
+
+Accessibility
+
+Contact us
+
+Privacy notice
+
+Cookies
+
+Fair use policy
+
+All content is available under the Open Government Licence v3.0 except where otherwise stated. This site additionally contains content derived from EUR-Lex, reused under the terms of the Commission Decision 2011/833/EU on the reuse of documents from the EU institutions. For more information see the EUR-Lex public statement on re-use.
+© Crown and database right

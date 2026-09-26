@@ -1595,6 +1595,47 @@ class AppendixScopeTest(unittest.TestCase):
         self.assertEqual([line], inputs["issues"])
 
 
+RUN84_ROW = {
+    "severity": "major",
+    "category": "unnamed_adverse_consequence",
+    "section_id": "s-5-4",
+    "issue": "Route (b) is described as costing more ... The draft never says that ...",
+    "source_reviewer": "counterarguments",
+    "disposition": "manual_review",
+    "disposition_note": "Counsel must confirm the company's exposure under the cross-undertaking in damages ...",
+}
+
+
+class LawyerQuestionLineTest(unittest.TestCase):
+    """D-252, run 84: the Status row of a manual-review finding is the question for counsel, not the critique."""
+
+    def test_an_english_manual_review_row_prints_the_question(self):
+        line = fallback.blocking_issue_line(RUN84_ROW, "en")
+        self.assertEqual("major · section 5.4 · " + RUN84_ROW["disposition_note"], line)
+
+    def test_an_unresolved_row_never_prints_its_polish_note(self):
+        row = dict(RUN84_ROW, disposition="unresolved", disposition_note="A narrower wording reconciles it.")
+        self.assertIn(RUN84_ROW["issue"], fallback.blocking_issue_line(row, "en"))
+        self.assertNotIn("narrower wording", fallback.blocking_issue_line(row, "en"))
+
+    def test_a_row_moved_by_an_earlier_build_keeps_its_issue(self):
+        row = {key: value for key, value in RUN84_ROW.items() if key != "disposition"}
+        self.assertIn(RUN84_ROW["issue"], fallback.blocking_issue_line(row, "en"))
+
+    def test_a_client_sentence_still_wins(self):
+        row = dict(RUN84_ROW, issue_client="Ask counsel to price the undertaking.")
+        self.assertTrue(fallback.blocking_issue_line(row, "en").endswith("Ask counsel to price the undertaking."))
+
+    def test_a_russian_manual_review_row_keeps_the_localized_line(self):
+        line = fallback.blocking_issue_line(RUN84_ROW, "ru")
+        self.assertNotIn("Counsel", line)
+        self.assertTrue(line.endswith(i18n.node("ru", "memo.labels.status_issue_without_client_text")))
+
+    def test_the_technical_record_keeps_the_issue(self):
+        # Without a language the row is the `summary.md` line: raw ids and the reviewer's issue.
+        self.assertIn(RUN84_ROW["issue"], fallback.blocking_issue_line(RUN84_ROW))
+
+
 class CurrencyUnavailableTest(unittest.TestCase):
     """D-113: a checker that was down for the whole run is one line, not one line per source."""
 

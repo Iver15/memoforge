@@ -822,8 +822,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):  # noqa: D102 - silence the test output
         return
 
-    codes = {"/accepted": 202, "/forbidden": 403, "/throttled": 429, "/down": 503}
-    """D34-08: the answers that mean «not served» rather than «gone»."""
+    codes = {
+        "/accepted": 202,
+        "/forbidden": 403,
+        "/throttled": 429,
+        "/down": 503,
+        "/bad-gateway": 502,
+        "/gateway-timeout": 504,
+        "/error": 500,
+    }
+    """D34-08: the answers that mean «not served» rather than «gone»; D-249 adds the two gateway codes,
+    and `/error` is the plain server error that stays `dead`."""
 
     challenges = {
         "/waf": (202, {"x-amzn-waf-action": "challenge"}),
@@ -2040,8 +2049,15 @@ class LivenessTest(SourcesTestCase):
         self.assertEqual("changed", result["checked"][0]["status"])
 
     def test_queue_and_throttle_codes_are_unchecked_without_hashing(self):
-        """D34-08: 202/403/429/503 mean «not served», not «dead» — and no body is hashed."""
-        for path, code in (("/accepted", 202), ("/forbidden", 403), ("/throttled", 429), ("/down", 503)):
+        """D34-08, D-249: 202/403/429/502/503/504 mean «not served», not «dead» — and no body is hashed."""
+        for path, code in (
+            ("/accepted", 202),
+            ("/forbidden", 403),
+            ("/throttled", 429),
+            ("/down", 503),
+            ("/bad-gateway", 502),
+            ("/gateway-timeout", 504),
+        ):
             with self.subTest(code=code):
                 with LocalServer(RAW_TEXT.encode("utf-8")) as base:
                     self.register(
@@ -2056,6 +2072,22 @@ class LivenessTest(SourcesTestCase):
                 self.assertEqual(code, row["code"])
                 self.assertEqual(f"http_{code}", row["error"])
                 self.assertEqual("agent_saved", row["provenance"])
+
+    def test_a_server_error_that_is_not_a_gateway_stays_dead(self):
+        """D-249: only 502/504 join the «not served» codes; 500 and 404 keep their meaning."""
+        for path, code in (("/error", 500), ("/no-such-page", 404)):
+            with self.subTest(code=code):
+                with LocalServer(RAW_TEXT.encode("utf-8")) as base:
+                    self.register(
+                        url=f"{base}{path}",
+                        raw_file=self.raw_file(),
+                        tool="curl",
+                        source_id=f"src-{code}",
+                    )
+                    result = self._liveness(source=f"src-{code}")
+                row = result["checked"][0]
+                self.assertEqual("dead", row["status"])
+                self.assertEqual(code, row["code"])
 
     def test_missing_document_is_dead(self):
         with LocalServer(b"") as base:
@@ -4918,6 +4950,48 @@ class ResolveSudactTest(_FakeClockTestCase):
         self.assertFalse(self.channel()["captcha"])
         self.assert_nothing_written(result)
 
+    def test_a_gateway_error_on_the_search_is_a_broken_request_and_the_channel_stays_open(self):
+        """D-249 (seams S1): liveness reads 502 as «not served», the resolver never as a challenge.
+
+        A gateway's bad answer is a broken request: this call stops with `ChannelUnavailable`, no marker
+        is written, and the next call of the run is still sent — unlike a 429, which closes the channel.
+        """
+        search = sudact_search_path()
+        bad_gateway = (b"<html><body>bad gateway</body></html>", "text/html", {}, 502)
+        with self.portal([bad_gateway], {SUDACT_ACT: SUDACT_ACT_PAGE}) as base:
+            self.allow(sources.url_host(base))
+            with self.assertRaises(sources.ChannelUnavailable) as caught:
+                self.resolve_directly(base)
+            self.assertEqual(["/arbitral/", search], self.paths(), "the call stops at the broken request")
+            _Handler.seen = []
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", search], self.paths(), "the next call of the run is still sent")
+        self.assertNotIsInstance(caught.exception, sources.ChannelCaptcha)
+        self.assertEqual("http_502", str(caught.exception))
+        self.assertEqual(["channel_unavailable: http_502"], result["errors"])
+        self.assertNotIn("challenge", result)
+        self.assertEqual({"requests": 4, "captcha": False}, self.counts(), "no marker: a gateway is not a challenge")
+        self.assert_nothing_written(result)
+
+    def test_a_gateway_error_on_the_resolved_saves_own_fetch_never_closes_the_channel(self):
+        """D-249 (seams S1, fix round 1): the save fetches the chosen act once more; a 502 there is
+        `refused:unchecked` and nothing is written, but no marker is set and the next call is sent."""
+        search = sudact_search_path()
+        bad_gateway = (b"<html><body>bad gateway</body></html>", "text/html", {}, 502)
+        document = [(SUDACT_ACT_PAGE, "text/html; charset=utf-8"), bad_gateway]
+        with self.portal([sudact_finished(SUDACT_ACT)], {SUDACT_ACT: document}) as base:
+            self.allow(sources.url_host(base))
+            result = self.resolve(base)
+            self.assertEqual(["/arbitral/", search, SUDACT_ACT, SUDACT_ACT], self.paths())
+            _Handler.seen = []
+            self.resolve(base)
+            self.assertEqual(["/arbitral/", search, SUDACT_ACT], self.paths(), "the next call of the run is sent")
+        self.assertEqual(["unchecked: http_502"], result["errors"])
+        self.assertEqual("refused:unchecked", result["save_outcome"])
+        self.assertNotIn("challenge", result)
+        self.assertEqual({"requests": 7, "captcha": False}, self.counts(), "no marker: a gateway is not a challenge")
+        self.assert_nothing_written(result)
+
     # --- choosing the act ---------------------------------------------------------
 
     def test_four_acts_of_one_case_resolve_to_the_one_carrying_both_requisites(self):
@@ -5343,6 +5417,32 @@ class SudactHostTest(_FakeClockTestCase):
         self.assertTrue(self.state()["channels"]["sudact"]["captcha"])
         self.assertEqual(["channel_unavailable: captcha"], again["errors"])
         self.assert_nothing_written(result)
+
+    def test_a_gateway_error_on_a_plain_save_is_refused_and_never_closes_the_host(self):
+        """D-249 (seams S1, fix round 1): a 502/504 on a `save --url` to the sudact host is `refused:unchecked`
+        — «not served» — but it is a broken request, not a challenge: no marker, and the next save is sent."""
+        for code in (502, 504):
+            with self.subTest(code=code):
+                sources.channel_state_path(self.work_dir).unlink(missing_ok=True)
+                _Handler.seen = []
+                gateway = (b"<html><body>bad gateway</body></html>", "text/html", {}, code)
+                with LocalServer(b"", routes={SUDACT_ACT: gateway}) as base:
+                    self.allow(sources.url_host(base))
+                    result = self.save_on_sudact(base, SUDACT_ACT)
+                    self.assertEqual([SUDACT_ACT], self.paths())
+                    self.assertFalse(self.state()["channels"]["sudact"]["captcha"], "no marker: a gateway is no wall")
+                    self.assert_nothing_written(result)
+                    _Handler.seen = []
+                    again = self.save_on_sudact(base, SUDACT_ACT)
+                    self.assertEqual([SUDACT_ACT], self.paths(), "the next save of the run is still sent")
+                self.assertEqual([f"unchecked: http_{code}"], result["errors"])
+                self.assertEqual("refused:unchecked", result["save_outcome"])
+                self.assertNotIn("challenge", result)
+                # The portal is still down, so the second save is refused the same way — but it was sent:
+                # a closed host would have answered `channel_unavailable: captcha` without a request.
+                self.assertEqual([f"unchecked: http_{code}"], again["errors"])
+                self.assertEqual({"requests": 2, "captcha": False}, self.counts())
+                self.assert_nothing_written(again)
 
     def test_a_challenge_a_plain_save_meets_closes_the_host(self):
         """An access wall, a throttle: the wall is the host's, whoever walks into it first."""

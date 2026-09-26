@@ -496,11 +496,11 @@ class PackParityTest(unittest.TestCase):
         # says what is known — not confirmed as fixed — and where its text is.
         expected = {
             "en": (
-                "a substantive reviewer finding was not verifiably fixed",
+                "a substantive reviewer finding is left for a lawyer's decision or was not verifiably fixed",
                 "the reviewer's finding here is not confirmed as fixed; its text is in summary.md",
             ),
             "ru": (
-                "замечание рецензента по существу не было проверяемо устранено",
+                "замечание рецензента по существу оставлено на решение юриста или не было проверяемо устранено",
                 "замечание рецензента здесь не подтверждено как устранённое; его текст — в summary.md",
             ),
         }

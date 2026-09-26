@@ -3934,8 +3934,11 @@ class OpenMajorsReadinessTest(unittest.TestCase):
             (rows[0]["issue"], "logic", "Fixture disposition."),
             (moved["issue"], moved["source_reviewer"], moved["disposition_note"]),
         )
+        self.assertEqual("manual_review", moved["disposition"])
+        # D-252: the English Status row is the lawyer's question; `summary.md` keeps the issue and the note.
         status = md_fallback.render_status(md_fallback.status_inputs(state))
-        self.assertIn(f"- major · section 3 · {rows[0]['issue']}", status)
+        self.assertIn("- major · section 3 · Fixture disposition.", status)
+        self.assertNotIn(rows[0]["issue"], status)
         summary = (driver.work_dir / "summary.md").read_text(encoding="utf-8")
         self.assertEqual(1, summary.count(rows[0]["issue"]))
         self.assertIn(f"- major · s-3 · {rows[0]['issue']} · Fixture disposition.", summary)
@@ -4252,6 +4255,12 @@ class SettleOpenMajorsTest(unittest.TestCase):
         plain = self.state("approved_on_v1", _major("om-1", "logic", status="manual_review"))
         machine._settle_open_majors(plain, [], 1)  # noqa: SLF001
         self.assertNotIn("disposition_note", plain["remaining_blocking_issues"][0])
+
+    def test_a_moved_row_names_its_disposition(self):
+        for status in ("manual_review", "unresolved"):
+            with self.subTest(status=status):
+                moved = machine._moved_finding(_major("om-1", "counterarguments", status=status))  # noqa: SLF001
+                self.assertEqual(status, moved["disposition"])
 
     def test_an_entry_the_previous_build_moved_is_enriched_not_duplicated(self):
         # D-237 fix round 1: the previous build moved this row without its note (a settlement persisted by a

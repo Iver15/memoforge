@@ -263,8 +263,11 @@ class AllowlistFileTest(unittest.TestCase):
         # `optional`; D-148 adds the nine-host `legislature-api` group, 90 + 9 = 99;
         # D-162 returns the two US regulation API hosts to the active set, 99 + 2 = 101;
         # D-185 adds the seven-host `ru` group, 101 + 7 = 108;
-        # D-205 adds `garant.ru` to the `ru` group, 108 + 1 = 109.
-        self.assertEqual(len(hosts), 109)
+        # D-205 adds `garant.ru` to the `ru` group, 108 + 1 = 109;
+        # D-249 adds `judiciary.uk` and `justice.gov.uk` to the `legislature` group, 109 + 2 = 111.
+        self.assertEqual(len(hosts), 111)
+        self.assertIn("judiciary.uk", hosts)
+        self.assertIn("justice.gov.uk", hosts)
         self.assertIn("europa.eu", hosts)
         self.assertNotIn("justia.com", hosts)
 

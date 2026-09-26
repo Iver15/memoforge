@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import sys
@@ -777,6 +778,119 @@ class OneFormPerActTest(unittest.TestCase):
                 self.assertIn(needle, text)
         rules = rules_of("legal-researcher")
         self.assertIn('a regulation, schedule or rule with its label: `"reg 22"`, `"Sch 1"`', rules)
+
+
+class Run84LinesTest(unittest.TestCase):
+    """D-254: nine lines where run 84's writer, researcher and judges went wrong, and two checklist texts.
+
+    Each line stands in the dispatch prompt and in the agent's `## Rules`; a brief line also in the template."""
+
+    def both(self, stem: str) -> tuple[str, str]:
+        return flat(PROMPTS / f"{stem}.md"), " ".join(rules_of(stem).split())
+
+    def brief_files(self) -> tuple[tuple[str, str], ...]:
+        prompt, body = self.both("brief-writer")
+        return ("prompt", prompt), ("body", body), ("template", flat(TEMPLATES / "decision-brief.md"))
+
+    def assert_in_both(self, stem: str, needle: str) -> None:
+        for where, text in zip(("prompt", "body"), self.both(stem)):
+            with self.subTest(stem=stem, where=where):
+                self.assertIn(needle, text)
+
+    def checklist_text(self, name: str, identifier: str) -> str:
+        rows = json.loads((PLUGIN_ROOT / "lib" / "checklists" / f"{name}.json").read_text(encoding="utf-8"))
+        return next(row["text"] for row in rows if row["id"] == identifier)
+
+    def test_the_writer_states_every_limb_of_a_time_limit(self):
+        """J10: run 84 kept art 14(3)'s «at the latest at the first communication» and lost its one-month limit."""
+        self.assert_in_both(
+            "memo-writer",
+            "A provision that sets a time limit is stated with every limb the facts engage — the general period and "
+            "any special trigger (UK GDPR art 14(3): within one month at the latest, and at the latest at the first "
+            "communication); the earlier one governs, and a limit already passed on the facts is said to have passed.",
+        )
+
+    def test_the_researcher_saves_a_unit_from_its_own_page(self):
+        """J6: run 84 marked UK GDPR art 12A and two Schedule paragraphs of S.I. 2026/386 as excerpts though whole."""
+        self.assert_in_both(
+            "legal-researcher",
+            'Save a unit from its own page, not from a chapter or section page that carries several; a paragraph '
+            'of a Schedule is expected as `"para N"`.',
+        )
+
+    def test_the_researcher_registers_a_whole_act_without_a_unit(self):
+        """J12: run 84 registered the consolidated GDPR under one article."""
+        self.assert_in_both(
+            "legal-researcher",
+            "A text that holds the whole act (a consolidated regulation) is registered under the act without a unit "
+            "(`GDPR`), never under one article of it.",
+        )
+
+    def test_the_checker_keeps_a_registered_replacement_out_of_blocking(self):
+        """J11: run 84 regated for UK GDPR art 77, omitted by the DUAA, though its replacement s 165 was registered."""
+        rules = " ".join(rules_of("currency-checker").split())
+        self.assertIn(
+            "`blocking` lists the `do_not_use` ids whose replacement is not already registered; a repealed or "
+            "omitted provision whose replacement the registry holds is `do_not_use` with the replacement's "
+            "`source_id` in its `note`, and stays out of `blocking`.",
+            rules,
+        )
+        self.assertNotIn("lists exactly the `do_not_use` ids", rules)
+
+    def test_the_sufficiency_warning_says_what_the_research_found(self):
+        """J13: run 84's memo said «no court has interpreted Art 3(2)» and cited Soriano on it a few pages on."""
+        self.assert_in_both(
+            "research-sufficiency-reviewer",
+            "A warning about missing authority says what the research found, not what exists: «no decision on … "
+            "was found in the research», never «no court has interpreted …».",
+        )
+
+    def test_readiness_crd_05_fails_a_company_owner_and_a_figure_for_two_events(self):
+        """J14: run 84 passed CRD-05 with no owner for evidence preservation and «7 days» meaning two deadlines."""
+        self.assertIn(
+            "An action owned by «the company» as a whole has no owner, and one figure used for two events (a reply "
+            "period and a sending deadline) is an ambiguous deadline: each fails this item as a polish issue.",
+            self.checklist_text("client-readiness", "CRD-05"),
+        )
+
+    def test_fidelity_bf_03_holds_the_other_matters_sentence_to_the_memo_s_certainty(self):
+        """J15: run 84's brief turned a firm conclusion into «whether …» in «Other matters»."""
+        self.assertIn(
+            "The «Other matters» sentence is held to the same rule: a conclusion the memo states firmly is written "
+            "as that conclusion, never as a question.",
+            self.checklist_text("brief-fidelity", "BF-03"),
+        )
+
+    def test_the_brief_says_which_action_waits_for_an_open_point(self):
+        """J8: run 84's brief listed «choose the route within 3 working days» with no word of the open om-3."""
+        for where, text in self.brief_files():
+            with self.subTest(where=where):
+                self.assertIn(
+                    "An action that depends on an open point says so in a short clause inside its line — «after "
+                    "counsel confirms <the point>».",
+                    text,
+                )
+
+    def test_the_brief_names_other_matters_by_their_conclusion_and_keeps_the_urgency_word(self):
+        """J15: run 84's «Other matters» asked questions and its bottom line lost the memo's «now»."""
+        for where, text in self.brief_files():
+            for needle in (
+                "In «Other matters» a subject is a noun phrase that states the memo's conclusion, never a question: "
+                "«EU representative required (medium)», not «whether an EU representative is needed (medium)».",
+                "The bottom line keeps the memo's urgency word for its first action («now», «today»).",
+            ):
+                with self.subTest(where=where, needle=needle[:30]):
+                    self.assertIn(needle, text)
+
+    def test_the_brief_times_a_chained_action_by_the_step_it_follows(self):
+        """J15: run 84's brief dropped an action due «within 14 days of the notification» of a step due now."""
+        for where, text in self.brief_files():
+            with self.subTest(where=where):
+                self.assertIn(
+                    "An action timed from another step («within 14 days of the notification») takes that step's "
+                    "deadline: it is within 14 days of the memo date when the chain is.",
+                    text,
+                )
 
 
 class PlaceholderTest(unittest.TestCase):

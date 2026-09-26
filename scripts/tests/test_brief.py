@@ -350,6 +350,14 @@ class ClassifyTest(BriefCase):
             result["open_issues"],
         )
 
+    def test_the_open_issue_of_a_manual_review_row_is_the_question(self):
+        # D-252: run 84's brief got the critique of om-3 and lost the disclosure duty the question names.
+        row = {"issue": "The draft never says ...", "status": "manual_review",
+               "disposition_note": "Counsel must confirm the cross-undertaking and the full-disclosure duty."}
+        self.assertEqual(row["disposition_note"], brief._text_of(row))  # noqa: SLF001
+        self.assertEqual(row["disposition_note"], brief._text_of(dict(row, status=None, disposition="manual_review")))  # noqa: SLF001
+        self.assertEqual("The draft never says ...", brief._text_of(dict(row, status="unresolved")))  # noqa: SLF001
+
     def test_open_issues_are_written_for_the_writer(self):
         finished = self.task()
         set_status(finished, "client_ready_on_v1", open_substance_majors=[open_major("om-2")])
