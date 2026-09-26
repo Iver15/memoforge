@@ -111,7 +111,7 @@ DECISION_BRIEF_BLOCK_WORDS = 100
 """B-12: body words of each conclusion block (D-229)."""
 
 DECISION_BRIEF_OTHER_WORDS = 60
-"""B-12: body words of the "Other matters" text before the first conclusion block (D-229)."""
+"""B-12: body words of the whole «Other points assessed» part, the omitted leaves at the end (D-229, D-255)."""
 
 DECISION_BRIEF_ACTION_WORDS = 30
 """B-12: words of each numbered action — who, what, by when (D-229)."""

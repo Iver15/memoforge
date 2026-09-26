@@ -8,6 +8,7 @@ have the `lint.finding` shape; their `section_id` is a block of the brief (`BLOC
 
 D-229: every leaf of the memo is either kept — bound to a conclusion block — or omitted — listed
 in the one `<!-- omitted §s-… -->` comment of the header; B-03/B-04/B-05 check that partition.
+The omitted leaves are named in the last part «Other points assessed» (`s-other`, D-255).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ BLOCK_IDS: tuple[str, ...] = (
     "s-b7",
     "s-actions",
     "s-assumptions",
+    "s-other",
 )
 """Every block id a brief can have: the header, the parts and up to seven conclusion blocks (D-228)."""
 
@@ -52,10 +54,16 @@ SEVERITY: dict[str, str] = {
     "B-12": "major",  # D-229 fix round 2: a part over its word budget; a length rule like B-01
 }
 
-PART_KINDS: tuple[str, ...] = ("main", "conclusions", "actions", "assumptions")
-"""The four parts of the brief, in their order; `assumptions` is optional (DB-04)."""
+PART_KINDS: tuple[str, ...] = ("main", "conclusions", "actions", "assumptions", "other")
+"""The five parts of the brief, in their order (DB-04); `assumptions` and `other` are optional; `other` is present
+exactly when leaves are omitted (D-255)."""
 
-PART_BLOCK_IDS: dict[str, str] = {"main": "s-main", "actions": "s-actions", "assumptions": "s-assumptions"}
+PART_BLOCK_IDS: dict[str, str] = {
+    "main": "s-main",
+    "actions": "s-actions",
+    "assumptions": "s-assumptions",
+    "other": "s-other",
+}
 
 HEADER_KEYS: tuple[str, ...] = ("date_label", "jurisdictions_label", "question_label")
 
@@ -343,7 +351,10 @@ def block_texts(parsed: dict) -> dict[str, str]:
 
 
 def _conclusions_preamble(parsed: dict) -> str | None:
-    """The conclusions heading and the text before its first `###` (no block covers it); None without the part."""
+    """The conclusions heading and the text before its first `###` (no block covers it); None without the part.
+
+    The preamble is now always empty in a valid brief (D-255, B-02); a change there still scopes nothing.
+    """
     section = parsed["parts"]["conclusions"]
     if section is None:
         return None
@@ -357,7 +368,8 @@ def changed_blocks(before_text: str, after_text: str, language: str) -> list[str
 
     A block that exists in only one of the two versions counts as changed. None when the text between
     the conclusions heading and its first block changed, or the omitted list did (D-229): no block id
-    covers either, so nothing can be scoped.
+    covers either, so nothing can be scoped. The preamble is now always empty in a valid brief (D-255);
+    a change there still scopes nothing.
     """
     before_parsed, after_parsed = parse_brief(before_text, language), parse_brief(after_text, language)
     if _conclusions_preamble(before_parsed) != _conclusions_preamble(after_parsed):
@@ -376,7 +388,6 @@ def writer_labels(language: str) -> str:
     code = lint.grammar(language).language
     heading = {kind: i18n.t(code, f"memo.brief.sections.{kind}") for kind in PART_KINDS}
     label = {key: i18n.t(code, f"memo.brief.{key}") for key in HEADER_KEYS}
-    other = i18n.t(code, "memo.brief.other_label")
     return "\n".join(
         [
             "Part headings, in this order (each an H2, written exactly as here):",
@@ -384,17 +395,20 @@ def writer_labels(language: str) -> str:
             f"- `## {heading['conclusions']}`",
             f"- `## {heading['actions']}`",
             f"- `## {heading['assumptions']}` (only when there are assumptions that change the answer)",
+            f"- `## {heading['other']}` (last; only when leaves are omitted)",
             "Header lines under the title:",
             f"- `**{label['date_label']}:** YYYY-MM-DD`",
             f"- `**{label['jurisdictions_label']}:** …`",
             f"- `**{label['question_label']}:** …`",
             "The leaves you omit, in one comment under the header lines, above the first part: "
             "`<!-- omitted §s-8 §s-10-1 -->` (`<!-- omitted -->` when every leaf is kept).",
-            "The omitted leaves in one sentence of the conclusions part, before its first `###`: "
-            f"`{other}: <subject> (<risk as the memorandum states it>); <subject> (…).`",
+            f"The omitted leaves in «{heading['other']}», the last part: one list item per omitted leaf, "
+            "`- <the memorandum's conclusion on it, as a statement> (<risk as the memorandum states it>)`, "
+            f"no other text. «{heading['conclusions']}» holds only its `###` blocks.",
             f"Word budgets, at most (body words; citation tokens and comments are not counted): «{heading['main']}» "
-            f"{limits.DECISION_BRIEF_MAIN_WORDS}; each conclusion block {limits.DECISION_BRIEF_BLOCK_WORDS}; the "
-            f"{other} sentence {limits.DECISION_BRIEF_OTHER_WORDS}; each action {limits.DECISION_BRIEF_ACTION_WORDS}; "
+            f"{limits.DECISION_BRIEF_MAIN_WORDS}; each conclusion block {limits.DECISION_BRIEF_BLOCK_WORDS}; "
+            f"«{heading['other']}» {limits.DECISION_BRIEF_OTHER_WORDS} in all; each action "
+            f"{limits.DECISION_BRIEF_ACTION_WORDS}; "
             f"«{heading['assumptions']}» one paragraph, no list, {limits.DECISION_BRIEF_ASSUMPTIONS_WORDS}.",
             f"Risk line of every conclusion block: `{lint.grammar(code).risk_literal}` followed by one sentence.",
             f"Wording for anything not confirmed: «{i18n.t(code, 'memo.brief.unconfirmed')}»",
@@ -477,6 +491,36 @@ def check_b02(parsed: dict, language: str) -> list[dict]:
     if order != [kind for kind in PART_KINDS if kind in order]:
         names = ", ".join(f"«{i18n.t(language, f'memo.brief.sections.{kind}')}»" for kind in PART_KINDS)
         out.append(_finding("B-02", None, DOCUMENT_ID, "", f"The parts are out of order; the order is {names}."))
+    other = parts["other"]
+    other_name = i18n.t(language, "memo.brief.sections.other")
+    omitted = parsed["omitted"]
+    if omitted and other is None:
+        out.append(_finding("B-02", None, DOCUMENT_ID, "",
+                            f"The «{other_name}» part is missing: the omitted comment lists {len(omitted)} leaf(s). "
+                            "Add it as the last part, one list item per omitted leaf."))
+    if other is not None:
+        if not omitted:
+            out.append(_finding("B-02", other["line"], "s-other", other["raw"],
+                                f"The «{other_name}» part is here but the omitted comment lists no leaf; remove it."))
+        # Runs, not paragraphs: `lint.parse_draft` splits a soft-wrapped list item into a bullet and a prose
+        # paragraph (lint.py:397-408); `_wrapped_runs` keeps it one run, as Markdown renders it (fix F1).
+        runs = [
+            run for run in _wrapped_runs(document)
+            if other["line"] < run[0][0] <= other["end_line"] and not run[0][1].strip().startswith(("#", "<!--"))
+        ]
+        items = [run for run in runs if lint.BULLET.match(_QUOTE_MARKER.sub("", run[0][1], count=1).strip())]
+        if omitted and (len(items) != len(omitted) or len(items) != len(runs)):
+            out.append(_finding("B-02", other["line"], "s-other", other["raw"],
+                                f"«{other_name}» has {len(items)} item(s) and {len(runs) - len(items)} other "
+                                f"paragraph(s); it needs exactly {len(omitted)} list item(s), one per omitted leaf, "
+                                "and no other text."))
+    conclusions = parts["conclusions"]
+    if conclusions is not None and parsed["blocks"]:
+        first = parsed["blocks"][0]["line"]
+        if _paragraphs(document, conclusions["line"] + 1, first - 1):
+            out.append(_finding("B-02", conclusions["line"] + 1, DOCUMENT_ID, "",
+                                "Text before the first conclusion block: the conclusions part is only blocks. "
+                                f"Omitted leaves go to «{other_name}», the last part, one item each."))
     if parts["conclusions"] is not None:
         count = len(parsed["blocks"])
         if not 1 <= count <= limits.DECISION_BRIEF_MAX_BLOCKS:
@@ -854,14 +898,6 @@ def check_b12(parsed: dict, language: str) -> list[dict]:
         count = _words(document, main["line"], main["end_line"])
         if count > limits.DECISION_BRIEF_MAIN_WORDS:
             over("s-main", main["line"], main["raw"], f"«{heading('main')}»", count, limits.DECISION_BRIEF_MAIN_WORDS)
-    conclusions = parts["conclusions"]
-    if conclusions is not None:
-        last = parsed["blocks"][0]["line"] - 1 if parsed["blocks"] else conclusions["end_line"]
-        count = _words(document, conclusions["line"] + 1, last)
-        if count > limits.DECISION_BRIEF_OTHER_WORDS:
-            label = i18n.t(language, "memo.brief.other_label")
-            over(DOCUMENT_ID, conclusions["line"] + 1, "", f"The «{label}» text before the first block", count,
-                 limits.DECISION_BRIEF_OTHER_WORDS, "Name each omitted section by its subject and its risk only")
     for block in parsed["blocks"]:
         count = _words(document, block["line"], block["end_line"])
         if count > limits.DECISION_BRIEF_BLOCK_WORDS:
@@ -886,6 +922,13 @@ def check_b12(parsed: dict, language: str) -> list[dict]:
                  limits.DECISION_BRIEF_ASSUMPTIONS_WORDS,
                  "Write it as one paragraph, no list, naming only the few conditions that would change the overall "
                  "answer; the condition of one conclusion goes beside it in its block")
+    other = parts["other"]
+    if other is not None:
+        count = _words(document, other["line"] + 1, other["end_line"])
+        if count > limits.DECISION_BRIEF_OTHER_WORDS:
+            over("s-other", other["line"], other["raw"], f"«{heading('other')}»", count,
+                 limits.DECISION_BRIEF_OTHER_WORDS,
+                 "Each item is the memo's conclusion on that point in one short statement and its risk")
     return out
 
 

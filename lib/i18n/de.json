@@ -316,13 +316,13 @@
         "main": "Das Wichtigste",
         "conclusions": "Ergebnisse",
         "actions": "Was zu tun ist",
-        "assumptions": "Wovon die Antwort abhängt"
+        "assumptions": "Wovon die Antwort abhängt",
+        "other": "Weitere geprüfte Punkte"
       },
       "question_label": "Frage",
       "date_label": "Datum",
       "jurisdictions_label": "Rechtsordnungen",
       "unconfirmed": "nicht bestätigt; ein Jurist muss dies prüfen, bevor sich jemand darauf verlässt",
-      "other_label": "Weitere Punkte",
       "banners": {
         "title": "ENTSCHEIDUNGSVORLAGE — VOR VERWENDUNG PRÜFEN",
         "subtitle": "Die folgenden Hinweise nennen, was nicht bestätigt wurde.",
@@ -556,6 +556,11 @@
       "tab_sources": "Quellen",
       "tab_reviews": "Reviews",
       "tab_memo": "Memo",
+      "tab_brief": "Kurzvorlage",
+      "card_brief": "Entscheidungsvorlage",
+      "label_brief_status": "Status",
+      "label_brief_rounds": "Prüfrunden",
+      "label_brief_checks": "Nicht bestandene Prüfungen",
       "card_your_turn": "Sie sind am Zug",
       "card_running_now": "Läuft gerade",
       "card_timeline": "Verlauf",
@@ -676,7 +681,29 @@
         "lint_fix": "Behebung der Prüfbefunde",
         "revise": "Überarbeitung",
         "shorten": "Kürzung",
-        "review": "Prüfung von Treue und Klarheit"
+        "review": "Prüfung von Treue und Klarheit",
+        "status_gate": "Ihre Antwort zu den offenen Punkten",
+        "lint": "Formprüfung",
+        "review_merge": "Zusammenführung der Prüfungen",
+        "render": "Erstellung des Dokuments",
+        "publish": "Ablage neben dem Memo"
+      },
+      "dashboard": {
+        "phase": "Entscheidungsvorlage",
+        "attempt": "{step} (Versuch {attempt})",
+        "status": {
+          "running": "Vorlage in Arbeit",
+          "waiting": "wartet auf Ihre Antwort",
+          "clean": "Vorlage fertig",
+          "unverified": "Vorlage fertig, Prüfungen offen",
+          "declined": "keine Vorlage erstellt",
+          "refused": "Vorlage abgebrochen"
+        },
+        "agents": {
+          "writer": "Verfasser der Vorlage",
+          "fidelity": "Treueprüfung",
+          "form": "Klarheitsprüfung"
+        }
       }
     }
   }

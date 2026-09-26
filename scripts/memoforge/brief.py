@@ -10,6 +10,9 @@ unclean memo) → `write` → `lint` → [`lint_fix` → `lint`] → `review` �
 `shorten` → `lint` → …] → `render` → `publish`. D-225: `review_merge` is `brief_review.after_reviews`
 (validation, fail-closed merge, revise/shorten, the verdict); `render` builds `brief/brief.docx` (or the
 markdown twin, or keeps the last version) and `publish` copies it next to the published memo.
+
+`next` (and a `report` that ends the run) carries the dashboard block of D-256 when the memo's page is live
+(`brief_dashboard.attach`).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import uuid
 from pathlib import Path
 
 from . import (
+    brief_dashboard,
     brief_lint,
     brief_review,
     dispatch,
@@ -881,7 +885,7 @@ def _publish(work_dir: Path, run: dict, state: dict) -> dict:
     ui = inp["ui_language"]
     source = work_dir / (run["deliverable_path"] or run["versions"][-1]["path"])
     ext = source.suffix
-    path, present, warning = str(source), False, None
+    path, present, warning, folder = str(source), False, None, ""
     root = _outputs_root(state)
     if root is not None:
         targets = (root / "memoforge" / inp["slug"] / f"brief{ext}", root / f"memo-{inp['slug']}.brief{ext}")
@@ -895,7 +899,7 @@ def _publish(work_dir: Path, run: dict, state: dict) -> dict:
                     stale = target.with_suffix(other)
                     if other != ext and stale.exists():
                         stale.unlink()  # a previous run's copy in the other format
-            path, present = str(targets[-1]), True
+            path, present, folder = str(targets[-1]), True, str(targets[0])
         except OSError as exc:
             warning = i18n.t(ui, "ui.brief.copy_failed", path=str(source), error=str(exc))
     outcome = run["verdict"] or "unverified"
@@ -904,7 +908,7 @@ def _publish(work_dir: Path, run: dict, state: dict) -> dict:
     key = "ui.brief.done" if outcome == "clean" else "ui.brief.done_unverified"
     text = i18n.t(ui, key, path=path) + (f"\n{warning}" if warning else "")
     return {"kind": "done", "run_id": run["run_id"], "outcome": outcome, "path": path, "present": present,
-            "text": text, "chat_line": text.splitlines()[0], "format": ext.lstrip(".")}
+            "folder_copy": folder, "text": text, "chat_line": text.splitlines()[0], "format": ext.lstrip(".")}
 
 
 # --- the status gate --------------------------------------------------------
@@ -1147,7 +1151,7 @@ def run_next(args: argparse.Namespace) -> dict:
         return _refused_action("no_task", i18n.DEFAULT)  # and no `brief.lock` in a folder that is no task
     journal: list = []
     with _lock(work_dir):
-        action = _next_locked(work_dir, journal)
+        action = brief_dashboard.attach(work_dir, _next_locked(work_dir, journal))
     _emit(work_dir, journal)
     return action
 
@@ -1244,6 +1248,8 @@ def run_report(args: argparse.Namespace) -> dict:
     journal: list = []
     with _lock(work_dir):
         result = _report_locked(work_dir, args, journal)
+        if isinstance(result, dict) and result.get("kind") == "done":
+            result = brief_dashboard.attach(work_dir, result)
     _emit(work_dir, journal)
     return result
 

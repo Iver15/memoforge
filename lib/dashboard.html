@@ -95,6 +95,7 @@
     <button type="button" role="tab" id="tab-sources" aria-controls="panel-sources" aria-selected="false" tabindex="-1" hidden data-lbl="tab_sources"></button>
     <button type="button" role="tab" id="tab-reviews" aria-controls="panel-reviews" aria-selected="false" tabindex="-1" hidden data-lbl="tab_reviews"></button>
     <button type="button" role="tab" id="tab-memo" aria-controls="panel-memo" aria-selected="false" tabindex="-1" hidden data-lbl="tab_memo"></button>
+    <button type="button" role="tab" id="tab-brief" aria-controls="panel-brief" aria-selected="false" tabindex="-1" hidden data-lbl="tab_brief"></button>
   </div>
 
   <div class="panel" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
@@ -172,6 +173,10 @@
       <dl class="rows"><dt data-lbl="label_file"></dt><dd class="path" id="deliverable">—</dd><dt data-lbl="label_summary"></dt><dd class="path" id="memo-summary">—</dd><dt data-lbl="label_published"></dt><dd class="path" id="memo-published">—</dd></dl>
     </section>
   </div>
+
+  <div class="panel" id="panel-brief" role="tabpanel" aria-labelledby="tab-brief" hidden>
+    <section class="card"><h2 data-lbl="card_brief"></h2><dl class="rows"><dt data-lbl="label_brief_status"></dt><dd id="brief-status">—</dd><dt data-lbl="label_brief_rounds"></dt><dd class="mono" id="brief-rounds">—</dd><dt data-lbl="label_file"></dt><dd class="path" id="brief-file">—</dd><dt data-lbl="label_brief_checks"></dt><dd id="brief-checks">—</dd></dl></section>
+  </div>
 </div>
 
 <script>
@@ -191,6 +196,11 @@
       "tab_sources": "Sources",
       "tab_reviews": "Reviews",
       "tab_memo": "Memo",
+      "tab_brief": "Brief",
+      "card_brief": "Decision brief",
+      "label_brief_status": "Status",
+      "label_brief_rounds": "Review rounds",
+      "label_brief_checks": "Checks not passed",
       "card_your_turn": "Your turn",
       "card_running_now": "Running now",
       "card_timeline": "Timeline",
@@ -459,7 +469,16 @@
       return true;
     }
 
-    var TAB_NAMES = ["overview", "intake", "plan", "sources", "reviews", "memo"];
+    function briefPanel(brief) {
+      if (!brief) { return false; }
+      put("brief-status", brief.status_label || "");
+      put("brief-rounds", String(Number(brief.rounds || 0)));
+      put("brief-file", brief.file || "—");
+      put("brief-checks", array(brief.checks).join("; ") || "—");
+      return true;
+    }
+
+    var TAB_NAMES = ["overview", "intake", "plan", "sources", "reviews", "memo", "brief"];
     var TAB_STEPS = { ArrowLeft: -1, ArrowRight: 1, Home: 0, End: 0 };
     var openTab = "overview";
 
@@ -468,7 +487,7 @@
       for (var i = 0; i < TAB_NAMES.length; i++) {
         var chosen = TAB_NAMES[i] === name;
         el("tab-" + TAB_NAMES[i]).setAttribute("aria-selected", chosen ? "true" : "false");
-        el("tab-" + TAB_NAMES[i]).tabIndex = chosen ? 0 : -1; // roving tabindex: one stop, not six
+        el("tab-" + TAB_NAMES[i]).tabIndex = chosen ? 0 : -1; // roving tabindex: one stop, not seven
         el("panel-" + TAB_NAMES[i]).hidden = !chosen;
       }
       if (focus) { el("tab-" + name).focus(); }
@@ -529,6 +548,7 @@
       if (sourcesPanel(data.sources)) { available.push("sources"); }
       if (reviewsPanel(data.reviews)) { available.push("reviews"); }
       if (memoPanel(data.memo)) { available.push("memo"); }
+      if (briefPanel(data.brief)) { available.push("brief"); }
       tabs(available, !!data.gate);
 
       show("agents-card", list("agents", array(data.agents_running), function (li, row) {

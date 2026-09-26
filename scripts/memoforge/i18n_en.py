@@ -442,7 +442,7 @@ EN: dict = {
             "applies: the retention conclusion is not confirmed by the client."
         ),
         # D-222: the decision brief of `/memoforge:brief` (plan 75A), written in the memo language.
-        # `sections` are the four part headings the brief lint recognises; the three header labels,
+        # `sections` are the five part headings the brief lint recognises; the three header labels,
         # the risk literal and `unconfirmed` reach the writer through `brief_lint.writer_labels`.
         # `checks` names every code an unverified brief can list in its banner — the BF/BC
         # checklist items, the B-rules and the four operational reasons of the driver.
@@ -453,13 +453,12 @@ EN: dict = {
                 "conclusions": "Conclusions",
                 "actions": "What to do",
                 "assumptions": "What the answer depends on",
+                "other": "Other points assessed",
             },
             "question_label": "Question",
             "date_label": "Date",
             "jurisdictions_label": "Jurisdictions",
             "unconfirmed": "not confirmed; a lawyer has to check this before anyone relies on it",
-            # D-229: the label of the one sentence naming the memo leaves the brief leaves out.
-            "other_label": "Other matters",
             "banners": {
                 "title": "DECISION BRIEF — CHECK BEFORE RELYING ON IT",
                 "subtitle": "The notes below say what was not confirmed.",
@@ -737,6 +736,11 @@ EN: dict = {
             "tab_sources": "Sources",
             "tab_reviews": "Reviews",
             "tab_memo": "Memo",
+            "tab_brief": "Brief",
+            "card_brief": "Decision brief",
+            "label_brief_status": "Status",
+            "label_brief_rounds": "Review rounds",
+            "label_brief_checks": "Checks not passed",
             "card_your_turn": "Your turn",
             "card_running_now": "Running now",
             "card_timeline": "Timeline",
@@ -897,6 +901,20 @@ EN: dict = {
                 "revise": "revising",
                 "shorten": "shortening",
                 "review": "checking fidelity and clarity",
+                "status_gate": "your answer on the open points",
+                "lint": "checking the form",
+                "review_merge": "weighing the reviews",
+                "render": "building the document",
+                "publish": "copying it next to the memo",
+            },
+            # D-256: the dashboard page during a brief run, in the interface language.
+            "dashboard": {
+                "phase": "Decision brief",
+                "attempt": "{step} (attempt {attempt})",
+                "status": {"running": "brief in progress", "waiting": "waiting for your answer",
+                           "clean": "brief ready", "unverified": "brief ready, checks open",
+                           "declined": "no brief made", "refused": "brief refused"},
+                "agents": {"writer": "Brief writer", "fidelity": "Fidelity reviewer", "form": "Clarity reviewer"},
             },
         },
     },

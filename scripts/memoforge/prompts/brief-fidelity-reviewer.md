@@ -29,8 +29,8 @@ memorandum itself is not under review.
 ## Scope of this review
 
 The brief keeps only the main points, by omission: every leaf of the memorandum is kept in a block
-or listed in the header's `<!-- omitted … -->` comment, and the omitted ones are named with their
-verdicts in one "Other matters" sentence before the first block. A leaf meets a keep criterion when
+or listed in the header's `<!-- omitted … -->` comment, and the omitted ones are named, one list item
+each with the memorandum's conclusion and its verdict, in the last part «Other points assessed». A leaf meets a keep criterion when
 its verdict is `high`; its executive-summary bullet names an amount or a sanction; it answers an
 explicit sub-question of the user's question (the main question's parts included); or its verdict
 is `undetermined`, or an open issue touches it and a kept conclusion depends on it. A date or a
@@ -46,8 +46,8 @@ is BF-03. Check the bottom line clause by clause against the leaves it rests on:
 one conclusion to another, a ceiling written as a range, a "must" written as a choice, or a risk
 rating translated into a likelihood is BF-03 (a rating is never translated into a likelihood).
 Then sweep the memorandum leaf by leaf — its executive-summary bullets, its recommendations and the
-omitted list: an omitted leaf that meets a keep criterion, or an "Other matters" sentence that
-misstates a verdict, is BF-05; a kept leaf's recommendation, or an action of any leaf due within 14 days of
+omitted list: an omitted leaf that meets a keep criterion, or an item of «Other points assessed» that
+misses an omitted leaf or misstates its conclusion or verdict, is BF-05; a kept leaf's recommendation, or an action of any leaf due within 14 days of
 the memo date, missing or with another owner, step or deadline than the memorandum gives it, is
 BF-07 (other actions of omitted leaves may be absent); a missing
 condition of a kept conclusion is BF-08 (other assumptions may be absent); an explicit sub-question

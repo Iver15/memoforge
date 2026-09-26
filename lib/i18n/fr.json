@@ -310,13 +310,13 @@
         "main": "L'essentiel",
         "conclusions": "Conclusions",
         "actions": "Que faire",
-        "assumptions": "Ce dont dépend la réponse"
+        "assumptions": "Ce dont dépend la réponse",
+        "other": "Autres points examinés"
       },
       "question_label": "Question",
       "date_label": "Date",
       "jurisdictions_label": "Droits applicables",
       "unconfirmed": "non confirmé ; un juriste doit le vérifier avant que quiconque s'y fie",
-      "other_label": "Autres points",
       "banners": {
         "title": "NOTE DE DÉCISION — À VÉRIFIER AVANT DE S'Y FIER",
         "subtitle": "Les mentions ci-dessous indiquent ce qui n'a pas été confirmé.",
@@ -551,6 +551,11 @@
       "tab_sources": "Sources",
       "tab_reviews": "Révisions",
       "tab_memo": "Note",
+      "tab_brief": "Note de décision",
+      "card_brief": "Note de décision",
+      "label_brief_status": "Statut",
+      "label_brief_rounds": "Tours de revue",
+      "label_brief_checks": "Contrôles non réussis",
       "card_your_turn": "À vous",
       "card_running_now": "En cours",
       "card_timeline": "Chronologie",
@@ -671,7 +676,29 @@
         "lint_fix": "correction des constats du contrôle",
         "revise": "révision",
         "shorten": "raccourcissement",
-        "review": "contrôle de fidélité et de clarté"
+        "review": "contrôle de fidélité et de clarté",
+        "status_gate": "votre réponse sur les points ouverts",
+        "lint": "contrôle de la forme",
+        "review_merge": "synthèse des contrôles",
+        "render": "mise en forme du document",
+        "publish": "copie à côté de la note"
+      },
+      "dashboard": {
+        "phase": "Note de décision",
+        "attempt": "{step} (tentative {attempt})",
+        "status": {
+          "running": "note en cours",
+          "waiting": "en attente de votre réponse",
+          "clean": "note prête",
+          "unverified": "note prête, contrôles ouverts",
+          "declined": "aucune note établie",
+          "refused": "note interrompue"
+        },
+        "agents": {
+          "writer": "Rédacteur de la note",
+          "fidelity": "Contrôle de fidélité",
+          "form": "Contrôle de clarté"
+        }
       }
     }
   }

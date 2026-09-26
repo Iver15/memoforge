@@ -17,7 +17,7 @@
   },
   {
     "id": "BF-03",
-    "text": "The degree of certainty of every conclusion is the memorandum's, shifted in neither direction: no hedge added where the memo is firm, none removed where it hedges. The bottom line is checked clause by clause against the leaves it rests on: a hedge moved from one conclusion to another, a ceiling written as a range and a 'must' ('должен') written as a choice are shifts. The «Other matters» sentence is held to the same rule: a conclusion the memo states firmly is written as that conclusion, never as a question. Evidence: quote the memo's wording and the brief's for the same conclusion.",
+    "text": "The degree of certainty of every conclusion is the memorandum's, shifted in neither direction: no hedge added where the memo is firm, none removed where it hedges. The bottom line is checked clause by clause against the leaves it rests on: a hedge moved from one conclusion to another, a ceiling written as a range and a 'must' ('должен') written as a choice are shifts. The items of «Other points assessed» are held to the same rule: a conclusion the memo states firmly is written as that conclusion, never as a question. Evidence: quote the memo's wording and the brief's for the same conclusion.",
     "tier": "substance",
     "hard_fail": false,
     "severity_floor": "blocker",
@@ -33,7 +33,7 @@
   },
   {
     "id": "BF-05",
-    "text": "The partition of the memorandum's leaves holds: every leaf is kept in a block or omitted, never both; no omitted leaf meets a keep criterion (its verdict is high; its executive-summary bullet names an amount or a sanction; it answers an explicit sub-question of the user's question, the main question's parts included; its verdict is undetermined, or an open issue touches it and a kept conclusion depends on it), so every high-risk leaf is kept, while a date or a deadline alone keeps no leaf; and the other-matters sentence names every omitted leaf with its verdict as the memo states it. Evidence: name the omitted leaf and the keep criterion it meets, or confirm the partition.",
+    "text": "The partition of the memorandum's leaves holds: every leaf is kept in a block or omitted, never both; no omitted leaf meets a keep criterion (its verdict is high; its executive-summary bullet names an amount or a sanction; it answers an explicit sub-question of the user's question, the main question's parts included; its verdict is undetermined, or an open issue touches it and a kept conclusion depends on it), so every high-risk leaf is kept, while a date or a deadline alone keeps no leaf; and the last part, «Other points assessed», names every omitted leaf in one item with the memo's conclusion on it and its verdict as the memo states it. Evidence: name the omitted leaf and the keep criterion it meets, or confirm the partition.",
     "tier": "substance",
     "hard_fail": false,
     "severity_floor": "major",
@@ -65,7 +65,7 @@
   },
   {
     "id": "BF-09",
-    "text": "The question line restates the user's question faithfully: nothing asked is dropped and nothing unasked is added; every explicit sub-question of the user is answered in one sentence somewhere in the brief — the bottom line, a block or the other-matters sentence. Evidence: quote the brief's question line and the user's question, and name where each sub-question is answered.",
+    "text": "The question line restates the user's question faithfully: nothing asked is dropped and nothing unasked is added; every explicit sub-question of the user is answered in one sentence in the bottom line or a block (a leaf that answers an explicit sub-question is always kept, so an item of «Other points assessed» never answers one). Evidence: quote the brief's question line and the user's question, and name where each sub-question is answered.",
     "tier": "substance",
     "hard_fail": false,
     "severity_floor": "major",

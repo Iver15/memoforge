@@ -50,7 +50,7 @@
         "severity": { "enum": ["blocker", "major", "minor"] },
         "block": {
           "description": "The brief block the issue sits in (`brief_lint.BLOCK_IDS`), or `document` for the brief as a whole.",
-          "enum": ["s-header", "s-main", "s-b1", "s-b2", "s-b3", "s-b4", "s-b5", "s-b6", "s-b7", "s-actions", "s-assumptions", "document"]
+          "enum": ["s-header", "s-main", "s-b1", "s-b2", "s-b3", "s-b4", "s-b5", "s-b6", "s-b7", "s-actions", "s-assumptions", "s-other", "document"]
         },
         "issue": { "type": "string", "minLength": 1 },
         "brief_quote": {
