@@ -6,44 +6,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ---
 
-## 2.0.0-dev — 2026-09-09 (v2 redesign: the pipeline moves from prose into code)
+## 2.0.0 — 2026-09-29 (first release of the v2 redesign)
 
-**Development build.** A redesign, not a patch. v1 asked the orchestrating model to hold the whole pipeline in its head — ~95–110k tokens of instructions per Full run, ~250–300 tool calls to produce ~20 substantive dispatches — and 9 of the 12 recorded incidents were the same failure: the model skipped a bookkeeping step after context summarisation, and the fix each time was more prose that summarisation then compressed away. v2 moves control flow into a tested Python package and leaves the model a three-command protocol. The specification this build implements is [`docs/TZ-memoforge-v2.md`](docs/TZ-memoforge-v2.md) (v1.5, agreed 2026-09-08 after a self-adversarial round and five Codex review rounds); architecture decisions are recorded in [`docs/decisions.md`](docs/decisions.md).
-
-### Removed
-
-- **The v1 scripts**, replaced by `scripts/memoforge/`: `validate_state.py`, `validate_review_json.py`, `log_event.py`, `analyze_run.py`, `tidy_workdir.py`, `resolve_style_profile.py`, `render_live_progress.py`, `resolve_work_dir.sh` (the last bash-only script on a critical path), and their eight tests.
-- **The whole live-progress stack.** Cowork Live artifacts were shut off on 2026-08-19, which killed the renderer, the artifact-update calls, the widget MCP server, the progress contracts, the `state.live_progress` block and the 15 "Live progress" sections in agent prompts. `test_no_legacy.py` now fails the build if any of it returns.
-- **The prose pipeline:** `skills/memo/PHASE-MACHINE.md`, the 17 per-phase reference files, and the six demand-read contracts. What survived was rewritten as generated documentation under `docs/`, or as code.
-- **Six agents.** The three researchers merged into `legal-researcher`; `clarity-reviewer` and `style-reviewer` merged into `form-reviewer`; `source-pack-builder` became a script. 16 → 12. `agents/` holds 13 files, not 12: `agents/probe-echo.md` is a diagnostic for probe P9 that no phase dispatches, and it ships until P9 is recorded in `docs/probes/v2-probes.md`.
-- `lib/docx-render/` moved to `docs/attic/v1-docx-render/`; the postmortems, the v0.5.0 probe procedure and `research-summary-only` were archived under `docs/attic/` as well.
-
-### Added
-
-- **`scripts/memoforge/`** — the state machine, dispatch planner, gate parser, source and quote registry, lint (14 rules), citation audit, review aggregation, revision loop, renderers, `finalize`, `analyze` and `probe`, behind the `mf` CLI (`scripts/mf`, `scripts/mf.cmd`). The launchers try `python` → `python3` → `py -3` and reject the Windows Store stub, so a bare Windows box works.
-- **JSON Schemas for every artifact** (`schemas/`, draft 2020-12, validated with `jsonschema`) — 3 of 12 artifacts were schema-covered in v1; all of them are now.
-- **Hooks** (`hooks/`): a permission gate that auto-approves only allowlisted fetches and single operator-free `mf` calls, a progress logger that appends to `events.jsonl` and nothing else, an optional stop-guard, and a dependency check on session start. Each is generated in three interpreter forms and deduplicated by event key.
-- **Native progress**: `P<n>/<N> · agent · label` on every dispatch, one chat line per step, a plugin `subagentStatusLine`, and `mf events analyze` for the timeline afterwards. The orchestrator's obligatory progress work went from 10–12 actions per step to one printed line.
-- **Deterministic verification before any model judgement**: lint and the citation audit run before reviewers see a draft; reviewers answer fixed binary checklists (`lib/checklists/`) aggregated in code, with blockers that no unanimous approval can override.
-- `requirements.txt`, `.gitattributes`, `.github/workflows/ci.yml`, `scripts/ci/`, `docs/decisions.md`, `docs/probes/v2-probes.md`, generated `docs/{phases,modes,events,always-deliver,permissions}.md`.
-
-### Invariants
-
-The build is written against twelve checkable invariants (§0.5). The load-bearing ones: **M1** code holds transitions, counters and budgets, never the model; **M2** the CLI is the only writer of `state.json`, under a lock, atomically, schema-validated before replacement; **M3** `next`/`report` are idempotent, so a forgotten or repeated call cannot corrupt a run; **M5** every blockquote carries a `quote_id` extracted by exact match from a hashed raw file; **M6** the source pack freezes in one operation and later registrations are refused; **M9** a terminal phase is reached only after `finalize` has produced a deliverable and a summary, `--salvage` included; **M12** Windows-first — interpreter discovery, `utf-8-sig`, LF, no bash on a critical path.
-
-### Targets
-
-Ten measurable goals (§0.2): orchestrator instructions ≤25k tokens (from ~95–110k), tool calls ≤150 observable (from ~250–300), zero non-CLI state writes, every artifact schema-covered, zero unregistered blockquotes, 12 agents / 4 reviewers / 2 iterations (from 16 / 5 / 3), one progress action per step (from 10–12), ≥250 tests with CI on Ubuntu and Windows, and real docx footnotes. G1–G3 are measured on a real Brief run in W4; G7 and G9–G10 close in W5.
-
-### Probes — pending
-
-P1 (plugin workflows), P2 (exec-form hooks with `${CLAUDE_PLUGIN_ROOT}` on Windows), P3 (Artifact dashboard), P4 (`AskUserQuestion` after a dispatch in Cowork), P5 (`SubagentStart`/`SubagentStop` payloads), P6 (nested spawn), P7 (Stop-hook re-entry), P8 (chat flush mid-turn), P9 (matcher semantics and the effective tool pool of a plugin agent) are all **pending**; results land in `docs/probes/v2-probes.md`. The Workflow pilot and the optional dashboard stay undeclared until their probes pass.
-
-### Tests
-
-`python -m unittest discover -s scripts/tests` — ~1,270 tests, no network, no skips. CI runs Ubuntu and Windows × Python 3.9 and 3.13: `compileall`, the suite with a zero-skip guard, `ruff check --select E,F,W`, `mf docs render --check`, `mf probe dry-run` in both modes, and a version check across `plugin.json`, the README badge and this file.
-
-### Unreleased (on top of 2.0.0-dev)
+The v2 redesign introduced by the 2.0.0-dev build below, released. Everything under 2.0.0-dev holds; what changed since that build, newest first:
 
 - The decision brief is saved to the user's folder where the memo is (D-257). In a real Cowork run the brief was presented in the chat but copied only into `memoforge/<slug>/`, while the memo's copy sat in `Claude outputs/`: the brief skill, unlike the memo router, gave no rule for the connected folder. The `done` action now carries `folder_copy`, and the skill saves the `memo-<slug>.brief.<ext>` copy beside the memo's copy, and puts `brief.<ext>` into the connected `memoforge/<slug>/` only when the memo run already left that folder there.
 - `/memoforge:brief` moves the dashboard page (D-256). The page stood still during a brief: the brief's design had left the dashboard out. The brief now rewrites the memo's page (`run/state`) with its own progress — phase, status, the running writer and reviewers, the timeline of its steps — and a new «Brief» tab shows its status, review rounds, file and open checks. It writes no task file, and a brief refused while the memo still runs leaves the page alone.
@@ -190,6 +155,45 @@ P1 (plugin workflows), P2 (exec-form hooks with `${CLAUDE_PLUGIN_ROOT}` on Windo
 - Revision loop branch 9: when the iteration budget is spent and the only blockers left are at most two `citations` / `unsupported_claim` findings with no form blockers, the run buys one targeted writer pass (`attempts.targeted_fix`, once per run) on a pre-seeded `drafts/v<N+1>.md` and re-checks it with the `citations` reviewer alone (`state.targeted_fix`) — `approved_on_v<N+1>` or `forced_exit_on_v<N+1>_with_remaining_issues` (D-165).
 - MCP budget is quota tracking plus telemetry (D-166): the per-agent `mcp_budget_share` is replaced by `mcp_spent` (calls already made, quota servers with `of <limit>`); quota servers (`ldh`, `courtlistener`) are compared against `MCP_PROVIDER_DAILY_LIMITS`, free servers get a soft cap of 100 calls per run (`MCP_SOFT_CAP_PER_RUN`) with a `mcp_soft_cap_exceeded` banner and an `## MCP calls` section in `summary.md`; the plan-gate estimate compares against the quota servers only; the digest `mcp_budget_exhausted` exception fires only for quota servers.
 - The memo reaches the chat (D-167): `finalize.publish` also writes `memo-<slug>.<docx|md>` and `memo-<slug>.summary.md` at the root of the outputs area (same staging/rollback as the folder; `progress.published_memo`), `terminal_response` prints a `Memo:` line, and the router's terminal step presents that file via `present_files` (Cowork), falling back to the device-tools folder copy only without it.
+
+---
+
+## 2.0.0-dev — 2026-09-09 (v2 redesign: the pipeline moves from prose into code)
+
+**Development build.** A redesign, not a patch. v1 asked the orchestrating model to hold the whole pipeline in its head — ~95–110k tokens of instructions per Full run, ~250–300 tool calls to produce ~20 substantive dispatches — and 9 of the 12 recorded incidents were the same failure: the model skipped a bookkeeping step after context summarisation, and the fix each time was more prose that summarisation then compressed away. v2 moves control flow into a tested Python package and leaves the model a three-command protocol. The specification this build implements is [`docs/TZ-memoforge-v2.md`](docs/TZ-memoforge-v2.md) (v1.5, agreed 2026-09-08 after a self-adversarial round and five Codex review rounds); architecture decisions are recorded in [`docs/decisions.md`](docs/decisions.md).
+
+### Removed
+
+- **The v1 scripts**, replaced by `scripts/memoforge/`: `validate_state.py`, `validate_review_json.py`, `log_event.py`, `analyze_run.py`, `tidy_workdir.py`, `resolve_style_profile.py`, `render_live_progress.py`, `resolve_work_dir.sh` (the last bash-only script on a critical path), and their eight tests.
+- **The whole live-progress stack.** Cowork Live artifacts were shut off on 2026-08-19, which killed the renderer, the artifact-update calls, the widget MCP server, the progress contracts, the `state.live_progress` block and the 15 "Live progress" sections in agent prompts. `test_no_legacy.py` now fails the build if any of it returns.
+- **The prose pipeline:** `skills/memo/PHASE-MACHINE.md`, the 17 per-phase reference files, and the six demand-read contracts. What survived was rewritten as generated documentation under `docs/`, or as code.
+- **Six agents.** The three researchers merged into `legal-researcher`; `clarity-reviewer` and `style-reviewer` merged into `form-reviewer`; `source-pack-builder` became a script. 16 → 12. `agents/` holds 13 files, not 12: `agents/probe-echo.md` is a diagnostic for probe P9 that no phase dispatches, and it ships until P9 is recorded in `docs/probes/v2-probes.md`.
+- `lib/docx-render/` moved to `docs/attic/v1-docx-render/`; the postmortems, the v0.5.0 probe procedure and `research-summary-only` were archived under `docs/attic/` as well.
+
+### Added
+
+- **`scripts/memoforge/`** — the state machine, dispatch planner, gate parser, source and quote registry, lint (14 rules), citation audit, review aggregation, revision loop, renderers, `finalize`, `analyze` and `probe`, behind the `mf` CLI (`scripts/mf`, `scripts/mf.cmd`). The launchers try `python` → `python3` → `py -3` and reject the Windows Store stub, so a bare Windows box works.
+- **JSON Schemas for every artifact** (`schemas/`, draft 2020-12, validated with `jsonschema`) — 3 of 12 artifacts were schema-covered in v1; all of them are now.
+- **Hooks** (`hooks/`): a permission gate that auto-approves only allowlisted fetches and single operator-free `mf` calls, a progress logger that appends to `events.jsonl` and nothing else, an optional stop-guard, and a dependency check on session start. Each is generated in three interpreter forms and deduplicated by event key.
+- **Native progress**: `P<n>/<N> · agent · label` on every dispatch, one chat line per step, a plugin `subagentStatusLine`, and `mf events analyze` for the timeline afterwards. The orchestrator's obligatory progress work went from 10–12 actions per step to one printed line.
+- **Deterministic verification before any model judgement**: lint and the citation audit run before reviewers see a draft; reviewers answer fixed binary checklists (`lib/checklists/`) aggregated in code, with blockers that no unanimous approval can override.
+- `requirements.txt`, `.gitattributes`, `.github/workflows/ci.yml`, `scripts/ci/`, `docs/decisions.md`, `docs/probes/v2-probes.md`, generated `docs/{phases,modes,events,always-deliver,permissions}.md`.
+
+### Invariants
+
+The build is written against twelve checkable invariants (§0.5). The load-bearing ones: **M1** code holds transitions, counters and budgets, never the model; **M2** the CLI is the only writer of `state.json`, under a lock, atomically, schema-validated before replacement; **M3** `next`/`report` are idempotent, so a forgotten or repeated call cannot corrupt a run; **M5** every blockquote carries a `quote_id` extracted by exact match from a hashed raw file; **M6** the source pack freezes in one operation and later registrations are refused; **M9** a terminal phase is reached only after `finalize` has produced a deliverable and a summary, `--salvage` included; **M12** Windows-first — interpreter discovery, `utf-8-sig`, LF, no bash on a critical path.
+
+### Targets
+
+Ten measurable goals (§0.2): orchestrator instructions ≤25k tokens (from ~95–110k), tool calls ≤150 observable (from ~250–300), zero non-CLI state writes, every artifact schema-covered, zero unregistered blockquotes, 12 agents / 4 reviewers / 2 iterations (from 16 / 5 / 3), one progress action per step (from 10–12), ≥250 tests with CI on Ubuntu and Windows, and real docx footnotes. G1–G3 are measured on a real Brief run in W4; G7 and G9–G10 close in W5.
+
+### Probes — pending
+
+P1 (plugin workflows), P2 (exec-form hooks with `${CLAUDE_PLUGIN_ROOT}` on Windows), P3 (Artifact dashboard), P4 (`AskUserQuestion` after a dispatch in Cowork), P5 (`SubagentStart`/`SubagentStop` payloads), P6 (nested spawn), P7 (Stop-hook re-entry), P8 (chat flush mid-turn), P9 (matcher semantics and the effective tool pool of a plugin agent) are all **pending**; results land in `docs/probes/v2-probes.md`. The Workflow pilot and the optional dashboard stay undeclared until their probes pass.
+
+### Tests
+
+`python -m unittest discover -s scripts/tests` — ~1,270 tests, no network, no skips. CI runs Ubuntu and Windows × Python 3.9 and 3.13: `compileall`, the suite with a zero-skip guard, `ruff check --select E,F,W`, `mf docs render --check`, `mf probe dry-run` in both modes, and a version check across `plugin.json`, the README badge and this file.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **From one legal question to a finished `.docx` memorandum — researched, quoted, footnoted and stress-tested — in a single command.**
 
-![version](https://img.shields.io/badge/version-2.0.0--dev-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
+![version](https://img.shields.io/badge/version-2.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
 
 ![Memoforge — from a legal question to a cited .docx memorandum](docs/media/memoforge-promo.webp)
 
@@ -14,11 +14,11 @@
 
 memoforge turns a research-grade legal question into a structured, footnoted memorandum. It runs the pipeline a small legal team would run: an analyst clarifies the missing facts, researchers pull primary sources in parallel (statutes, case law, regulator guidance), a currency check confirms the law is still good, a writer produces an IRAC draft, reviewers stress-test it against fixed checklists, a mediator consolidates the findings, and the writer revises before export. It assumes no jurisdiction — the plan step classifies the query and routes research accordingly. EU data protection (GDPR, AI Act, NIS2, DSA), US privacy and sectoral regulation, UK consumer law and cross-border compliance are its strong ground.
 
-What changed in v2 is where the pipeline lives. Phases, budgets, source freezing, citation provenance and every `state.json` write belong to a Python package (`scripts/memoforge/`, the `mf` CLI) with ~1,270 tests behind it. The orchestrating model follows one three-command protocol — `next → act → report` — and holds no pipeline knowledge that context summarisation can eat.
+What changed in v2 is where the pipeline lives. Phases, budgets, source freezing, citation provenance and every `state.json` write belong to a Python package (`scripts/memoforge/`, the `mf` CLI) with ~3,600 offline tests behind it. The orchestrating model follows one three-command protocol — `next → act → report` — and holds no pipeline knowledge that context summarisation can eat.
 
 ## What you get
 
-- **`memo-<slug>.docx`** — Arial 12pt, 1″ margins, numbered sections, IRAC per issue, and *real* Word footnotes in OSCOLA form. Without `python-docx` the run still delivers a markdown memo with a banner explaining the downgrade: a run never ends empty-handed.
+- **`memo-<slug>.docx`** — Arial 12pt, 1″ margins, numbered sections, IRAC per issue, in English, German, French, Spanish or Russian. Citations are OSCOLA-style: by default a short inline citation linked to the source, with the full record in a Sources annex; with `citation_style: footnotes`, *real* Word footnotes. Without `python-docx` the run still delivers a markdown memo with a banner explaining the downgrade: a run never ends empty-handed.
 - **A frozen source pack** — every statute, case and regulator document the analysis relies on, each with a saved raw copy, a SHA-256 and a currency date. Once frozen, nothing new gets in.
 - **Verifiable quotations** — every blockquote was extracted from that raw copy by exact string match, not recalled by a model. A quote that cannot be matched is refused, and the refusal is recorded.
 - **Reviewer findings** — binary checklist verdicts per reviewer, plus what the mediator kept, dropped or flagged as a conflict.
@@ -30,7 +30,7 @@ What changed in v2 is where the pipeline lives. Phases, budgets, source freezing
 ## Install
 
 **Claude Code:** `/plugin marketplace add gregmos/memoforge` then `/plugin install memoforge`.
-**Cowork:** Settings → Plugins → drag and drop `memoforge-2.0.0.zip` from the [Releases page](../../releases) (published with the 2.0.0 release).
+**Cowork:** Settings → Plugins → drag and drop `memoforge-2.0.0.zip` from the [Releases page](../../releases).
 
 ### Dependencies
 
@@ -110,11 +110,13 @@ Two more gates appear only when research came back thin: a targeted follow-up qu
 - **`/tasks`** lists running subagents with those same labels, and a plugin `subagentStatusLine` adds elapsed time per task.
 - **`mf events analyze`** reads `events.jsonl` afterwards: timeline, per-agent durations, whether reviewers really ran in parallel, and any gap over five minutes where the run went dark. Hooks write that journal; the CLI writes a guaranteed record of every step it issued.
 
-Full `**Progress —**` blocks are printed at gates and at the end, where you are reading anyway.
+Full `**Progress —**` blocks are printed at gates and at the end, where you are reading anyway. A later `/memoforge:brief` moves the same page: it shows the brief's own steps, and a «Brief» tab carries its status, review rounds and file.
 
 ## Options
 
 Ten settings, all optional: `output_folder`, `publish_folder` (where the finished result is copied; empty means the host's outputs area if it has one), `writer_model` (`opus` | `fable` | `sonnet`), `source_review_gate` (`auto` | `on` | `off`), `citation_style` (`inline` | `footnotes`; `inline` is the default — short parenthetical citations linked to the source, with the full record of each one in the Sources annex), `memo_language` (`auto` | `en` | `de` | `fr` | `es` | `ru`; `en` is the default), `ui_language` (same values; `auto` is the default — the language you write in), `dashboard` (on), `stop_guard` (off), `websearch_autoallow` (on).
+
+`writer_model` picks the model of the writer only (the memo writer and the brief writer). Every agent that judges substance — the researchers, the currency checker, the reviewers, the mediator — runs on Opus whatever you set.
 
 **Memo language.** The memorandum can be written in English, German, French, Spanish or Russian. Set a default with the `memo_language` option (or `mf config set memo_language de`), or just say it in the request — “…memo in German”. The default is English whatever language you ask in; set `memo_language` to `auto` to get the memo in the language of your question — when that is one of the five, anything else stays English. The language is fixed once you approve the research plan; until then `mf task language --workdir <task folder> --memo fr` changes it. Citations keep their standard form; section headings, the risk line, the Sources annex, status notes and the run summary follow the memo language.
 
@@ -242,14 +244,14 @@ Everything stays on your machine: no backend, no telemetry. MCP calls go to the 
 
 ## Decision brief
 
-The memorandum is written for lawyers. For the person who has to decide, run `/memoforge:brief` once a task has finished (no argument = the newest finished task; `/memoforge:brief <task_id>` for another one). It condenses the delivered memo into a self-contained brief of about three pages, in the memo's language: the bottom line, one block per conclusion with its risk level and the rule or court it rests on (linked inline, no quotations, no Sources list), what to do, and what the answer depends on. A writer drafts it and two reviewers check it against the memo — fidelity (nothing added, no condition dropped, no risk level moved) and clarity for a non-lawyer — for up to two revision rounds.
+The memorandum is written for lawyers. For the person who has to decide, run `/memoforge:brief` once a task has finished (no argument = the newest finished task; `/memoforge:brief <task_id>` for another one). It condenses the delivered memo into a self-contained brief of about three pages, in the memo's language, keeping only the main points: a memo section stays when its risk is high, when it names an amount or a sanction, when it answers something you asked explicitly, or when it is undetermined or open and a kept conclusion depends on it. The brief has a bottom line; one block per kept conclusion with its risk level and the rule or court it rests on (linked inline, no quotations, no Sources list); what to do, where an action due within 14 days always stays; what the answer depends on; and, last, «Other points assessed» — one line per point it left out, with the memo's conclusion on it and its risk. A writer drafts it; a fidelity reviewer checks it against the memo (nothing added, no condition dropped, no risk level moved) and the form reviewer checks that a non-lawyer can read it, for up to two revision rounds. Only the fidelity review and the automatic checks decide whether the brief counts as verified.
 
-What it never does: no new research, and it never changes the memo — the task's `state.json`, the memorandum and `summary.md` keep their bytes. A memo that ended with open points asks you first, and the brief then marks those points as not confirmed; a brief that did not pass every check carries a banner naming the open ones. The result is `brief/brief.docx` in the work dir and, when the memo was published, `memo-<slug>.brief.docx` next to it. Running the command again makes a fresh brief and keeps the previous one in `brief/previous/`.
+What it never does: no new research, and it never changes the memo — the task's `state.json`, the memorandum and `summary.md` keep their bytes. A memo that ended with open points asks you first, and the brief then marks those points as not confirmed; a brief that did not pass every check carries a banner naming the open ones. The result is `brief/brief.docx` in the work dir (`.md` without `python-docx`), copied as `memo-<slug>.brief.<docx|md>` next to the memo's published copy and, when the memo run saved the memo into your connected folder, beside it there too. Running the command again makes a fresh brief and keeps the previous one in `brief/previous/`.
 
 ## Limits
 
 - **Not a substitute for a lawyer.** The memo is a research-grade draft for a qualified reviewer.
-- **English output**, whatever language you ask in.
+- **Five memo languages** — English, German, French, Spanish, Russian. Reviewers' findings, CLI errors and run diagnostics stay English.
 - **Provenance is bounded.** A quote is proven to come from the raw file the researcher saved; that the file came from the cited URL is confirmed only where the URL is still live and its hash matches. Each source records which of the two it is.
 - **Currency is best-effort** against the connected databases. Verify litigation-sensitive citations yourself.
 - **No cancelling mid-segment.** Cancellation is honoured at gates and at the next step boundary.

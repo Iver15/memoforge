@@ -1,7 +1,7 @@
 {
   "name": "memoforge",
   "displayName": "memoforge",
-  "version": "2.0.0-dev",
+  "version": "2.0.0",
   "description": "Multi-agent legal memo drafting: intake questions, planned legal research, a frozen source pack with verifiable quotes, a counterargument and citation review loop, and a footnoted docx deliverable.",
   "author": {
     "name": "Grigorii Moskalev"
