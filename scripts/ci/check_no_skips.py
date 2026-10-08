@@ -27,6 +27,8 @@ import sys
 #
 # Platform: the ubuntu job cannot run `mf.cmd` however complete its dependencies are.
 WINDOWS_ONLY_REASON = "mf.cmd runs on Windows only"
+# The msvcrt lock primitive is also unavailable on POSIX hosts.
+WINDOWS_LOCK_REASON = "Windows-specific msvcrt.locking behaviour"
 # Environment-conditional on Windows: a `windows-latest` runner may or may not carry the Windows
 # Store `python3` alias (usually not) or `py.exe`. Neither is a dependency the job installs.
 STORE_ALIAS_MISSING_REASON = (
@@ -36,7 +38,7 @@ STORE_ALIAS_MISSING_REASON = (
 PY_LAUNCHER_MISSING_REASON = "py.exe (PEP 397 launcher) is not installed"
 
 ALLOWED_SKIP_REASONS = frozenset(
-    {WINDOWS_ONLY_REASON, STORE_ALIAS_MISSING_REASON, PY_LAUNCHER_MISSING_REASON}
+    {WINDOWS_ONLY_REASON, WINDOWS_LOCK_REASON, STORE_ALIAS_MISSING_REASON, PY_LAUNCHER_MISSING_REASON}
 )
 
 RAN = re.compile(r"^Ran (\d+) tests? in ", re.M)

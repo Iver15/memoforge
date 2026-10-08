@@ -1,144 +1,201 @@
 # memoforge
 
-> **From one legal question to a finished `.docx` memorandum — researched, quoted, footnoted and stress-tested — in a single command.**
+[English](README.en.md) · [Документация на русском](docs/ru/README.md)
 
-![version](https://img.shields.io/badge/version-2.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
+> **От юридического вопроса до готового меморандума `.docx`: исследование, проверяемые цитаты, ссылки и критическая проверка выводов — одной командой.**
 
-![Memoforge — from a legal question to a cited .docx memorandum](docs/media/memoforge-promo.webp)
+![Версия](https://img.shields.io/badge/version-2.0.0-blue) ![Лицензия](https://img.shields.io/badge/license-MIT-green) ![Платформы](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
 
-<sub>~60-second walkthrough, recorded on v1.1.1: intake → research plan → parallel researchers → reviewer stress test → exported <code>.docx</code>. v2 is the same shape with fewer, better-checked steps.</sub>
+![Memoforge: от юридического вопроса до меморандума .docx со ссылками](docs/media/memoforge-promo.webp)
 
----
-
-## What it does
-
-memoforge turns a research-grade legal question into a structured, footnoted memorandum. It runs the pipeline a small legal team would run: an analyst clarifies the missing facts, researchers pull primary sources in parallel (statutes, case law, regulator guidance), a currency check confirms the law is still good, a writer produces an IRAC draft, reviewers stress-test it against fixed checklists, a mediator consolidates the findings, and the writer revises before export. It assumes no jurisdiction — the plan step classifies the query and routes research accordingly. EU data protection (GDPR, AI Act, NIS2, DSA), US privacy and sectoral regulation, UK consumer law and cross-border compliance are its strong ground.
-
-What changed in v2 is where the pipeline lives. Phases, budgets, source freezing, citation provenance and every `state.json` write belong to a Python package (`scripts/memoforge/`, the `mf` CLI) with ~3,600 offline tests behind it. The orchestrating model follows one three-command protocol — `next → act → report` — and holds no pipeline knowledge that context summarisation can eat.
-
-## What you get
-
-- **`memo-<slug>.docx`** — Arial 12pt, 1″ margins, numbered sections, IRAC per issue, in English, German, French, Spanish or Russian. Citations are OSCOLA-style: by default a short inline citation linked to the source, with the full record in a Sources annex; with `citation_style: footnotes`, *real* Word footnotes. Without `python-docx` the run still delivers a markdown memo with a banner explaining the downgrade: a run never ends empty-handed.
-- **A frozen source pack** — every statute, case and regulator document the analysis relies on, each with a saved raw copy, a SHA-256 and a currency date. Once frozen, nothing new gets in.
-- **Verifiable quotations** — every blockquote was extracted from that raw copy by exact string match, not recalled by a model. A quote that cannot be matched is refused, and the refusal is recorded.
-- **Reviewer findings** — binary checklist verdicts per reviewer, plus what the mediator kept, dropped or flagged as a conflict.
-- **An honest verdict** — `approved_on_v<N>`, `forced_exit_on_v<N>_with_remaining_issues` (revision budget spent with blockers left), `manual_review_required_on_v<N>`, or `fallback_summary_delivered` when a dependency failed, with reasons. No false confidence.
-- **A full audit trail** — `state.json`, `events.jsonl`, every draft version and every lint report.
+<sub>Обзор примерно на 60 секунд, записанный на v1.1.1: уточнение фактов → план исследования → параллельный поиск источников → критическая проверка → экспорт <code>.docx</code>. В v2 процесс тот же, но шагов меньше, а проверок больше.</sub>
 
 ---
 
-## Install
+## Что делает memoforge
 
-**Claude Code:** `/plugin marketplace add gregmos/memoforge` then `/plugin install memoforge`.
-**Cowork:** Settings → Plugins → drag and drop `memoforge-2.0.0.zip` from the [Releases page](../../releases).
+memoforge превращает юридический вопрос в структурированный меморандум со ссылками на источники. Он воспроизводит работу небольшой юридической команды: аналитик уточняет недостающие факты; исследователи параллельно собирают первичные источники — законодательство, судебную практику и разъяснения регуляторов; отдельный агент проверяет их актуальность; автор готовит черновик по схеме IRAC; рецензенты проверяют его по фиксированным чек-листам; медиатор сводит замечания, а автор дорабатывает текст перед экспортом. IRAC означает «вопрос → применимая норма → применение к фактам → вывод».
 
-### Dependencies
+Юрисдикция не задана заранее: на этапе планирования запрос классифицируется, и под него выбираются источники. Сильные стороны исходного проекта — защита данных в ЕС (GDPR, AI Act, NIS2, DSA), регулирование конфиденциальности и отдельных отраслей в США, потребительское право Великобритании и трансграничный комплаенс.
 
-The CLI, the hooks and the status line are stdlib-only, so the plugin installs and answers without anything extra. Schema validation, research and the docx renderer need three packages ([`requirements.txt`](requirements.txt): `jsonschema`, `python-docx`, `mistune`). Install them into the plugin's own data directory, where they never touch your project environment:
+Главное изменение v2 — перенос управления процессом в Python-пакет `scripts/memoforge/` и CLI `mf`. Этапы, лимиты, фиксация набора источников, происхождение ссылок и все записи `state.json` контролируются кодом, который сопровождают примерно 3600 автономных тестов. Модель-оркестратор следует протоколу из трёх команд — `next → act → report`. Логика процесса больше не зависит от инструкций, которые могут потеряться при сжатии контекста.
 
+## Что вы получаете
+
+- **`memo-<slug>.docx`** — Arial 12 пт, поля 2,54 см, нумерованные разделы и анализ каждого вопроса по IRAC. Поддерживаются русский, английский, немецкий, французский и испанский языки. Ссылки оформляются по OSCOLA: по умолчанию короткая ссылка в тексте ведёт к источнику, а полное описание приводится в приложении «Источники». При `citation_style: footnotes` создаются настоящие сноски Word. Если `python-docx` отсутствует, результат выдаётся в Markdown с пояснением причины.
+- **Зафиксированный набор источников** — использованные нормативные акты, судебные решения и документы регуляторов с сохранённым исходным текстом, SHA-256 и датой проверки актуальности. После фиксации новые источники не добавляются.
+- **Проверяемые цитаты** — каждый блок цитирования извлекается из сохранённого текста по точному совпадению. Неподтверждённая цитата отклоняется, а отказ записывается в журнал.
+- **Результаты рецензирования** — решения по бинарным чек-листам и сведения о том, какие замечания медиатор принял, отклонил или признал конфликтующими.
+- **Явный итоговый статус** — `approved_on_v<N>`; `forced_exit_on_v<N>_with_remaining_issues`, если лимит доработок исчерпан при нерешённых блокирующих замечаниях; `manual_review_required_on_v<N>`; либо `fallback_summary_delivered`, если сбой зависимости потребовал резервного результата. Причины указываются отдельно.
+- **Полный журнал работы** — `state.json`, `events.jsonl`, все версии черновика и отчёты автоматических проверок.
+
+---
+
+## Установка
+
+Это плагин для **Claude Code и Claude Cowork**. Он не содержит отдельного веб-приложения или сервера.
+
+**Claude Code, эта версия репозитория:**
+
+```text
+/plugin marketplace add Iver15/memoforge
+/plugin install memoforge@memoforge
 ```
+
+Для работы с локальными изменениями добавьте каталог проекта как локальный маркетплейс:
+
+```bash
+claude plugin marketplace add /полный/путь/к/Memoforge
+claude plugin install memoforge@memoforge --config memo_language=ru --config ui_language=ru
+```
+
+После установки начните новую сессию Claude Code. Разработка ведётся в этой рабочей копии; установленный плагин может храниться в отдельном кэше. После изменения исходников обновите установленную копию через `claude plugin update memoforge@memoforge` и начните новую сессию.
+
+**Cowork:** откройте Settings → Plugins и перетащите ZIP плагина. Готовый архив `memoforge-2.0.0.zip` исходного проекта доступен в [релизах автора](https://github.com/gregmos/memoforge/releases). Он содержит исходную версию; локальные изменения этой рабочей копии туда не входят.
+
+### Зависимости
+
+CLI, хуки и строка статуса используют только стандартную библиотеку Python. Для проверки JSON-схем, исследования и экспорта Word нужны три пакета из [`requirements.txt`](requirements.txt): `jsonschema`, `python-docx`, `mistune`. Установите их в каталог данных плагина:
+
+```bash
 <plugin>/scripts/mf deps install      # Windows: scripts\mf.cmd deps install
 <plugin>/scripts/mf deps check
 ```
 
-`pip install -r requirements.txt` works too if you prefer the ambient interpreter. A `SessionStart` hook reports what is missing; without the packages the pipeline degrades to the markdown fallback instead of failing.
+Так зависимости не затрагивают окружение вашего проекта. Можно также выполнить `pip install -r requirements.txt` в выбранном Python-окружении. Хук `SessionStart` сообщает о недостающих пакетах. Без них процесс переходит к резервному результату в Markdown.
 
-### Connect the legal databases
+Нужен Python 3.9 или новее. На macOS, если системный Python требует настройки Xcode, используйте рабочий интерпретатор из Homebrew. Если оболочка отвечает `permission denied` при запуске `scripts/mf`, восстановите право выполнения: `chmod +x scripts/mf`.
 
-The plugin registers ten MCP servers through `.mcp.json`:
+### Включение русского языка
 
-- `legal-data-hunter` — multi-jurisdictional statutes, case law and regulator guidance (230+ jurisdictions).
-- `courtlistener` — US case law, plus the citation check that says whether a US citation exists at all.
-- `legalviz` — [LegalViz.EU](https://legalviz.eu), a free reader for EU legislation: CELEX lookup, article-level slices of an act, the CJEU judgments interpreting a provision, and the amendments that say whether it is still current.
-- `uk-legal` — [UK Legal MCP](https://github.com/paulieb89/uk-legal-mcp), free and keyless: legislation.gov.uk sections with their extent and in-force metadata, Find Case Law judgments down to the paragraph, and an OSCOLA citation resolver.
-- `justicelibre` — [JusticeLibre](https://github.com/Dahliyaal/justicelibre), free and keyless: French code articles by abbreviation and number, the Cour de cassation, Conseil d'État and Conseil constitutionnel, CNIL deliberations, and CJEU/ECtHR judgments as a second text source. Légifrance itself is behind a Cloudflare challenge, so this is the only way into French law that does not need a PISTE account.
-- `opencaselaw` — [OpenCaseLaw](https://github.com/jonashertner/opencaselaw), free and keyless, CC0 data: Swiss federal law by SR number and article (with the consolidations already scheduled), a million decisions back to 1875 with their official headnotes, and the commentary literature.
-- `federal-regulations` — [federal-regulations-mcp-server](https://github.com/cyanheads/federal-regulations-mcp-server), free and keyless: the Code of Federal Regulations from eCFR, section by section and as of a date, and the Federal Register's proposed and final rules by number or search. The U.S. Code itself is read from govinfo.gov.
-- `lex` — [Lex](https://github.com/i-dot-ai/lex) by i.AI (the UK government's AI incubator, with The National Archives and the Ministry of Justice), free and keyless: Acts and SIs by citation or search, the explanatory note of a section, and the amendments that changed it. An experimental service — the plugin uses it for explanatory notes and amendment history and keeps `uk-legal` first for statutes and judgments.
-- `casus` — [CasusLegal](https://mcp.casus.legal/), a paid Russian connector: legal positions of the Constitutional, Supreme and former Supreme Arbitration Courts with hybrid search, a phrase index, full case texts and the specialised IP-court and administrative-chamber corpora. Sign in with your CasusLegal account (Claude Desktop: Settings → Connectors → custom connector `https://mcp.casus.legal/one/mcp`; Claude Code: `claude mcp add --transport http casus https://mcp.casus.legal/one/mcp`).
-- `fas-search` — [FAS advertising practice](https://blog.delay-rag.ru/mcp-konniektor-k-poisku-po-praktikie-fas/), free and keyless: 8,000 decisions of the Russian Federal Antimonopoly Service and its regional offices under the Law on Advertising (20 calls a minute, 300 a day per IP, shared by cloud clients). Used for advertising, unfair-competition and antimonopoly questions only.
+Настройте язык один раз после установки:
 
-Click **Connect** on each in the plugin panel; the first call may open an OAuth sign-in (LegalViz, UK Legal, JusticeLibre, OpenCaseLaw and the FAS server need no key; CasusLegal needs a paid account). Skipping this is supported — research falls back to WebFetch against official portals, and the memo carries a banner asking you to verify each citation.
-
-**More jurisdictions.** The bundled ten cover the EU, the UK, the US, France, Switzerland and Russia (higher-court practice through CasusLegal, FAS advertising practice, Legal Data Hunter's pravo.gov.ru and Sudact corpora, and the free article pages of consultant.ru and base.garant.ru). For the rest, `matematicsolutions` publishes an `*-eli-mcp` server for 33 jurisdictions (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp`, …), and `ris-mcp-ts` wraps the Austrian RIS. All of them are local stdio servers, so you add them to your own MCP config rather than to the plugin's: the session probe then lists them under `namespaces.other` in `intake/mcp-probe.json` and the researcher is told they are available, but the routing table does not name their tools, so they act as an extra fail-soft source, not as a route. Be aware of what you are enabling: the whole `*-eli-mcp` family was batch-published on 24–27 August 2026, every repository is below version 1.0 with two stars or fewer, none has been verified by us by running it, and `it-eli-mcp` is not on PyPI at all despite its listing.
-
-### Ask
-
-```
-/memoforge:memo "We're a US-based SaaS company launching a feature that uses AI to analyse customer
-support chat transcripts from EU users and suggest replies to agents. The transcripts contain names,
-email addresses and sometimes account details. Do we need a separate legal basis under GDPR, or does
-this fall under our existing 'contract performance' basis? Does it trigger a DPIA or AI Act duties?"
+```bash
+<plugin>/scripts/mf config set memo_language ru
+<plugin>/scripts/mf config set ui_language ru
+<plugin>/scripts/mf config show
 ```
 
-Multi-part questions are fine: each part becomes its own analysed issue with its own citations. `/memoforge:continue` resumes an interrupted task or answers a pending question; `/memoforge:status` shows where a task stands.
+Это использует уже встроенную поддержку русского языка. Язык документа и язык интерфейса настраиваются независимо. Язык запроса сам по себе не меняет язык документа: в исходной конфигурации `memo_language` равен `en`.
+
+### Подключение правовых баз
+
+Плагин регистрирует десять MCP-серверов через `.mcp.json`:
+
+- `legal-data-hunter` — законодательство, судебная практика и разъяснения регуляторов более чем 230 юрисдикций.
+- `courtlistener` — судебная практика США и проверка существования американских судебных ссылок.
+- `legalviz` — [LegalViz.EU](https://legalviz.eu), бесплатный доступ к законодательству ЕС: поиск по CELEX, отдельные статьи, толкующие их решения Суда ЕС и изменения актов.
+- `uk-legal` — [UK Legal MCP](https://github.com/paulieb89/uk-legal-mcp), бесплатно и без API-ключа: нормы legislation.gov.uk с данными о территории действия и вступлении в силу, решения Find Case Law с точностью до абзаца и разрешение ссылок OSCOLA.
+- `justicelibre` — [JusticeLibre](https://github.com/Dahliyaal/justicelibre), бесплатно и без ключа: статьи французских кодексов, практика Кассационного суда, Государственного совета и Конституционного совета, решения CNIL, а также тексты решений Суда ЕС и ЕСПЧ. В исходной документации этот путь выбран из-за защиты Légifrance через Cloudflare и необходимости учётной записи PISTE для альтернативного доступа.
+- `opencaselaw` — [OpenCaseLaw](https://github.com/jonashertner/opencaselaw), бесплатно и без ключа, данные CC0: федеральное право Швейцарии по номеру SR и статье, консолидированные редакции, около миллиона решений с 1875 года с официальными аннотациями и юридическая литература.
+- `federal-regulations` — [federal-regulations-mcp-server](https://github.com/cyanheads/federal-regulations-mcp-server), бесплатно и без ключа: разделы Code of Federal Regulations из eCFR на выбранную дату, проекты и окончательные правила Federal Register. Сам U.S. Code читается с govinfo.gov.
+- `lex` — [Lex](https://github.com/i-dot-ai/lex) от i.AI, государственного AI-инкубатора Великобритании, совместно с The National Archives и Ministry of Justice. Бесплатный экспериментальный сервис без ключа: законы, подзаконные акты, пояснения и история изменений. Для законодательства и решений приоритет остаётся у `uk-legal`.
+- `casus` — [CasusLegal](https://mcp.casus.legal/), платный российский коннектор: правовые позиции КС РФ, ВС РФ и бывшего ВАС РФ, гибридный поиск, поиск фраз, полные тексты дел и специальные массивы практики Суда по интеллектуальным правам и административной коллегии. Нужна ваша учётная запись CasusLegal. В Claude Desktop: Settings → Connectors → custom connector `https://mcp.casus.legal/one/mcp`. В Claude Code: `claude mcp add --transport http casus https://mcp.casus.legal/one/mcp`.
+- `fas-search` — [Практика ФАС по рекламе](https://blog.delay-rag.ru/mcp-konniektor-k-poisku-po-praktikie-fas/), бесплатно и без ключа: около 8000 решений ФАС России и территориальных управлений по законодательству о рекламе. В исходной документации указаны лимиты 20 вызовов в минуту и 300 в сутки на IP; облачные клиенты делят лимит. Используется для вопросов рекламы, недобросовестной конкуренции и антимонопольного регулирования.
+
+Условия, объём баз и лимиты выше приведены по исходной документации v2.0.0; перед подключением проверьте их у провайдера.
+
+Нажмите **Connect** в панели плагина для нужных серверов. Первый вызов может открыть OAuth-авторизацию. LegalViz, UK Legal, JusticeLibre, OpenCaseLaw и сервер ФАС не требуют ключа; CasusLegal требует платной учётной записи. Без подключений исследование использует WebFetch для официальных порталов, а в меморандум добавляется предупреждение о необходимости проверить ссылки.
+
+**Другие юрисдикции.** Встроенные подключения охватывают ЕС, Великобританию, США, Францию, Швейцарию и Россию. Для России предусмотрены практика высших судов через CasusLegal, практика ФАС по рекламе, массивы pravo.gov.ru и Sudact в Legal Data Hunter, бесплатные страницы consultant.ru и base.garant.ru.
+
+В исходной документации также перечислены серверы семейства `*-eli-mcp` от `matematicsolutions` для 33 юрисдикций (`de-eli-mcp`, `es-eli-mcp`, `nl-eli-mcp`, `ie-eli-mcp`, `at-eli-mcp` и другие), а также `ris-mcp-ts` для австрийской RIS. Это локальные stdio-серверы: добавляйте их в собственную конфигурацию MCP. Проверка сессии перечислит их в `namespaces.other` файла `intake/mcp-probe.json` и сообщит исследователю о доступности. Таблица маршрутизации не содержит их инструментов, поэтому они служат дополнительными источниками. Автор исходного проекта отмечает, что семейство опубликовано 24–27 августа 2026 года, версии ниже 1.0, репозитории имеют не более двух звёзд, запуск не проверялся, а `it-eli-mcp` отсутствовал в PyPI несмотря на описание.
+
+### Первый запрос
+
+```text
+/memoforge:memo "Мы — SaaS-компания из США. Планируем анализировать с помощью ИИ переписку
+поддержки с пользователями из ЕС и предлагать сотрудникам варианты ответов. В переписке есть
+имена, email и иногда сведения об аккаунте. Нужно ли отдельное правовое основание по GDPR
+или достаточно исполнения договора? Нужны ли DPIA и выполнение требований AI Act?
+Подготовь меморандум на русском языке."
+```
+
+Можно задать несколько вопросов: каждый станет отдельным предметом анализа со своими источниками. `/memoforge:continue` возобновляет прерванную задачу или передаёт ответы на ожидающие вопросы. `/memoforge:status` показывает состояние задачи.
 
 ---
 
-## One mode
+## Режим работы
 
-Every run is Full: there is no mode to pick. Source of truth: `scripts/memoforge/modes.py`, rendered into [`docs/modes.md`](docs/modes.md).
+Каждый запуск использует режим **Full**. Выбирать режим не нужно. Источник настроек — `scripts/memoforge/modes.py`; [русский справочник режимов](docs/ru/modes.md).
 
-| | **Full** |
+| Параметр | **Full** |
 |---|---|
-| Research layers | statutes and case law; doctrine when the plan requires it |
-| Reviewers | logic, form, citations, counterarguments |
-| Revision iterations | 2 |
-| Client-readiness polish | one pass |
-| Template | classical memo |
-| Source-review gate | on exceptions only |
-| MCP quotas tracked | LDH 10/day, CourtListener 125/day; free servers soft-capped at 100 calls per run (telemetry only) |
+| Слои исследования | законодательство и судебная практика; доктрина, если нужна по плану |
+| Рецензенты | логика, форма, ссылки, контраргументы |
+| Итерации доработки | 2 |
+| Проверка готовности для клиента | один проход финальной правки |
+| Шаблон | классический меморандум |
+| Согласование источников | при исключениях |
+| Учёт квот MCP | LDH — 10 в сутки, CourtListener — 125 в сутки; для бесплатных серверов мягкий предел 100 вызовов на запуск, только для учёта |
 
-For a short document for the person who decides, run `/memoforge:brief` once the memo is finished — see [Decision brief](#decision-brief).
+Краткий документ для лица, принимающего решение, создаётся командой `/memoforge:brief` после завершения меморандума; см. [Краткая справка для принятия решения](#краткая-справка-для-принятия-решения).
 
-## Where it stops to ask you
+## Когда нужны ваши ответы
 
-Everything between these pauses runs on its own.
+Между этими остановками процесс работает самостоятельно.
 
-1. **Intake** — up to ten must-answer questions about facts the analyst could not infer. Answer `1A 2C 3: we only process EU users`, or `proceed` to accept the stated defaults, or `cancel`.
-2. **Plan** — one card carrying the research plan (jurisdictions, issues, source types), your style profile if you have one, and a reduced-coverage question if the estimate will not fit the MCP quotas. Approve, edit or cancel; if the card cannot render, the same gate arrives as text.
-3. **Source review — conditional.** It fires only on exceptions: a critical source left unresolved, conflicting authority, an exhausted MCP quota. Clean research goes straight to drafting. The `source_review_gate` setting forces it `on` or `off`.
+1. **Уточнение фактов** — до десяти обязательных вопросов о сведениях, которые аналитик не смог установить. Ответьте, например, `1A 2C 3: обрабатываем только данные пользователей из ЕС`; команда `proceed` принимает заявленные значения по умолчанию, `cancel` отменяет задачу.
+2. **План** — карточка с юрисдикциями, вопросами, типами источников и вашим профилем стиля, если он есть. Если оценка исследования не укладывается в квоты MCP, потребуется решение о сокращённом охвате. План можно одобрить, изменить или отменить. Если карточка недоступна, согласование проходит текстом.
+3. **Проверка источников** — нужна при исключениях: нерешённый вопрос с критическим источником, противоречивые правовые позиции или исчерпание квоты MCP. Без исключений процесс сразу переходит к написанию. Настройка `source_review_gate` может принудительно включить (`on`) или отключить (`off`) этот шаг.
 
-Two more gates appear only when research came back thin: a targeted follow-up question, and a continue-or-cancel when coverage is too weak to draft from.
+При недостаточном исследовании могут появиться ещё две остановки: адресное уточнение и выбор между продолжением с оговорками и отменой.
 
-## What progress looks like
+## Как отображается ход работы
 
-`dashboard` is **on by default**: the run publishes one live page through the host's `Artifact` tool, updated once per step; the link is printed in the chat right after it is published, and the page then re-renders itself as the run moves. Turn it off (`mf config set dashboard false`, or the plugin settings) to save one tool call per step; a host without an `Artifact` tool simply continues without the page. Cowork's Live artifacts were shut off on 2026-08-19, taking the v1 progress stack with them (the HTML renderer, the artifact updates and the widget MCP server), and v2 does not rebuild that. Either way the run leans on signals the runtime already shows:
+`dashboard` **включён по умолчанию**. Через инструмент `Artifact` приложение публикует одну страницу и обновляет её после каждого шага. Ссылка выводится в чат сразу после публикации. Отключите страницу через `mf config set dashboard false` или настройки плагина, чтобы сэкономить по одному вызову инструмента на шаг. Если приложение не предоставляет `Artifact`, процесс продолжается без страницы.
 
-- **Subagent tiles.** Every dispatch is labelled `P<n>/<N> · <agent> · <label>`, e.g. `P5/13 · legal-researcher · case law, CJEU`. The denominator is the number of pipeline phases reachable in your configuration — not a step count — so the tiles alone say how far along the run is.
-- **One line per step** in the chat, printed between steps. In Cowork these buffer until the turn ends and read as a segment summary; a gate always flushes them.
-- **`/tasks`** lists running subagents with those same labels, and a plugin `subagentStatusLine` adds elapsed time per task.
-- **`mf events analyze`** reads `events.jsonl` afterwards: timeline, per-agent durations, whether reviewers really ran in parallel, and any gap over five minutes where the run went dark. Hooks write that journal; the CLI writes a guaranteed record of every step it issued.
+По исходной документации Cowork Live artifacts были отключены 19 августа 2026 года, и старый механизм v1 — HTML-рендерер, обновления артефактов и widget MCP — перестал работать. v2 использует сигналы среды выполнения:
 
-Full `**Progress —**` blocks are printed at gates and at the end, where you are reading anyway. A later `/memoforge:brief` moves the same page: it shows the brief's own steps, and a «Brief» tab carries its status, review rounds and file.
+- **Карточки агентов.** Подпись вида `P<n>/<N> · <agent> · <label>`, например `P5/13 · legal-researcher · судебная практика, Суд ЕС`. Знаменатель — число доступных этапов процесса в вашей конфигурации.
+- **Строка в чате после каждого шага.** В Cowork строки могут появляться вместе после завершения хода. Согласование с пользователем выводит накопленные сообщения.
+- **`/tasks`** показывает активных агентов с теми же подписями, а `subagentStatusLine` добавляет время выполнения.
+- **`mf events analyze`** анализирует `events.jsonl`: последовательность событий, время работы агентов, фактическую параллельность рецензирования и паузы более пяти минут. Хуки пишут журнал; CLI гарантированно записывает каждый выданный шаг.
 
-## Options
+Полные блоки прогресса выводятся при согласованиях и в конце. Команда `/memoforge:brief` обновляет ту же страницу: отдельная вкладка показывает состояние справки, раунды проверки и файл.
 
-Ten settings, all optional: `output_folder`, `publish_folder` (where the finished result is copied; empty means the host's outputs area if it has one), `writer_model` (`opus` | `fable` | `sonnet`), `source_review_gate` (`auto` | `on` | `off`), `citation_style` (`inline` | `footnotes`; `inline` is the default — short parenthetical citations linked to the source, with the full record of each one in the Sources annex), `memo_language` (`auto` | `en` | `de` | `fr` | `es` | `ru`; `en` is the default), `ui_language` (same values; `auto` is the default — the language you write in), `dashboard` (on), `stop_guard` (off), `websearch_autoallow` (on).
+## Настройки
 
-`writer_model` picks the model of the writer only (the memo writer and the brief writer). Every agent that judges substance — the researchers, the currency checker, the reviewers, the mediator — runs on Opus whatever you set.
+Все десять настроек необязательны:
 
-**Memo language.** The memorandum can be written in English, German, French, Spanish or Russian. Set a default with the `memo_language` option (or `mf config set memo_language de`), or just say it in the request — “…memo in German”. The default is English whatever language you ask in; set `memo_language` to `auto` to get the memo in the language of your question — when that is one of the five, anything else stays English. The language is fixed once you approve the research plan; until then `mf task language --workdir <task folder> --memo fr` changes it. Citations keep their standard form; section headings, the risk line, the Sources annex, status notes and the run summary follow the memo language.
+| Настройка | Назначение и значения |
+|---|---|
+| `output_folder` | Каталог рабочих папок задач |
+| `publish_folder` | Каталог копирования результата; пустое значение использует область результатов приложения, если она есть |
+| `writer_model` | Модель автора: `opus`, `fable`, `sonnet` |
+| `source_review_gate` | Согласование источников: `auto`, `on`, `off` |
+| `citation_style` | `inline` — короткие ссылки в тексте и полные записи в приложении; `footnotes` — сноски Word. По умолчанию `inline` |
+| `memo_language` | Язык документа: `auto`, `en`, `de`, `fr`, `es`, `ru`. Исходное значение — `en` |
+| `ui_language` | Язык интерфейса: те же значения. Исходное значение — `auto`, по языку запроса |
+| `dashboard` | Страница прогресса; по умолчанию включена |
+| `stop_guard` | Защита от преждевременного завершения хода; по умолчанию выключена |
+| `websearch_autoallow` | Автоматическое разрешение WebSearch; по умолчанию включено |
 
-**Interface language.** The questions memoforge asks you, the plan card and its buttons, the live dashboard, the source-review digest and the assistant's replies follow `ui_language` — by default the language you write in, one of the same five; say “talk to me in German” to set it explicitly, or `mf task language --workdir <task folder> --ui de` on a running task. Reply tokens (`approve`, `edit:`, `proceed`), file paths and commands stay as they are. What is not localized: CLI error messages, run diagnostics and the reviewers' findings, which stay English.
+`writer_model` выбирает модель только для автора меморандума и справки. Агенты, оценивающие содержание — исследователи, проверка актуальности, рецензенты и медиатор — работают на Opus независимо от настройки.
 
-Set them in the host's plugin settings when it offers a UI for them. When it does not — and a host that exports plugin options only to hook processes never reaches a `Bash`-launched `mf` with them — set them yourself, once:
+**Язык документа.** Выберите `memo_language`, например `mf config set memo_language ru`, или укажите язык в запросе. В исходной конфигурации документ пишется по-английски независимо от языка вопроса. Значение `auto` выбирает язык запроса, если это один из пяти поддерживаемых языков; иначе остаётся английский. Язык фиксируется при одобрении плана. До этого его можно изменить: `mf task language --workdir <папка задачи> --memo ru`. Стандартное оформление ссылок сохраняется; заголовки, уровень риска, приложение «Источники», примечания о статусе и итоговая сводка используют язык документа.
 
+**Язык интерфейса.** Вопросы, план и кнопки, страница прогресса, обзор источников и ответы ассистента следуют `ui_language`. По умолчанию выбирается язык запроса из пяти поддерживаемых. Для текущей задачи: `mf task language --workdir <папка задачи> --ui ru`. Команды, пути и служебные ответы `approve`, `edit:`, `proceed` сохраняют исходный вид. Сообщения об ошибках CLI, диагностические данные и замечания рецензентов пока остаются на английском.
+
+Если приложение предоставляет экран настроек плагина, используйте его. Иначе настройте значения через CLI. Это также нужно, если приложение передаёт параметры только процессам хуков, но не запускаемому через `Bash` CLI:
+
+```bash
+<plugin>/scripts/mf config show                         # значения и их источники
+<plugin>/scripts/mf config set memo_language ru
+<plugin>/scripts/mf config set ui_language ru
+<plugin>/scripts/mf config set dashboard false
+<plugin>/scripts/mf config set output_folder ~/Documents/memoforge
+<plugin>/scripts/mf config unset writer_model
 ```
-mf config show                                  # effective value and where each one came from
-mf config set dashboard false
-mf config set output_folder ~/Documents/memoforge   # or the working folder your host shows you
-mf config unset writer_model
-```
 
-`mf config` reads and writes `<plugin_data_dir>/options.json`, and the SessionStart hook mirrors every option the host did export into that same file at each session start, so a real host setting keeps winning. `mf task new` resolves each option as **explicit flag (`--option key=value`) → host setting (`CLAUDE_PLUGIN_OPTION_*`) → `options.json` → default**, and its answer carries `options_source` — the level each value actually came from. A value that still reads `${…}` is an unexpanded placeholder and is skipped.
+`mf config` читает и пишет `<plugin_data_dir>/options.json`. При старте сессии хук `SessionStart` записывает в него переданные приложением параметры, поэтому настройки приложения сохраняют приоритет. Порядок разрешения параметров для `mf task new`: **явный флаг `--option key=value` → настройка приложения `CLAUDE_PLUGIN_OPTION_*` → `options.json` → значение по умолчанию**. Поле `options_source` показывает источник каждого значения. Нераскрытый шаблон `${…}` пропускается.
 
-## Permissions
+## Разрешения
 
-A plugin cannot ship permission rules, so research prompts for approval unless you allow the hosts yourself. Paste the block below into `~/.claude/settings.json`; it is generated from the plugin allowlist by `mf docs render permissions`, and [`docs/permissions.md`](docs/permissions.md) is the canonical copy. Replace `${CLAUDE_PLUGIN_ROOT}` with your install path. `Agent(memoforge:*)` is deliberately absent: globs for `Agent` are not confirmed.
+Плагин не может поставлять правила разрешений самостоятельно. При исследовании приложение будет запрашивать подтверждения, пока вы не разрешите нужные адреса. Блок ниже можно добавить в `~/.claude/settings.json`. Он создаётся командой `mf docs render permissions` из разрешённого списка плагина. [Русская справка](docs/ru/permissions.md); [канонический сгенерированный файл](docs/permissions.md). Замените `${CLAUDE_PLUGIN_ROOT}` на путь установки. Правило `Agent(memoforge:*)` отсутствует, поскольку поддержка шаблонов для `Agent` не подтверждена.
 
 <details>
-<summary><b>Permission block — 233 rules</b></summary>
+<summary><b>Блок разрешений — 233 правила</b></summary>
 
 ```json
 {"permissions": {"allow": [
@@ -213,54 +270,62 @@ A plugin cannot ship permission rules, so research prompts for approval unless y
 
 </details>
 
-**In Cowork these rules do not apply.** There, Bash and web fetching arrive as `mcp__workspace__*` tools that the list above does not cover. The only protection in that environment is the plugin's `permission_gate` hook, which approves a fetch only for an allowlisted host and a Bash command only when it is a single, operator-free call to the plugin's own `mf`.
+**В Cowork эти правила не действуют.** Bash и загрузка веб-страниц предоставляются инструментами `mcp__workspace__*`, которых нет в списке выше. В этой среде работает хук `permission_gate`: он разрешает загрузку только с разрешённого адреса, а Bash — только для одиночного вызова собственного `mf`, без операторов оболочки.
 
 ---
 
-## Your own house style
+## Собственный стиль документов
 
-By default the writer follows a built-in house style (concise, no em-dashes, OSCOLA citations). The Style Studio turns your own memos or written rules into a saved profile:
+По умолчанию автор использует встроенный стиль: краткий текст, без длинных тире, ссылки OSCOLA. Style Studio превращает ваши меморандумы или письменные правила в сохранённый профиль:
 
-```
+```text
 /memoforge:style new my-firm --examples ~/memos/2025-q4/
 /memoforge:style list
 ```
 
-Profiles live under the plugin data directory as plain markdown — open and edit them by hand. When profiles exist, the plan gate offers them as a choice; a profile sets the prose style and the template, never the run's scope. Form review then defers to your rules while the substantive checks (citations, IRAC, contrary authority) stay uniform. No profile means no extra prompts and default behaviour.
+Профили хранятся в каталоге данных плагина как Markdown; их можно редактировать вручную. Если профили есть, на согласовании плана предлагается выбор. Профиль задаёт стиль и шаблон, но не меняет объём исследования. Рецензент формы следует вашим правилам; проверки ссылок, IRAC и противоположных правовых позиций остаются общими. Без профиля дополнительных вопросов нет.
 
-## Where the results land
+## Где находятся результаты
 
-A run produces two things: a **work dir** — one folder per question, holding the protocol files, the drafts and the raw sources — and a **published result**: the deliverable, `summary.md` and `sources/` (the source pack plus the raw text of every critical and supporting source). The work dir is the machine room and stays where it is; the published copy is the part meant for you. The published copy also carries a `_run/` folder with the small diagnostic files of the run — `state.json`, `events.jsonl`, `plan.json`, the intake facts, the sufficiency verdict and the reviews — so a finished result can be inspected without opening the work dir.
+Запуск создаёт **рабочий каталог** с файлами протокола, черновиками и исходными текстами, а также **копию результата**: документ, `summary.md` и `sources/` с набором источников и текстами всех критических и вспомогательных источников. Рабочий каталог остаётся на месте. В копии результата также есть `_run/`: `state.json`, `events.jsonl`, `plan.json`, исходные факты, оценка полноты исследования и рецензии. Поэтому результат можно проверить без открытия рабочего каталога.
 
-The work dir goes to the first writable of: the `output_folder` option (host setting or `mf config set output_folder <dir>`) → `$MEMOFORGE_OUTPUT_FOLDER` → `<session folder>/memoforge/` — the folder attached to the session (`$CLAUDE_PROJECT_DIR`, else the current directory), skipped when that is the plugin's own folder, your home directory itself or a drive root → `~/Documents/memoforge/` → `./outputs/memoforge-work/`. `mf task new` prints the absolute path it chose and the skill repeats it as one chat line.
+Рабочая папка выбирается из первого доступного для записи варианта: `output_folder` → `$MEMOFORGE_OUTPUT_FOLDER` → `<папка сессии>/memoforge/` → `~/Documents/memoforge/` → `./outputs/memoforge-work/`. Папка сессии определяется через `$CLAUDE_PROJECT_DIR` либо текущий каталог; каталог самого плагина, домашняя папка пользователя и корень диска пропускаются. `mf task new` возвращает абсолютный путь, который навык повторяет в чате.
 
-The published copy goes to `<publish folder>/memoforge/<slug>/`, and where that is depends on the host:
+Копия результата размещается в `<publish folder>/memoforge/<slug>/`:
 
-- **Claude Code, project folder.** The work dir is already inside the folder you attached, so unless you set `publish_folder` nothing is copied — the deliverable is where you are working. The final message prints its absolute path.
-- **Cowork.** The plugin runs in a container that cannot see your connected folder. The result is copied into the session's outputs area (`/mnt/user-data/outputs`), and the memo plus its summary are also written to the root of that area as `memo-<slug>.<docx|md>` / `memo-<slug>.summary.md`, which the skill presents in the chat through `present_files`; only when that tool is absent does the skill copy the folder into your connected folder through the session's own file tools. Both paths are printed when the run ends.
-- **Anywhere else** (a hosted VM with neither): set `publish_folder` to a directory you can reach and the result lands there; with nothing set and no outputs area, nothing is copied and the work dir stays the single source.
+- **Claude Code, папка проекта.** Рабочая папка уже находится внутри подключённого каталога. Без `publish_folder` копирование не выполняется; итоговое сообщение показывает абсолютный путь документа.
+- **Cowork.** Плагин работает в контейнере и не видит подключённую папку напрямую. Результат копируется в `/mnt/user-data/outputs`. В корне этой области также создаются `memo-<slug>.<docx|md>` и `memo-<slug>.summary.md`, которые навык показывает через `present_files`. Если инструмента нет, папка копируется через файловые инструменты сессии. В конце выводятся оба пути.
+- **Другая среда.** Укажите доступный каталог в `publish_folder`. Если он не указан и область результатов отсутствует, единственной копией остаётся рабочая папка.
 
-Everything stays on your machine: no backend, no telemetry. MCP calls go to the providers you authenticated, with your credentials; the plugin never proxies or stores them.
+У плагина нет собственного серверного хранилища или телеметрии. Локальные файлы сохраняются на вашей машине или в рабочей среде приложения. Вызовы MCP отправляются выбранным провайдерам с вашей авторизацией; плагин не проксирует их и не хранит учётные данные.
 
-## Decision brief
+## Краткая справка для принятия решения
 
-The memorandum is written for lawyers. For the person who has to decide, run `/memoforge:brief` once a task has finished (no argument = the newest finished task; `/memoforge:brief <task_id>` for another one). It condenses the delivered memo into a self-contained brief of about three pages, in the memo's language, keeping only the main points: a memo section stays when its risk is high, when it names an amount or a sanction, when it answers something you asked explicitly, or when it is undetermined or open and a kept conclusion depends on it. The brief has a bottom line; one block per kept conclusion with its risk level and the rule or court it rests on (linked inline, no quotations, no Sources list); what to do, where an action due within 14 days always stays; what the answer depends on; and, last, «Other points assessed» — one line per point it left out, with the memo's conclusion on it and its risk. A writer drafts it; a fidelity reviewer checks it against the memo (nothing added, no condition dropped, no risk level moved) and the form reviewer checks that a non-lawyer can read it, for up to two revision rounds. Only the fidelity review and the automatic checks decide whether the brief counts as verified.
+Меморандум рассчитан на юриста. Для руководителя или другого лица, принимающего решение, выполните `/memoforge:brief` после завершения задачи. Без аргумента выбирается последняя завершённая задача; для другой — `/memoforge:brief <task_id>`.
 
-What it never does: no new research, and it never changes the memo — the task's `state.json`, the memorandum and `summary.md` keep their bytes. A memo that ended with open points asks you first, and the brief then marks those points as not confirmed; a brief that did not pass every check carries a banner naming the open ones. The result is `brief/brief.docx` in the work dir (`.md` without `python-docx`), copied as `memo-<slug>.brief.<docx|md>` next to the memo's published copy and, when the memo run saved the memo into your connected folder, beside it there too. Running the command again makes a fresh brief and keeps the previous one in `brief/previous/`.
+Команда создаёт самостоятельную справку примерно на три страницы на языке меморандума. В ней остаются вопросы с высоким риском, суммами или санкциями, прямые ответы на ваш запрос, а также открытые или неопределённые вопросы, от которых зависят сохранённые выводы. Структура: главное; выводы с уровнем риска и ссылкой на норму или суд; необходимые действия; условия ответа; «Другие рассмотренные вопросы» — по одной строке на исключённый вопрос с выводом меморандума и риском. Действия со сроком до 14 дней сохраняются всегда. Цитат и отдельного списка источников нет.
 
-## Limits
+Автор готовит справку. Рецензент верности проверяет соответствие меморандуму: отсутствие новых сведений, потерянных условий и изменённых уровней риска. Рецензент формы оценивает понятность для читателя без юридического образования. Допускаются две итерации правки. Статус проверки определяют только верность меморандуму и автоматические проверки.
 
-- **Not a substitute for a lawyer.** The memo is a research-grade draft for a qualified reviewer.
-- **Five memo languages** — English, German, French, Spanish, Russian. Reviewers' findings, CLI errors and run diagnostics stay English.
-- **Provenance is bounded.** A quote is proven to come from the raw file the researcher saved; that the file came from the cited URL is confirmed only where the URL is still live and its hash matches. Each source records which of the two it is.
-- **Currency is best-effort** against the connected databases. Verify litigation-sensitive citations yourself.
-- **No cancelling mid-segment.** Cancellation is honoured at gates and at the next step boundary.
-- **Cowork caveats:** buffered chat output, and permission rules that do not apply (above).
+Нового исследования нет; `state.json`, меморандум и `summary.md` исходной задачи не изменяются. Если в меморандуме остались открытые вопросы, сначала требуется ваше решение, а справка отмечает неподтверждённые пункты. Непройденные проверки перечисляются в предупреждении.
 
-## Going deeper
+Результат — `brief/brief.docx` в рабочем каталоге, либо `.md` без `python-docx`. Рядом с опубликованным меморандумом создаётся `memo-<slug>.brief.<docx|md>`. Если меморандум сохранён в подключённую папку, справка помещается рядом с ним. Повторный запуск создаёт новую справку, а предыдущую сохраняет в `brief/previous/`.
 
-[`docs/decisions.md`](docs/decisions.md) records why v2 looks like this, and [`docs/TZ-memoforge-v2.md`](docs/TZ-memoforge-v2.md) is the specification it was built from. Phases, modes, events, state fields and the always-deliver matrix are generated from the code into [`docs/`](docs/); the v1 contracts they replaced are kept in `docs/attic/`. Release history is in [`CHANGELOG.md`](CHANGELOG.md); `scripts/tests/README.md` explains how to run the suite.
+## Ограничения
 
-## License and contact
+- **Нужна проверка юристом.** Меморандум — исследовательский черновик для квалифицированного рецензента.
+- **Пять языков документа.** Русский, английский, немецкий, французский и испанский. Замечания рецензентов, ошибки CLI и диагностика остаются на английском.
+- **Проверка происхождения имеет границы.** Код подтверждает наличие цитаты в сохранённом тексте. Происхождение текста по указанному URL подтверждается только при доступности страницы и совпадении хеша. Для каждого источника записывается уровень подтверждения.
+- **Актуальность зависит от подключённых баз.** Значимые для судебного спора ссылки следует проверить отдельно.
+- **Отмена выполняется на границе шага** или при согласовании, а не посреди сегмента.
+- **Особенности Cowork:** сообщения могут накапливаться до конца хода, а правила разрешений выше не применяются.
 
-MIT — see [`LICENSE`](LICENSE). Author: Grigorii Moskalev. Issues and production stories: [github.com/gregmos/memoforge/issues](https://github.com/gregmos/memoforge/issues).
+## Подробная документация
+
+[Русский указатель](docs/ru/README.md) ведёт к переводу актуального справочника: архитектура, этапы, режим, события, состояние, резервные результаты, разрешения, тестирование платформы и запуск тестов.
+
+[ТЗ](docs/TZ-memoforge-v2.md), [соглашения разработчиков](docs/dev/CONVENTIONS.md) и [решения реализации](docs/dev/IMPL-DECISIONS.md) уже написаны на русском. Сгенерированные справочники в `docs/` остаются каноническими и проверяются командой `mf docs render --check`; их русские переводы находятся в `docs/ru/`. Исторические контракты v1 хранятся в `docs/attic/`. [История изменений](CHANGELOG.md) и архив v1 сохранены на языке оригинала.
+
+## Лицензия и автор
+
+MIT — см. [`LICENSE`](LICENSE). Автор исходного проекта: Grigorii Moskalev (Григорий Москалёв). [Исходный проект](https://github.com/gregmos/memoforge); [этот репозиторий](https://github.com/Iver15/memoforge); [обсуждение ошибок исходного проекта](https://github.com/gregmos/memoforge/issues).

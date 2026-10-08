@@ -132,8 +132,8 @@ class PermissionsTest(unittest.TestCase):
         rule = re.compile(r'"((?:WebFetch|mcp__|Bash)[^"]*)"')
         generated = rule.findall(docs_render.render_permissions(PLUGIN_ROOT))
         readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8-sig")
-        block = readme.split("<summary><b>Permission block — ", 1)[1]
-        count = int(block.split(" rules</b>", 1)[0])
+        block = readme.split("<summary><b>Блок разрешений — ", 1)[1]
+        count = int(block.split(" правила</b>", 1)[0])
         body = block.split("```json", 1)[1].split("```", 1)[0]
         self.assertEqual(generated, rule.findall(body))
         self.assertEqual(len(generated), count)

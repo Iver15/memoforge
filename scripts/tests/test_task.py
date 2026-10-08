@@ -183,7 +183,7 @@ class WorkDirChainTest(unittest.TestCase):
             finally:
                 os.chdir(previous)
             self.assertEqual(resolved["source"], "project_folder")
-            self.assertEqual(resolved["output_folder"], (Path(tmp) / "memoforge").absolute())
+            self.assertEqual(resolved["output_folder"].resolve(), (Path(tmp) / "memoforge").resolve())
 
     def test_the_environment_variable_still_beats_the_project_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,8 +247,8 @@ class WorkDirChainTest(unittest.TestCase):
                             resolved = task.resolve_output_folder()
                             self.assertEqual(resolved["source"], "cwd_outputs")
                             self.assertEqual(
-                                resolved["output_folder"],
-                                (Path(tmp) / "outputs" / "memoforge-work").absolute(),
+                                resolved["output_folder"].resolve(),
+                                (Path(tmp) / "outputs" / "memoforge-work").resolve(),
                             )
             finally:
                 os.chdir(previous)
@@ -443,7 +443,7 @@ class OneModeTaskNewTest(unittest.TestCase):
             work_dir, state, step_id="s-042", attempt=1, specs=[analyst], position=5, total=13
         )
         golden = (GOLDEN / "fact-assumption-analyst.analyst.full.md").read_text(encoding="utf-8-sig")
-        self.assertEqual(golden, normalize(agents[0]["prompt"], work_dir))
+        self.assertEqual(normalize(golden, work_dir), normalize(agents[0]["prompt"], work_dir))
 
 
 class OptionChainTest(unittest.TestCase):

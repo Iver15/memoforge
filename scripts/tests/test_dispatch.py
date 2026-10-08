@@ -212,6 +212,9 @@ def normalize(text: str, work_dir: Path) -> str:
     """Replace the machine-specific absolute paths with stable tokens (goldens are portable)."""
     for token, resolve in TOKENS:
         text = text.replace(resolve(work_dir), token)
+    # Golden files were recorded on Windows; normalize only tokenized path separators.
+    for token, _ in TOKENS:
+        text = text.replace(token + "\\", token + "/")
     return text
 
 
@@ -260,7 +263,7 @@ class PromptGoldenTest(unittest.TestCase):
                 continue
             with self.subTest(prompt=name):
                 self.assertTrue(path.is_file(), f"missing golden {name}")
-                self.assertEqual(path.read_text(encoding="utf-8-sig"), text)
+                self.assertEqual(normalize(path.read_text(encoding="utf-8-sig"), rendered["work_dir"]), text)
 
     def test_the_writer_prompt_names_no_executive_brief(self):
         """D-243: a warning for the client goes into the Assumptions block; there is no second template."""

@@ -352,6 +352,14 @@ class BashDiscoveryTest(unittest.TestCase):
 
     def shim_env(self, shims: Path, data: str) -> dict:
         env = wrapper_env(data)
+        # macOS splits the shell tools between /bin and /usr/bin. Keep Python
+        # isolated while making every utility required by the launcher available.
+        for name in ("dirname", "mkdir", "mv", "rm", "sed", "tr"):
+            if (TOOLCHAIN / name).exists() or (TOOLCHAIN / f"{name}.exe").exists():
+                continue
+            executable = shutil.which(name)
+            if executable and not (shims / name).exists():
+                (shims / name).symlink_to(executable)
         env["PATH"] = f"{shims}{os.pathsep}{TOOLCHAIN}"
         return env
 

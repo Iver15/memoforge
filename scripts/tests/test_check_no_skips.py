@@ -83,6 +83,15 @@ class CheckNoSkipsTest(unittest.TestCase):
         self.assertIn("check_no_skips: OK", result.stdout)
         self.assertIn("0 allowed skip(s)", result.stdout)
 
+    def test_windows_locking_skip_passes(self):
+        """The msvcrt locking test cannot run on macOS or the Ubuntu CI runner."""
+        reason = "Windows-specific msvcrt.locking behaviour"
+        test_id = "test_state_io.WindowsLockTest.test_second_handle_in_the_same_process_is_excluded"
+        result = run(report((test_id, reason), (PLAIN_TEST, None)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1 allowed skip(s), 0 unexpected", result.stdout)
+        self.assertIn(test_id, result.stdout)
+
     def test_each_allowed_reason_alone_passes(self):
         for reason in ALLOWED:
             with self.subTest(reason=reason):
