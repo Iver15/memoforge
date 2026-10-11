@@ -5,7 +5,18 @@ set -u
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
-PLUGIN_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+MF_RUNTIME_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+PLUGIN_ROOT="$MF_RUNTIME_ROOT"
+MF_PACKAGED_PLATFORM=""
+if [ -f "$MF_RUNTIME_ROOT/memoforge-platform.json" ]; then
+  MF_PACKAGED_PLATFORM="$(sed -n 's/.*"platform"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p' "$MF_RUNTIME_ROOT/memoforge-platform.json")"
+fi
+if [ -n "$MF_PACKAGED_PLATFORM" ] && [ -n "${MEMOFORGE_PLATFORM:-}" ] && [ "$MEMOFORGE_PLATFORM" != "$MF_PACKAGED_PLATFORM" ]; then
+  echo "platform_mismatch: package=$MF_PACKAGED_PLATFORM environment=$MEMOFORGE_PLATFORM" >&2; exit 2
+fi
+MF_PLATFORM="${MEMOFORGE_PLATFORM:-${MF_PACKAGED_PLATFORM:-claude}}"
+case "$MF_PLATFORM" in claude|codex|zcode) ;; *) echo "invalid_platform: $MF_PLATFORM" >&2; exit 2 ;; esac
+export MEMOFORGE_PLATFORM="$MF_PLATFORM"
 
 VERSION_PROBE='import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)'
 
@@ -23,14 +34,25 @@ mf_usable_dir() {
 }
 
 DATA_DIR=""
-if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && mf_usable_dir "$CLAUDE_PLUGIN_DATA"; then
-  DATA_DIR="$CLAUDE_PLUGIN_DATA"
+MF_PLUGIN_NAME="memoforge"
+MF_HOST_DATA="${CLAUDE_PLUGIN_DATA:-}"
+if [ "$MF_PLATFORM" != claude ]; then
+  MF_PLUGIN_NAME="memoforge-$MF_PLATFORM"
+  MF_HOST_DATA=""
+  case "$MF_PLATFORM" in
+    codex) MF_HOST_DATA="${PLUGIN_DATA:-}" ;;
+    zcode) MF_HOST_DATA="${ZCODE_PLUGIN_DATA:-}" ;;
+  esac
+  if [ -z "$MF_HOST_DATA" ] && [ "${CLAUDE_PLUGIN_ROOT:-}" = "$MF_RUNTIME_ROOT" ]; then
+    MF_HOST_DATA="${CLAUDE_PLUGIN_DATA:-}"
+  fi
 fi
+if [ -n "$MF_HOST_DATA" ] && mf_usable_dir "$MF_HOST_DATA"; then DATA_DIR="$MF_HOST_DATA"; fi
 if [ -z "$DATA_DIR" ]; then
   if [ -n "${LOCALAPPDATA:-}" ]; then
-    MF_HOME_CANDIDATE="$LOCALAPPDATA/claude/plugin-data/memoforge"
+    MF_HOME_CANDIDATE="$LOCALAPPDATA/$MF_PLATFORM/plugin-data/$MF_PLUGIN_NAME"
   elif [ -n "${HOME:-}" ]; then
-    MF_HOME_CANDIDATE="$HOME/.claude/plugin-data/memoforge"
+    MF_HOME_CANDIDATE="$HOME/.$MF_PLATFORM/plugin-data/$MF_PLUGIN_NAME"
   else
     MF_HOME_CANDIDATE=""
   fi

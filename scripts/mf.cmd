@@ -10,14 +10,22 @@ set "MF_PROBE=import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)"
 rem --- plugin_data_dir chain (TZ 2.5) --------------------------------------
 rem A candidate is taken only when it can be created AND written to - the same criterion as
 rem pylauncher.plugin_data_dir(), otherwise the wrapper and the package would disagree.
+if not defined MEMOFORGE_PLATFORM set "MEMOFORGE_PLATFORM=claude"
+set "MF_PLUGIN_NAME=memoforge"
+set "MF_HOST_DATA=%CLAUDE_PLUGIN_DATA%"
+if "%MEMOFORGE_PLATFORM%"=="codex" set "MF_HOST_DATA=%PLUGIN_DATA%"
+if "%MEMOFORGE_PLATFORM%"=="zcode" set "MF_HOST_DATA=%ZCODE_PLUGIN_DATA%"
+if not "%MEMOFORGE_PLATFORM%"=="claude" set "MF_PLUGIN_NAME=memoforge-%MEMOFORGE_PLATFORM%"
+if not "%MEMOFORGE_PLATFORM%"=="claude" if not "%MEMOFORGE_PLATFORM%"=="codex" if not "%MEMOFORGE_PLATFORM%"=="zcode" exit /b 2
+if not defined MF_HOST_DATA if "%CLAUDE_PLUGIN_ROOT%"=="%MF_PLUGIN_ROOT%" set "MF_HOST_DATA=%CLAUDE_PLUGIN_DATA%"
 set "MF_DATA_DIR="
-if defined CLAUDE_PLUGIN_DATA (
-  call :mf_usable_dir "%CLAUDE_PLUGIN_DATA%"
-  if not errorlevel 1 set "MF_DATA_DIR=%CLAUDE_PLUGIN_DATA%"
+if defined MF_HOST_DATA (
+  call :mf_usable_dir "%MF_HOST_DATA%"
+  if not errorlevel 1 set "MF_DATA_DIR=%MF_HOST_DATA%"
 )
 set "MF_HOME_CANDIDATE="
-if defined LOCALAPPDATA set "MF_HOME_CANDIDATE=%LOCALAPPDATA%\claude\plugin-data\memoforge"
-if not defined LOCALAPPDATA if defined USERPROFILE set "MF_HOME_CANDIDATE=%USERPROFILE%\.claude\plugin-data\memoforge"
+if defined LOCALAPPDATA set "MF_HOME_CANDIDATE=%LOCALAPPDATA%\%MEMOFORGE_PLATFORM%\plugin-data\%MF_PLUGIN_NAME%"
+if not defined LOCALAPPDATA if defined USERPROFILE set "MF_HOME_CANDIDATE=%USERPROFILE%\.%MEMOFORGE_PLATFORM%\plugin-data\%MF_PLUGIN_NAME%"
 if not defined MF_DATA_DIR if defined MF_HOME_CANDIDATE (
   call :mf_usable_dir "%MF_HOME_CANDIDATE%"
   if not errorlevel 1 set "MF_DATA_DIR=%MF_HOME_CANDIDATE%"

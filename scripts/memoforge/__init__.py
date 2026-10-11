@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 
 FALLBACK_VERSION = "0.0.0"
-PLUGIN_MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+from .host_profile import get_profile  # noqa: E402
+PLUGIN_MANIFEST = PLUGIN_ROOT / ("." + get_profile(PLUGIN_ROOT).name + "-plugin") / "plugin.json"
 
 
 def _read_version() -> str:

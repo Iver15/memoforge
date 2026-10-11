@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from . import limits, schema, state_io
+from .host_profile import get_profile, data_candidates, runtime_root
 
 LAUNCHER_CACHE_FILENAME = "launcher.json"
 SITE_PACKAGES_DIRNAME = "site-packages"
@@ -25,12 +26,7 @@ VERSION_CHECK = (
 
 def plugin_root() -> Path:
     """Repository root of the plugin (`<root>/scripts/memoforge/pylauncher.py` -> `<root>`)."""
-    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if env:
-        candidate = Path(env)
-        if (candidate / "scripts" / "memoforge").is_dir():
-            return candidate.absolute()
-    return Path(__file__).resolve().parents[2]
+    return runtime_root()
 
 
 def home_dir() -> Path | None:
@@ -50,6 +46,9 @@ def plugin_data_dir_candidates() -> list[dict]:
     `%LOCALAPPDATA%` is the Windows marker (it is never set on POSIX), which keeps the shell
     wrappers and this module byte-for-byte equivalent without a platform switch.
     """
+    profile = get_profile()
+    if profile.name != "claude":
+        return data_candidates(profile, plugin_root())
     out: list[dict] = []
     env = (os.environ.get("CLAUDE_PLUGIN_DATA") or "").strip()
     if env:

@@ -355,12 +355,10 @@ class BashDiscoveryTest(unittest.TestCase):
         # macOS splits the shell tools between /bin and /usr/bin. Keep Python
         # isolated while making every utility required by the launcher available.
         for name in ("dirname", "mkdir", "mv", "rm", "sed", "tr"):
-            if (TOOLCHAIN / name).exists() or (TOOLCHAIN / f"{name}.exe").exists():
-                continue
             executable = shutil.which(name)
             if executable and not (shims / name).exists():
                 (shims / name).symlink_to(executable)
-        env["PATH"] = f"{shims}{os.pathsep}{TOOLCHAIN}"
+        env["PATH"] = str(shims)
         return env
 
     def test_a_store_alias_python3_is_skipped(self):
