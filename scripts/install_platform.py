@@ -25,7 +25,7 @@ def host_command(platform: str) -> list[str]:
 
 
 def run_json(argv: list[str], timeout: int = 120) -> object:
-    completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    completed = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
     if completed.returncode:
         # Diagnostic messages are native CLI errors, never user configuration content.
         raise RuntimeError("cli_failed: " + str(completed.returncode) + " " + completed.stderr.strip()[:1000])
@@ -58,7 +58,9 @@ def install_platform(platform: str, marketplace_root: Path) -> dict:
             readback = run_json(command + ["plugins", "list", "--json"])
             rows = readback if isinstance(readback, list) else []
         expected_version = (
-            json.loads((marketplace_root / plugin / ("." + platform + "-plugin/plugin.json")).read_text())["version"]
+            json.loads(
+                (marketplace_root / plugin / ("." + platform + "-plugin/plugin.json")).read_text(encoding="utf-8")
+            )["version"]
             if (marketplace_root / plugin).is_dir()
             else "2.1.0"
         )
@@ -79,6 +81,9 @@ def install_platform(platform: str, marketplace_root: Path) -> dict:
                 or row.get("rootPath")
                 or (installed.get("installedPath") if isinstance(installed, dict) else None),
             )
+            if not result["installed_path"]:
+                result["ok"] = False
+                result["errors"].append("missing_installed_path")
     except subprocess.TimeoutExpired:
         result["errors"].append("timeout: native installation exceeded 120 seconds")
     except (OSError, RuntimeError, ValueError, KeyError) as exc:

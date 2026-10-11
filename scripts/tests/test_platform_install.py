@@ -35,7 +35,7 @@ class PlatformInstallTest(unittest.TestCase):
         items = {
             "installed": [
                 {"name": "unrelated", "enabled": True},
-                {"name": "memoforge-codex", "version": "2.1.0", "enabled": True},
+                {"name": "memoforge-codex", "version": "2.1.0", "enabled": True, "installPath": "/own/codex"},
             ]
         }
         calls = []
@@ -54,7 +54,7 @@ class PlatformInstallTest(unittest.TestCase):
 
         def runner(argv, **kw):
             calls.append(argv)
-            rows = [{"name": "memoforge-zcode", "version": "2.1.0", "enabled": True}]
+            rows = [{"name": "memoforge-zcode", "version": "2.1.0", "enabled": True, "rootPath": "/own/zcode"}]
             return subprocess.CompletedProcess(argv, 0, json.dumps(rows) if "list" in argv else "{}", "")
 
         with patch("subprocess.run", side_effect=runner):
@@ -66,3 +66,25 @@ class PlatformInstallTest(unittest.TestCase):
             result = install_platform("codex", Path("/local"))
             self.assertFalse(result["ok"])
             self.assertIn("timeout", result["errors"][0])
+
+
+class RuntimePathRegressionTest(unittest.TestCase):
+    def test_missing_installed_path_is_not_success(self):
+        rows = {
+            "installed": [
+                {
+                    "name": "memoforge-codex",
+                    "version": "2.1.0",
+                    "enabled": True,
+                    "pluginId": "memoforge-codex@memoforge-codex-local",
+                }
+            ]
+        }
+
+        def runner(argv, **kw):
+            return subprocess.CompletedProcess(argv, 0, json.dumps(rows) if "list" in argv else "{}", "")
+
+        with patch("subprocess.run", side_effect=runner):
+            result = install_platform("codex", Path("/local"))
+        self.assertFalse(result["ok"])
+        self.assertIn("missing_installed_path", result["errors"])

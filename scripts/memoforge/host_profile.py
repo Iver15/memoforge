@@ -51,7 +51,15 @@ def runtime_root() -> Path:
         if not raw:
             continue
         candidate = Path(raw)
-        if (candidate / "scripts" / "memoforge").is_dir() and get_profile(candidate).name == profile.name:
+        if not (candidate / "scripts" / "memoforge").is_dir():
+            continue
+        # Root ownership is package metadata, never the caller's environment override.
+        metadata = candidate / "memoforge-platform.json"
+        try:
+            declared = json.loads(metadata.read_text(encoding="utf-8"))["platform"] if metadata.exists() else "claude"
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if declared == profile.name:
             return candidate.absolute()
     return own
 

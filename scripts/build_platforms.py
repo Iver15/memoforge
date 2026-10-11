@@ -19,11 +19,11 @@ def validate_package(root: Path) -> list[str]:
     errors = []
     root = root.resolve()
     try:
-        metadata = json.loads((root / "memoforge-platform.json").read_text())
+        metadata = json.loads((root / "memoforge-platform.json").read_text(encoding="utf-8"))
         platform = metadata["platform"]
         if platform not in PLATFORMS:
             raise ValueError("invalid_platform")
-        manifest = json.loads((root / ("." + platform + "-plugin") / "plugin.json").read_text())
+        manifest = json.loads((root / ("." + platform + "-plugin") / "plugin.json").read_text(encoding="utf-8"))
         if manifest["version"] != metadata["version"] or manifest["name"] != "memoforge-" + platform:
             errors.append("package_identity_mismatch")
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -45,7 +45,7 @@ def validate_package(root: Path) -> list[str]:
             errors.append("missing_skill: " + name)
     mcp = root / ".mcp.json"
     try:
-        if len(json.loads(mcp.read_text())["mcpServers"]) != 10:
+        if len(json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]) != 10:
             errors.append("missing_mcp_servers")
     except (OSError, ValueError, KeyError):
         errors.append("invalid_mcp_configuration")
@@ -83,18 +83,18 @@ def build_package(platform: str, destination: Path) -> Path:
         shutil.copy2(ROOT / rel, root / rel)
     adapter = ROOT / "platforms" / platform
     shutil.copytree(adapter, root, dirs_exist_ok=True, ignore=IGNORED)
-    manifest = json.loads((adapter / ("." + platform + "-plugin") / "plugin.json").read_text())
+    manifest = json.loads((adapter / ("." + platform + "-plugin") / "plugin.json").read_text(encoding="utf-8"))
     version = manifest["version"]
     (root / "memoforge-platform.json").write_text(
-        json.dumps({"platform": platform, "version": version}, indent=2) + "\n"
+        json.dumps({"platform": platform, "version": version}, indent=2) + "\n", encoding="utf-8"
     )
     cmd = root / "scripts/mf.cmd"
     text = (
         cmd.read_bytes()
         .decode()
         .replace(
-            "@echo off\r\n",
-            "@echo off\r\nif defined MEMOFORGE_PLATFORM "
+            "setlocal EnableExtensions\r\n",
+            "setlocal EnableExtensions\r\nif defined MEMOFORGE_PLATFORM "
             f'if not "%MEMOFORGE_PLATFORM%"=="{platform}" exit /b 2\r\n'
             f'set "MEMOFORGE_PLATFORM={platform}"\r\n',
             1,
@@ -102,17 +102,20 @@ def build_package(platform: str, destination: Path) -> Path:
     )
     cmd.write_bytes(text.encode())
     tooling = root / "lib/agent-core/tooling-core.md"
-    tooling.write_text(tooling.read_text() + (adapter / "tooling-core.md").read_text())
+    tooling.write_text(
+        tooling.read_text(encoding="utf-8") + (adapter / "tooling-core.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (root / "tooling-core.md").unlink()
     for path in (root / "agents").glob("*.md"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if text.startswith("---"):
             front, body = text.split("---", 2)[1:]
             front = "\n".join(
                 line for line in front.splitlines() if not line.startswith(("model:", "effort:", "disallowedTools:"))
             )
             text = "---\n" + front.strip() + "\n---" + body
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
     if platform == "zcode":
         commands = root / "commands"
         commands.mkdir()
@@ -120,13 +123,14 @@ def build_package(platform: str, destination: Path) -> Path:
             (commands / (name + ".md")).write_text(
                 f"---\ndescription: Memoforge — {name}\n---\n\n"
                 f"Прочитай `${{ZCODE_PLUGIN_ROOT}}/skills/{name}/SKILL.md` "
-                "и выполни его с аргументами `$ARGUMENTS`.\n"
+                "и выполни его с аргументами `$ARGUMENTS`.\n",
+                encoding="utf-8",
             )
-    mcp = json.loads((ROOT / ".mcp.json").read_text())
+    mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
     if platform == "codex":
         for server in mcp["mcpServers"].values():
             server["type"] = "streamable-http"
-    (root / ".mcp.json").write_text(json.dumps(mcp, indent=2) + "\n")
+    (root / ".mcp.json").write_text(json.dumps(mcp, indent=2) + "\n", encoding="utf-8")
     errors = validate_package(root)
     if errors:
         raise ValueError("\n".join(errors))
@@ -147,7 +151,7 @@ def build_marketplace(platform: str, package: Path, destination: Path) -> Path:
             raise ValueError("destination_not_owned")
         shutil.rmtree(target)
     shutil.copytree(package, target)
-    manifest = json.loads((package / ("." + platform + "-plugin") / "plugin.json").read_text())
+    manifest = json.loads((package / ("." + platform + "-plugin") / "plugin.json").read_text(encoding="utf-8"))
     entry = {
         "name": package.name,
         "source": "./" + package.name,
@@ -168,7 +172,8 @@ def build_marketplace(platform: str, package: Path, destination: Path) -> Path:
             ensure_ascii=False,
             indent=2,
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
     )
     return marketplace
 

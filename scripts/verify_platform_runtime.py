@@ -55,7 +55,7 @@ def run_session(platform: str, work_dir: Path, prompt: str, label: str, timeout_
         bundled = Path("/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json")
         if bundled.is_file():
             env.setdefault("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", str(bundled))
-    with log.open("w") as output:
+    with log.open("w", encoding="utf-8") as output:
         try:
             process = subprocess.Popen(
                 argv,
@@ -163,7 +163,7 @@ def verify_runtime(platform: str, work_dir: Path, timeout_seconds: int = 300, ru
         "errors": [],
     }
     try:
-        version = subprocess.run(command + ["--version"], capture_output=True, text=True, timeout=20)
+        version = subprocess.run(command + ["--version"], capture_output=True, text=True, encoding="utf-8", timeout=20)
         result["host_version"] = version.stdout.strip()
         rows = run_json(
             command
@@ -209,7 +209,9 @@ loaded_skills (пять имён), task_path (абсолютный путь) и 
         result.update(collected)
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as exc:
         result["errors"].append(str(exc))
-    (work_dir / "runtime-report.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    (work_dir / "runtime-report.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return result
 
 
