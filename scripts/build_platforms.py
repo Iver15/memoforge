@@ -94,9 +94,9 @@ def build_package(platform: str, destination: Path) -> Path:
         .decode()
         .replace(
             "@echo off\r\n",
-            '@echo off\r\nif defined MEMOFORGE_PLATFORM '
-        f'if not "%MEMOFORGE_PLATFORM%"=="{platform}" exit /b 2\r\n'
-        f'set "MEMOFORGE_PLATFORM={platform}"\r\n',
+            "@echo off\r\nif defined MEMOFORGE_PLATFORM "
+            f'if not "%MEMOFORGE_PLATFORM%"=="{platform}" exit /b 2\r\n'
+            f'set "MEMOFORGE_PLATFORM={platform}"\r\n',
             1,
         )
     )

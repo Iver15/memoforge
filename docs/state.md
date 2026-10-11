@@ -12,6 +12,7 @@ Paths inside the state are POSIX strings relative to `work_dir`, except `work_di
 
 | Field | Meaning |
 |---|---|
+| `runtime_platform` | Optional host identity: `claude`, `codex` or `zcode`; absence means Claude. Commands reject another host before mutating the task. |
 | `schema_version` | Always `2`. `mf task resolve` answers `unsupported` for anything lower. |
 | `task_id`, `created_at`, `user_query`, `language`, `ui_language` | Task identity and the question verbatim; `language` is the memo language (`en` \| `de` \| `fr` \| `es` \| `ru`), `ui_language` the interface language (same enum, optional — absence means `en`). |
 | `work_dir`, `output_folder` | Absolute run directory and the folder it was resolved into (ТЗ §2.5 chain). |

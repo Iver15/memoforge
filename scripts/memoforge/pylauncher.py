@@ -177,6 +177,8 @@ def python_cmd(refresh: bool = False) -> list[str]:
     for candidate in PYTHON_CANDIDATES:
         if probe_interpreter(candidate):
             resolved = list(candidate)
+            if get_profile().name != "claude":
+                resolved[0] = shutil.which(resolved[0]) or resolved[0]
             _write_cache(resolved)
             return resolved
     return [sys.executable]

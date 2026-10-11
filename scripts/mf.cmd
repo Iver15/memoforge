@@ -39,6 +39,8 @@ if /i "%~1"=="--print-plugin-data-dir" (
   exit /b 0
 )
 
+if not "%MEMOFORGE_PLATFORM%"=="claude" goto :native_bootstrap
+
 rem --- discovery cache (<plugin_data_dir>\launcher.json) --------------------
 rem Read first: a hit costs one interpreter start instead of up to three (TZ 5.6, G7).
 set "MF_CACHE=%MF_DATA_DIR%\launcher.json"
@@ -113,3 +115,20 @@ if not exist "%MF_TRY%\" exit /b 1
 if not exist "%MF_TRY%\.mf-write-probe" exit /b 1
 del /q "%MF_TRY%\.mf-write-probe" >nul 2>&1
 exit /b 0
+
+:native_bootstrap
+rem The bridge reads the JSON cache with Python; paths with spaces remain intact.
+python -c "%MF_PROBE%" >nul 2>&1
+if not errorlevel 1 goto :native_python
+python3 -c "%MF_PROBE%" >nul 2>&1
+if not errorlevel 1 goto :native_python3
+py -3 "%MF_PLUGIN_ROOT%\scripts\memoforge\native_bootstrap.py" %*
+exit /b %ERRORLEVEL%
+:native_python
+set "MF_BRIDGE=python"
+goto :native_bridge
+:native_python3
+set "MF_BRIDGE=python3"
+:native_bridge
+"%MF_BRIDGE%" "%MF_PLUGIN_ROOT%\scripts\memoforge\native_bootstrap.py" %*
+exit /b %ERRORLEVEL%

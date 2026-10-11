@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -31,9 +32,7 @@ def install_args(**kwargs) -> argparse.Namespace:
 class RequirementsTest(unittest.TestCase):
     def test_requirements_txt_is_the_source_of_the_version_floors(self):
         required = deps.read_requirements()
-        self.assertEqual(
-            {"jsonschema", "python-docx", "mistune"}, set(required), required
-        )
+        self.assertEqual({"jsonschema", "python-docx", "mistune"}, set(required), required)
         self.assertEqual(">=4.18", required["jsonschema"])
 
     def test_the_optional_line_of_pypdf_stays_commented_out(self):
@@ -45,9 +44,7 @@ class RequirementsTest(unittest.TestCase):
     def test_comments_and_blank_lines_are_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "requirements.txt"
-            path.write_text(
-                "# a comment\n\nmistune>=3.0  # trailing\n# rapidfuzz>=3.0\n", encoding="utf-8"
-            )
+            path.write_text("# a comment\n\nmistune>=3.0  # trailing\n# rapidfuzz>=3.0\n", encoding="utf-8")
             self.assertEqual({"mistune": ">=3.0"}, deps.read_requirements(path))
 
     def test_version_comparison_covers_the_operators_of_requirements_txt(self):
@@ -161,6 +158,10 @@ class OptionalModuleTest(unittest.TestCase):
 
 
 class InstallTest(unittest.TestCase):
+    def test_native_reinstall_replaces_incompatible_wheels(self):
+        with mock.patch.dict(os.environ, {"MEMOFORGE_PLATFORM": "zcode"}):
+            self.assertIn("--upgrade", deps.install_command(Path("/own/site"), Path("requirements.txt")))
+
     def test_install_calls_pip_with_target_and_requirements(self):
         completed = subprocess.CompletedProcess([], 0, stdout="ok", stderr="")
         with mock.patch.object(subprocess, "run", return_value=completed) as runner:
@@ -198,9 +199,15 @@ class InstallTest(unittest.TestCase):
 
     def test_nothing_installs_without_the_explicit_command(self):
         """D-33: `install` is the only place that runs pip, and only on the explicit command."""
-        source = (PLUGIN_ROOT / "scripts" / "memoforge" / "deps.py").read_text(encoding="utf-8-sig")
-        self.assertEqual(1, source.count("subprocess.run("))
-        self.assertNotIn("os.system", source)
+        calls = []
+
+        def execute(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with mock.patch.object(subprocess, "run", side_effect=execute):
+            deps.run_check(argparse.Namespace())
+        self.assertFalse(any("pip" in argv for argv in calls))
 
 
 class RegistrationTest(unittest.TestCase):

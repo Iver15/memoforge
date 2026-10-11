@@ -65,6 +65,13 @@ def main() -> int:
             f"CHANGELOG top section is {heading.group('version')!r}, manifest is {expected!r}"
         )
 
+    for platform in ("codex", "zcode"):
+        adapter = PLUGIN_ROOT / "platforms" / platform / ("." + platform + "-plugin") / "plugin.json"
+        if adapter.exists():
+            actual = json.loads(read(adapter)).get("version")
+            if actual != expected:
+                problems.append(f"{platform} adapter version is {actual!r}, manifest is {expected!r}")
+
     if problems:
         print("check_versions: FAIL", file=sys.stderr)
         for problem in problems:

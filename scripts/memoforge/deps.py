@@ -129,6 +129,9 @@ def check_modules(extra_path: str | None = None) -> dict:
     """
     if extra_path and extra_path not in sys.path:
         sys.path.insert(0, extra_path)
+    from .host_profile import get_profile
+
+    native = get_profile().name != "claude"
     required = read_requirements()
     report: dict[str, dict] = {}
     for module, distribution in MODULES + OPTIONAL_MODULES:
@@ -136,6 +139,18 @@ def check_modules(extra_path: str | None = None) -> dict:
             found = importlib.util.find_spec(module) is not None
         except (ImportError, ValueError):
             found = False
+        if found and native:
+            prefix = f"import sys; sys.path.insert(0, {extra_path!r}); " if extra_path else ""
+            try:
+                imported = subprocess.run(
+                    [sys.executable, "-c", prefix + f"import {module}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=20,
+                )
+                found = imported.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                found = False
         version = installed_version(distribution) if found else None
         specifier = required.get(distribution, "")
         report[module] = {
@@ -161,9 +176,7 @@ def build_report(extra_path: str | None = None) -> dict:
         "python_executable": sys.executable,
         "deps": deps,
         # D-201: an optional module is reported and never demanded — neither list may name one.
-        "missing": sorted(
-            name for name, row in deps.items() if not row["installed"] and not row.get("optional")
-        ),
+        "missing": sorted(name for name, row in deps.items() if not row["installed"] and not row.get("optional")),
         "outdated": sorted(
             name
             for name, row in deps.items()
@@ -180,9 +193,7 @@ def deps_path() -> Path:
 def write_report(report: dict, target: str | Path | None = None) -> Path:
     """Write `deps.json` atomically and return its path."""
     path = Path(target) if target else deps_path()
-    state_io.write_bytes_atomic(
-        path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    )
+    state_io.write_bytes_atomic(path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     return path
 
 
@@ -191,11 +202,14 @@ def write_report(report: dict, target: str | Path | None = None) -> Path:
 
 def install_command(site_packages: Path, requirements: Path) -> list[str]:
     """`pip install --target <plugin_data_dir>/site-packages -r requirements.txt` (D-33)."""
+    from .host_profile import get_profile
+
     return [
         sys.executable,
         "-m",
         "pip",
         "install",
+        *(["--upgrade"] if get_profile().name != "claude" else []),
         "--target",
         str(site_packages),
         "-r",

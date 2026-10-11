@@ -86,6 +86,9 @@ if [ -f "$MF_CACHE" ]; then
     MF_CACHED_EXE="${MF_CACHED%% *}"
     MF_CACHED_ARGS="${MF_CACHED#* }"
     [ "$MF_CACHED_ARGS" = "$MF_CACHED" ] && MF_CACHED_ARGS=""
+    if [ "$MF_PLATFORM" != claude ] && [[ "$MF_CACHED_EXE" != /* ]]; then
+      MF_CACHED_EXE=""
+    fi
     if [ -n "$MF_CACHED_EXE" ] && command -v "$MF_CACHED_EXE" >/dev/null 2>&1; then
       # shellcheck disable=SC2086
       if "$MF_CACHED_EXE" $MF_CACHED_ARGS -c "$VERSION_PROBE" >/dev/null 2>&1; then
@@ -117,6 +120,10 @@ fi
 if [ -z "$MF_PYTHON" ]; then
   echo "mf: no Python >= 3.9 found (tried python, python3, py -3)" >&2
   exit 2
+fi
+
+if [ "$MF_PLATFORM" != claude ]; then
+  MF_PYTHON="$(command -v "$MF_PYTHON")"
 fi
 
 # Miss (or a stale cache) rewrites the cache with what discovery just found.

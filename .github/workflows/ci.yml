@@ -79,3 +79,6 @@ jobs:
       - name: Versions agree
         # D-73: plugin.json == marketplace.json == README badge == top of CHANGELOG.
         run: python scripts/ci/check_versions.py
+
+      - name: Native packages — standalone Russian DOCX
+        run: python scripts/ci/check_platforms.py

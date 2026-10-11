@@ -1261,7 +1261,7 @@ class ManifestTest(unittest.TestCase):
         for field in fields:
             self.assertIn(field, self.manifest)
         self.assertEqual(self.manifest["license"], "MIT")
-        self.assertTrue(self.manifest["version"].startswith("2.0.0"))
+        self.assertRegex(self.manifest["version"], r"^2\.\d+\.\d+(?:[-+].+)?$")
 
     def test_user_config_matches_section_8_4(self):
         user_config = self.manifest["userConfig"]

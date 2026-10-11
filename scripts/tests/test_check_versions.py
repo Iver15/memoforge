@@ -71,6 +71,13 @@ class CheckVersionsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(VERSION, result.stdout)
 
+    def test_adapter_version_mismatch_fails(self):
+        root = self.make_root()
+        write_json(root / "platforms/codex/.codex-plugin/plugin.json", {"version": "0.0.1"})
+        result = run(root)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("codex", result.stderr)
+
     def test_marketplace_version_drift_fails(self):
         root = self.make_root()
         drifted = {"name": "memoforge", "plugins": [{"name": "memoforge", "source": "./", "version": "2.0.0"}]}

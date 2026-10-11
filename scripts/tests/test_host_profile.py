@@ -89,3 +89,27 @@ class NativeWrapperTest(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(Path(result.stdout.strip()), expected)
+
+
+class NativeInterpreterTest(unittest.TestCase):
+    def test_native_discovery_cache_uses_absolute_interpreter(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, MEMOFORGE_PLATFORM="codex", PLUGIN_DATA=tmp)
+            env.pop("CLAUDE_PLUGIN_ROOT", None)
+            launcher = Path(__file__).resolve().parents[1] / "mf"
+            result = subprocess.run(["bash", str(launcher), "--version"], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            command = json.loads((Path(tmp) / "launcher.json").read_text())["python_cmd"]
+            self.assertTrue(Path(command[0]).is_absolute(), command)
+
+    def test_native_dependencies_require_successful_import(self):
+        from memoforge import deps
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"MEMOFORGE_PLATFORM": "codex"}):
+            root = Path(tmp) / "jsonschema"
+            root.mkdir()
+            (root / "__init__.py").write_text("raise ImportError('incompatible binary dependency')\n")
+            row = deps.check_modules(tmp)["jsonschema"]
+            self.assertFalse(row["installed"])

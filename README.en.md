@@ -264,3 +264,7 @@ What it never does: no new research, and it never changes the memo — the task'
 ## License and contact
 
 MIT — see [`LICENSE`](LICENSE). Author: Grigorii Moskalev. Issues and production stories: [github.com/gregmos/memoforge/issues](https://github.com/gregmos/memoforge/issues).
+
+## Codex and ZCode
+
+Standalone Russian packages 2.1.0: [Codex](platforms/codex/README.md) and [ZCode](platforms/zcode/README.md). They share the core, isolate host data, and inherit the host model. Build with `python scripts/build_platforms.py --platform all --out dist`; follow each package guide for installation.
