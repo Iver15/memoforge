@@ -424,6 +424,9 @@ def render_agents(
     total: int,
 ) -> list[dict]:
     """Turn the phase's specs into the `agents[]` payload of a `dispatch` step (§3.1)."""
+    from .host_profile import get_profile
+    from .host_dispatch import adapt_agent
+    profile = get_profile()
     config = state.get("config") or {}
     rendered: list[dict] = []
     for item in specs:
@@ -460,6 +463,7 @@ def render_agents(
                 "expected_outputs": outputs,
             }
         )
+    rendered = [adapt_agent(payload, profile, pylauncher.plugin_root()) for payload in rendered]
     save_specs(work_dir, step_id, attempt, specs)
     return rendered
 
