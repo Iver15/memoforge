@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .host_profile import get_profile, require_task_platform
+
 import argparse
 import datetime
 import os
@@ -94,7 +96,6 @@ PATH_OPTIONS: frozenset = frozenset(("output_folder", "publish_folder"))
 BOOL_TRUE: tuple[str, ...] = ("1", "true", "yes", "on")
 BOOL_FALSE: tuple[str, ...] = ("0", "false", "no", "off")
 
-from .host_profile import get_profile, require_task_platform
 
 OPTION_DEFAULTS: dict = {
     "publish_folder": "",
@@ -117,7 +118,8 @@ is_placeholder = hooks_common.is_placeholder
 
 def option_env_name(key: str) -> str:
     """`CLAUDE_PLUGIN_OPTION_<KEY>` — the variable a host exports for a `userConfig` option."""
-    prefix = {"claude": "CLAUDE_PLUGIN_OPTION_", "codex": "PLUGIN_OPTION_", "zcode": "ZCODE_PLUGIN_OPTION_"}[get_profile().name]
+    prefixes = {"claude": "CLAUDE_PLUGIN_OPTION_", "codex": "PLUGIN_OPTION_", "zcode": "ZCODE_PLUGIN_OPTION_"}
+    prefix = prefixes[get_profile().name]
     return prefix + key.upper()
 
 

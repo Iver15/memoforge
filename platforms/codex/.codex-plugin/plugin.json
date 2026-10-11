@@ -1,0 +1,11 @@
+{
+  "name": "memoforge-codex",
+  "version": "2.1.0",
+  "description": "Юридические меморандумы: анализ, проверка источников, рецензирование и DOCX.",
+  "author": {
+    "name": "Grigorii Moskalev"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

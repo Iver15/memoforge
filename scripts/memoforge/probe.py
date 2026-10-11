@@ -479,7 +479,7 @@ def _write_json(path: Path, document: dict) -> None:
 
 def run_fixture_agent(work_dir: Path, state: dict, step: dict, agent: dict) -> None:
     """Produce the outputs one agent would produce, in its attempt workspace."""
-    name = str(agent["subagent_type"]).split(":", 1)[-1]
+    name = str(agent.get("agent") or agent["subagent_type"]).split(":", 1)[-1]
     slot = str(agent["slot"])
     step_id = str(step["step_id"])
     attempt = int(step["attempt"])

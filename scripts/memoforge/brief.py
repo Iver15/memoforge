@@ -515,7 +515,7 @@ def _issue(work_dir: Path, run: dict, state: dict, attempt: int, slots: list[str
             {
                 "slot": agent["slot"],
                 "subagent_type": agent["subagent_type"],
-                "model": agent["model"],
+                **({"model": agent["model"]} if "model" in agent else {"agent": agent["agent"]}),
                 "description": agent["description"],
                 "prompt": agent["prompt"],
                 "expected_outputs": agent["expected_outputs"],

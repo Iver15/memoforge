@@ -2,7 +2,7 @@
 
 > **From one legal question to a finished `.docx` memorandum — researched, quoted, footnoted and stress-tested — in a single command.**
 
-![version](https://img.shields.io/badge/version-2.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
+![version](https://img.shields.io/badge/version-2.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![built for](https://img.shields.io/badge/built%20for-Claude%20Code%20%2B%20Cowork-purple)
 
 ![Memoforge — from a legal question to a cited .docx memorandum](docs/media/memoforge-promo.webp)
 

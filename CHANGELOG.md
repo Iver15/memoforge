@@ -6,6 +6,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ---
 
+## 2.1.0 — 2026-10-11
+
+- Separate Russian Codex and ZCode packages, native role dispatch, isolated configuration and task platform guards.
+- Portable package builds and native installation/runtime verification.
+
 ## 2.0.0 — 2026-09-29 (first release of the v2 redesign)
 
 The v2 redesign introduced by the 2.0.0-dev build below, released. Everything under 2.0.0-dev holds; what changed since that build, newest first:

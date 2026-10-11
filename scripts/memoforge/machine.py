@@ -1779,7 +1779,10 @@ def issue(
         row["agents"] = [
             {
                 "slot": agent["slot"],
-                "agent_type": agent["subagent_type"],
+                "agent_type": (
+                    agent["subagent_type"] if "model" in agent
+                    else state["runtime_platform"] + ":" + agent["agent"]
+                ),
                 "attempt": int(attempt),
                 "status": None,
                 "reported_at": None,
@@ -1797,7 +1800,7 @@ def issue(
             {
                 "slot": agent["slot"],
                 "subagent_type": agent["subagent_type"],
-                "model": agent["model"],
+                **({"model": agent["model"]} if "model" in agent else {"agent": agent["agent"]}),
                 "description": agent["description"],
                 "prompt": agent["prompt"],
                 "expected_outputs": _response_outputs(agent["expected_outputs"]),
