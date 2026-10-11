@@ -74,7 +74,8 @@ def main() -> int:
                         "docx": str(docx),
                         "evidence": "offline_fixture",
                     },
-                    ensure_ascii=False,
+                    # Keep JSON lossless and printable on Windows ANSI consoles.
+                    ensure_ascii=True,
                 )
             )
     return 0
