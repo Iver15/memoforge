@@ -1442,22 +1442,25 @@ class PackTest(SourcesTestCase):
         self.assertEqual(state_io.sha256_file(self.work_dir / sources.PACK_PATH), published[0]["sha256"])
 
     def _two_registrations_of_article_88(self) -> None:
-        self.register(
-            source_id="gdpr-article-88-processing-in-the-context-of-employment",
-            title="GDPR Article 88 - Processing in the context of employment",
-            citation="Regulation (EU) 2016/679 (GDPR), Art 88",
-            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art88",
-            identifiers={"celex": "32016R0679"},
-            raw_file=self.raw_file(name="a88.md", text="Article 88 - Processing in the context of employment\n"),
-        )
-        self.register(
-            source_id="gdpr-art88",
-            title="GDPR Article 88",
-            citation="Regulation (EU) 2016/679 (GDPR), art 88",
-            url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_88",
-            identifiers={"celex": "32016R0679"},
-            raw_file=self.raw_file(name="a88b.md", text="Processing in the context of employment\n"),
-        )
+        # This fixture tests chronological precedence; real milliseconds can tie.
+        with mock.patch.object(sources.events, "utc_now", return_value="2026-01-01T00:00:00.000Z"):
+            self.register(
+                source_id="gdpr-article-88-processing-in-the-context-of-employment",
+                title="GDPR Article 88 - Processing in the context of employment",
+                citation="Regulation (EU) 2016/679 (GDPR), Art 88",
+                url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art88",
+                identifiers={"celex": "32016R0679"},
+                raw_file=self.raw_file(name="a88.md", text="Article 88 - Processing in the context of employment\n"),
+            )
+        with mock.patch.object(sources.events, "utc_now", return_value="2026-01-01T00:00:01.000Z"):
+            self.register(
+                source_id="gdpr-art88",
+                title="GDPR Article 88",
+                citation="Regulation (EU) 2016/679 (GDPR), art 88",
+                url="https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_88",
+                identifiers={"celex": "32016R0679"},
+                raw_file=self.raw_file(name="a88b.md", text="Processing in the context of employment\n"),
+            )
 
     def test_freeze_collapses_duplicates_and_records_merged_into(self):
         """D34-04: the pack the writer reads holds one entry per provision, not one per registration."""

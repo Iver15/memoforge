@@ -138,7 +138,15 @@ def build_package(platform: str, destination: Path) -> Path:
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as out:
         for path in sorted(root.rglob("*")):
             if path.is_file():
-                out.write(path, str(Path(root.name) / path.relative_to(root)))
+                member = str(Path(root.name) / path.relative_to(root))
+                if path.relative_to(root).as_posix() == "scripts/mf":
+                    info = zipfile.ZipInfo.from_file(path, member)
+                    info.create_system = 3
+                    info.external_attr = 0o100755 << 16
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    out.writestr(info, path.read_bytes())
+                else:
+                    out.write(path, member)
     return root
 
 

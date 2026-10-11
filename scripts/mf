@@ -122,8 +122,14 @@ if [ -z "$MF_PYTHON" ]; then
   exit 2
 fi
 
-if [ "$MF_PLATFORM" != claude ]; then
-  MF_PYTHON="$(command -v "$MF_PYTHON")"
+if [ "$MF_PLATFORM" != claude ] && [ -z "$MF_FROM_CACHE" ]; then
+  # The interpreter's own path is valid to both native Python and Git Bash.
+  # command -v may return /c/... on Windows or a shell alias instead.
+  # shellcheck disable=SC2086
+  MF_NATIVE_EXE="$(PYTHONIOENCODING=utf-8 "$MF_PYTHON" $MF_PYTHON_ARGS -c 'import os,sys; print(os.path.abspath(sys.executable).replace(chr(92), "/"))')" || exit 2
+  MF_PYTHON="${MF_NATIVE_EXE%$'\r'}"
+  MF_PYTHON_ARGS=""
+  [ -n "$MF_PYTHON" ] || exit 2
 fi
 
 # Miss (or a stale cache) rewrites the cache with what discovery just found.

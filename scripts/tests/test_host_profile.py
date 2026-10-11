@@ -73,33 +73,60 @@ class NativeWrapperTest(unittest.TestCase):
     def test_wrapper_and_python_data_chain_agree(self):
         import subprocess
         from memoforge import pylauncher
+        from scripts.tests.test_launcher_wrappers import BASH, native_path
 
         launcher = Path(__file__).resolve().parents[1] / "mf"
         for platform in ("codex", "zcode"):
             with tempfile.TemporaryDirectory(prefix="Проба с пробелами ") as tmp:
                 env = dict(
-                    os.environ, MEMOFORGE_PLATFORM=platform, HOME=tmp, CLAUDE_PLUGIN_DATA=tmp + "/.claude/foreign"
+                    os.environ, MEMOFORGE_PLATFORM=platform, HOME=tmp, USERPROFILE=tmp,
+                    CLAUDE_PLUGIN_DATA=tmp + "/.claude/foreign"
                 )
                 for key in ("LOCALAPPDATA", "PLUGIN_DATA", "ZCODE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT"):
                     env.pop(key, None)
                 with patch.dict(os.environ, env, clear=True):
                     expected = pylauncher.plugin_data_dir()
                     result = subprocess.run(
-                        ["bash", str(launcher), "--print-plugin-data-dir"], env=env, capture_output=True, text=True
+                        [BASH, str(launcher).replace("\\", "/"), "--print-plugin-data-dir"],
+                        env=env, capture_output=True, text=True, encoding="utf-8", timeout=60
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(Path(result.stdout.strip()), expected)
+                    self.assertEqual(native_path(result.stdout), expected)
 
 
 class NativeInterpreterTest(unittest.TestCase):
+    def test_native_cache_records_interpreter_behind_shell_alias(self):
+        from scripts.tests.test_launcher_wrappers import interpreter_shim, run_sh
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shims = root / "bin"
+            shims.mkdir()
+            interpreter_shim(shims / "python3")
+            data = root / "data"
+            env = dict(
+                os.environ, MEMOFORGE_PLATFORM="codex", PLUGIN_DATA=str(data),
+                PATH=str(shims) + os.pathsep + os.environ["PATH"]
+            )
+            env.pop("CLAUDE_PLUGIN_ROOT", None)
+            result = run_sh(["--version"], env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            command = json.loads((data / "launcher.json").read_text(encoding="utf-8"))["python_cmd"]
+            # Preserve the selected interpreter path (including virtualenv links).
+            self.assertEqual(Path(command[0]).absolute(), Path(sys.executable).absolute())
+
     def test_native_discovery_cache_uses_absolute_interpreter(self):
         import subprocess
+        from scripts.tests.test_launcher_wrappers import BASH
 
         with tempfile.TemporaryDirectory() as tmp:
             env = dict(os.environ, MEMOFORGE_PLATFORM="codex", PLUGIN_DATA=tmp)
             env.pop("CLAUDE_PLUGIN_ROOT", None)
             launcher = Path(__file__).resolve().parents[1] / "mf"
-            result = subprocess.run(["bash", str(launcher), "--version"], env=env, capture_output=True, text=True)
+            result = subprocess.run(
+                [BASH, str(launcher).replace("\\", "/"), "--version"], env=env,
+                capture_output=True, text=True, encoding="utf-8", timeout=60
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             command = json.loads((Path(tmp) / "launcher.json").read_text())["python_cmd"]
             self.assertTrue(Path(command[0]).is_absolute(), command)

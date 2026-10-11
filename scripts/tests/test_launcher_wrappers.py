@@ -355,6 +355,12 @@ class BashDiscoveryTest(unittest.TestCase):
         # macOS splits the shell tools between /bin and /usr/bin. Keep Python
         # isolated while making every utility required by the launcher available.
         for name in ("dirname", "mkdir", "mv", "rm", "sed", "tr"):
+            if os.name == "nt":
+                # MSYS executables need the DLLs next to the real executable.
+                # A symlink in the isolated shim directory loses that location.
+                executable = (TOOLCHAIN / (name + ".exe")).as_posix()
+                write_sh_shim(shims / name, f'exec "{executable}" "$@"\n')
+                continue
             executable = shutil.which(name)
             if executable and not (shims / name).exists():
                 (shims / name).symlink_to(executable)

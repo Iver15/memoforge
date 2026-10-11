@@ -13,6 +13,24 @@ from build_platforms import build_package, validate_package  # noqa: E402
 
 
 class PlatformPackagesTest(unittest.TestCase):
+    def test_unix_launcher_permission_is_portable_from_windows_build(self):
+        from unittest.mock import patch
+
+        original = zipfile.ZipInfo.from_file
+
+        def windows_info(*args, **kwargs):
+            info = original(*args, **kwargs)
+            info.create_system = 0
+            info.external_attr = (0o100666 << 16)
+            return info
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(zipfile.ZipInfo, "from_file", side_effect=windows_info):
+            root = build_package("codex", Path(tmp))
+            with zipfile.ZipFile(next(Path(tmp).glob("*.zip"))) as archive:
+                info = archive.getinfo(root.name + "/scripts/mf")
+                self.assertEqual(info.create_system, 3)
+                self.assertTrue((info.external_attr >> 16) & 0o111)
+
     def test_package_runs_outside_checkout(self):
         for platform in ("codex", "zcode"):
             with tempfile.TemporaryDirectory(prefix="Проба с пробелами ") as tmp:

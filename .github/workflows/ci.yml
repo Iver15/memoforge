@@ -48,6 +48,10 @@ jobs:
       - name: Compile
         run: python -m compileall scripts
 
+      - name: Native portability preflight
+        # Fail early on native launch/cache/ZIP regressions before the slower Windows suite.
+        run: python -m unittest scripts.tests.test_host_profile scripts.tests.test_host_dispatch scripts.tests.test_platform_packages scripts.tests.test_launcher_wrappers.BashDiscoveryTest -v
+
       - name: Unit tests
         run: |
           set -o pipefail

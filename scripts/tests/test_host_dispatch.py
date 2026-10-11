@@ -30,7 +30,7 @@ class HostDispatchTest(unittest.TestCase):
             self.assertEqual(adapt_agent(original, get_profile(ROOT), ROOT), original)
 
     def test_native_prompt_includes_role_and_task(self):
-        role = (ROOT / "agents/legal-researcher.md").read_text().split("---", 2)[2].strip()
+        role = (ROOT / "agents/legal-researcher.md").read_text(encoding="utf-8").split("---", 2)[2].strip()
         for platform in ("codex", "zcode"):
             with patch.dict(os.environ, {"MEMOFORGE_PLATFORM": platform}):
                 result = adapt_agent(self.payload(), get_profile(ROOT), ROOT)
