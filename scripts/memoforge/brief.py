@@ -17,6 +17,8 @@ markdown twin, or keeps the last version) and `publish` copies it next to the pu
 
 from __future__ import annotations
 
+from .host_profile import require_task_platform
+
 import argparse
 import json
 import os
@@ -1149,6 +1151,7 @@ def run_next(args: argparse.Namespace) -> dict:
     work_dir = Path(args.workdir)
     if not state_io.state_path(work_dir).is_file():
         return _refused_action("no_task", i18n.DEFAULT)  # and no `brief.lock` in a folder that is no task
+    require_task_platform(state_io.read_state(work_dir))
     journal: list = []
     with _lock(work_dir):
         action = brief_dashboard.attach(work_dir, _next_locked(work_dir, journal))
@@ -1245,6 +1248,7 @@ def run_report(args: argparse.Namespace) -> dict:
     work_dir = Path(args.workdir)
     if not state_io.state_path(work_dir).is_file():
         return {"accepted": False, "errors": ["no_task"]}
+    require_task_platform(state_io.read_state(work_dir))
     journal: list = []
     with _lock(work_dir):
         result = _report_locked(work_dir, args, journal)

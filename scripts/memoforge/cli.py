@@ -243,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
 
     try:
+        from . import state_io
+        from .host_profile import require_task_platform
+        task_dir = call_work_dir(args)
+        if task_dir:
+            require_task_platform(state_io.read_state(task_dir))
         result = func(args)
     except BaseException as exc:  # noqa: BLE001 - the CLI must never leak a traceback to stdout
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):

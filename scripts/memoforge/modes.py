@@ -95,16 +95,25 @@ def resolve_config(mode: object, user_config: dict | None = None) -> dict:
     transient `writer_model_fallback` key (§4.1, D-15) — never through an exception. The caller
     logs the event and drops the key: it is not a `state.config` field.
     """
+    from .host_profile import get_profile
+
+    profile = get_profile()
     key = normalize_mode(mode)
     user_config = dict(user_config or {})
 
     config: dict = {}
     for name, default in _USER_CONFIG_PASSTHROUGH:
+        default = profile.option_defaults.get(name, default)
+        if name == "dashboard" and isinstance(default, str):
+            default = default == "true"
         value = user_config.get(name, default)
         config[name] = default if value is None and default is not None else value
 
     writer_model = config.get("writer_model") or DEFAULT_WRITER_MODEL
-    if writer_model not in limits.ALLOWED_WRITER_MODELS:
+    if profile.name != "claude":
+        if writer_model != "inherit":
+            raise ValueError("invalid_writer_model: native hosts require inherit")
+    elif writer_model not in limits.ALLOWED_WRITER_MODELS:
         config[WRITER_MODEL_FALLBACK_KEY] = str(writer_model)
         writer_model = DEFAULT_WRITER_MODEL
     config["writer_model"] = writer_model

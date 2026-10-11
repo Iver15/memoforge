@@ -57,12 +57,24 @@
     },
     "language": {
       "type": "string",
-      "enum": ["en", "de", "fr", "es", "ru"]
+      "enum": [
+        "en",
+        "de",
+        "fr",
+        "es",
+        "ru"
+      ]
     },
     "ui_language": {
       "description": "D-171: interface language; optional, absence means `en` (no migration).",
       "type": "string",
-      "enum": ["en", "de", "fr", "es", "ru"]
+      "enum": [
+        "en",
+        "de",
+        "fr",
+        "es",
+        "ru"
+      ]
     },
     "work_dir": {
       "type": "string",
@@ -303,6 +315,14 @@
     },
     "cancel_requested": {
       "type": "boolean"
+    },
+    "runtime_platform": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex",
+        "zcode"
+      ]
     }
   },
   "$defs": {
@@ -775,7 +795,11 @@
           "pattern": "^om-[1-9][0-9]*$"
         },
         "class": {
-          "enum": ["logic", "citations", "counterarguments"]
+          "enum": [
+            "logic",
+            "citations",
+            "counterarguments"
+          ]
         },
         "reviewer": {
           "type": "string"
@@ -809,20 +833,35 @@
           "minimum": 1
         },
         "origin": {
-          "enum": ["loop", "recheck"]
+          "enum": [
+            "loop",
+            "recheck"
+          ]
         },
         "status": {
-          "enum": ["open", "resolved", "unresolved", "manual_review", "left"]
+          "enum": [
+            "open",
+            "resolved",
+            "unresolved",
+            "manual_review",
+            "left"
+          ]
         },
         "severity": {
           "description": "D-213: `blocker` on a row that stands for a `remaining_blocking_issues[]` entry (the last targeted blocker of a forced exit); absent means a major.",
-          "enum": ["blocker"]
+          "enum": [
+            "blocker"
+          ]
         },
         "blocker_of": {
           "description": "D-213: the section, category and text of the `remaining_blocking_issues[]` entry a blocker row stands for; the settlement removes that entry only after a clean re-check of the final polish.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["section_id", "category", "issue"],
+          "required": [
+            "section_id",
+            "category",
+            "issue"
+          ],
           "properties": {
             "section_id": {
               "type": "string"

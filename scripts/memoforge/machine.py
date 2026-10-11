@@ -7,6 +7,8 @@ exactly one state write.
 
 from __future__ import annotations
 
+from .host_profile import require_task_platform
+
 import argparse
 import copy
 import shutil
@@ -5377,6 +5379,7 @@ def run_next(args: argparse.Namespace) -> dict:
     `terminal` one, so the page ends on the deliverable — and only when `config.dashboard` is on.
     """
     work_dir = Path(args.workdir)
+    require_task_platform(state_io.read_state(work_dir))
     return with_dashboard(work_dir, _next_action(work_dir))
 
 
@@ -5740,6 +5743,7 @@ def run_report(args: argparse.Namespace) -> dict:
     """`mf report` for dispatch, inline-llm and the AUQ gate; checks run in the order of §3.1."""
     work_dir = Path(args.workdir)
     state = state_io.read_state(work_dir)
+    require_task_platform(state)
 
     row = step_row(state, args.step)
     if row is None:

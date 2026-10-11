@@ -94,6 +94,8 @@ PATH_OPTIONS: frozenset = frozenset(("output_folder", "publish_folder"))
 BOOL_TRUE: tuple[str, ...] = ("1", "true", "yes", "on")
 BOOL_FALSE: tuple[str, ...] = ("0", "false", "no", "off")
 
+from .host_profile import get_profile, require_task_platform
+
 OPTION_DEFAULTS: dict = {
     "publish_folder": "",
     "writer_model": modes.DEFAULT_WRITER_MODEL,
@@ -115,7 +117,8 @@ is_placeholder = hooks_common.is_placeholder
 
 def option_env_name(key: str) -> str:
     """`CLAUDE_PLUGIN_OPTION_<KEY>` — the variable a host exports for a `userConfig` option."""
-    return "CLAUDE_PLUGIN_OPTION_" + key.upper()
+    prefix = {"claude": "CLAUDE_PLUGIN_OPTION_", "codex": "PLUGIN_OPTION_", "zcode": "ZCODE_PLUGIN_OPTION_"}[get_profile().name]
+    return prefix + key.upper()
 
 
 def options_path(plugin_data: str | os.PathLike | None = None) -> Path:
@@ -149,6 +152,7 @@ def resolve_options(flags: dict | None = None, *, path: str | os.PathLike | None
     """
     explicit = {key: value for key, value in (flags or {}).items() if value is not None}
     from_file = read_options_file(path)
+    defaults = dict(OPTION_DEFAULTS, **get_profile().option_defaults)
     values: dict = {}
     sources: dict = {}
     for key in OPTION_KEYS:
@@ -156,7 +160,7 @@ def resolve_options(flags: dict | None = None, *, path: str | os.PathLike | None
             ("flag", explicit.get(key)),
             ("env", os.environ.get(option_env_name(key))),
             (OPTIONS_FILENAME, from_file.get(key)),
-            ("default", OPTION_DEFAULTS.get(key)),
+            ("default", defaults.get(key)),
         )
         sources[key] = "default"
         for source, raw in candidates:
@@ -200,8 +204,9 @@ def validate_option(key: str, value: object) -> str | None:
     if key == "source_review_gate" and text.lower() not in modes.SOURCE_REVIEW_GATE_VALUES:
         expected = "|".join(modes.SOURCE_REVIEW_GATE_VALUES)
         return f"invalid_option_value: {key}={value} (expected {expected})"
-    if key == "writer_model" and text not in limits.ALLOWED_WRITER_MODELS:
-        expected = "|".join(sorted(limits.ALLOWED_WRITER_MODELS))
+    writer_models = limits.ALLOWED_WRITER_MODELS if get_profile().name == "claude" else {"inherit"}
+    if key == "writer_model" and text not in writer_models:
+        expected = "|".join(sorted(writer_models))
         return f"invalid_option_value: {key}={value} (expected {expected})"
     if key == "citation_style" and text.lower() not in modes.CITATION_STYLES:
         expected = "|".join(modes.CITATION_STYLES)
@@ -371,6 +376,7 @@ def build_initial_state(
     created_at = created_at or events.utc_now()
     return {
         "schema_version": 2,
+        "runtime_platform": get_profile().name,
         "task_id": task_id,
         "user_query": user_query,
         "created_at": created_at,
@@ -670,6 +676,7 @@ def run_resolve(args: argparse.Namespace) -> dict:
             "work_dir": str(work_dir.absolute()),
             "schema_version": state.get("schema_version", 1),
         }
+    require_task_platform(state)
     result = _describe(work_dir, state)
     result["unsupported"] = False
     result["state_path"] = str(state_io.state_path(work_dir))
