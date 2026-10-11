@@ -132,7 +132,7 @@ def native_path(text: str) -> Path:
     """Host path of a wrapper's output (Git Bash prints MSYS paths such as `/tmp/...`)."""
     text = text.strip()
     if os.name == "nt" and CYGPATH is not None and not re.match(r"^[A-Za-z]:", text):
-        done = subprocess.run([CYGPATH, "-w", text], capture_output=True, text=True, timeout=60)
+        done = subprocess.run([CYGPATH, "-w", text], capture_output=True, text=True, encoding="utf-8", timeout=60)
         if done.returncode == 0 and done.stdout.strip():
             text = done.stdout.strip()
     return Path(text)
